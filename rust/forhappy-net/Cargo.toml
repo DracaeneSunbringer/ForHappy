@@ -1,0 +1,35 @@
+[package]
+name = "forhappy_net"
+version = "0.1.0"
+edition = "2021"
+description = "DoH + ECH + Cloudflare edge selector and HTTP/2 gateway for ForHappy Android"
+
+[lib]
+name = "forhappy_net"
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "aws_lc_rs"] }
+aws-lc-rs = "1"
+tokio-rustls = "0.26"
+webpki-roots = "0.26"
+rustls-pki-types = "1"
+hyper = { version = "1", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+http-body-util = "0.1"
+bytes = "1"
+http = "1"
+hickory-proto = "0.24"
+jni = "0.21"
+parking_lot = "0.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 2
+strip = true
+panic = "abort"
