@@ -23,7 +23,7 @@ class ForHappyDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME, nu
 
     companion object {
         private const val DB_NAME = "forhappy.db"
-        private const val DB_VERSION = 2
+        private const val DB_VERSION = 3
 
         private const val TBL_KV = "kv_store"
         private const val TBL_COOKIES = "cookie_store"
@@ -105,6 +105,10 @@ class ForHappyDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME, nu
             // Purge cached chat windows persisted with reversed-limit / out-of-window `changed` gaps.
             db.execSQL("DELETE FROM $TBL_CHAT_MESSAGES")
         }
+        if (oldVersion < 3) {
+            // Purge sticker extensions potentially poisoned by SPA HTTP 200 text/html responses.
+            db.execSQL("DELETE FROM $TBL_STICKER_EXT")
+        }
     }
 
     suspend fun getKv(key: String): String? = withContext(Dispatchers.IO) {
@@ -151,6 +155,11 @@ class ForHappyDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME, nu
             put("updated_at", System.currentTimeMillis())
         }
         writableDatabase.insertWithOnConflict(TBL_STICKER_EXT, null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+        Unit
+    }
+
+    suspend fun deleteStickerExt(pack: String, name: String) = withContext(Dispatchers.IO) {
+        writableDatabase.delete(TBL_STICKER_EXT, "sticker_key = ?", arrayOf("$pack:$name"))
         Unit
     }
 

@@ -60,7 +60,7 @@ class RequestSchedulerInterceptor(
                 RustNetManager.isCoveredHost(origUrl.host)
             if (isCoveredHttps && rustNetManager.gatewayPort == 0 && RustNetBridge.libraryLoaded) {
                 var waited = 0
-                while (rustNetManager.gatewayPort == 0 && waited < 800) {
+                while (rustNetManager.gatewayPort == 0 && waited < 2800) {
                     Thread.sleep(40)
                     waited += 40
                 }

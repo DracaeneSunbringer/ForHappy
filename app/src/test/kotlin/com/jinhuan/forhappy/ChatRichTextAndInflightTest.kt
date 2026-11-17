@@ -428,4 +428,17 @@ class ChatRichTextAndInflightTest {
         assertEquals(1L, controller.uiState.value.activeGroupId)
         assertEquals((50L..55L).toList(), controller.uiState.value.messages.map { it.id })
     }
+
+    @Test
+    fun muscleStickerParsesAndPreviewSummaryNormalizesStickers() {
+        val parsed = ChatRichTextParser.parse("[muscle:muscle_001] 可惜")
+        assertTrue(parsed.tokens.first() == ChatRichTextParser.Token.Sticker("muscle", "muscle_001"))
+        assertEquals(ChatRichTextParser.Token.PlainText(" 可惜"), parsed.tokens[1])
+
+        val upperBracket = ChatRichTextParser.parse("[HTTP:200] OK")
+        assertTrue(upperBracket.tokens.none { it is ChatRichTextParser.Token.Sticker })
+
+        val summary = ChatRichTextParser.previewSummary("刚刚叫AI拉了一下happycoding的状态[alu:blush]")
+        assertEquals("刚刚叫AI拉了一下happycoding的状态[表情]", summary)
+    }
 }

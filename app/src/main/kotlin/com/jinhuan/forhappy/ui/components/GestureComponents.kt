@@ -33,8 +33,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -68,6 +70,7 @@ import com.jinhuan.forhappy.core.chat.ChatRichTextParser
 import com.jinhuan.forhappy.core.model.BOOST_PRESETS
 import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
+import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 /**
@@ -177,7 +180,17 @@ fun ReactionEmojiView(
         colonIdx > 0 && colonIdx < emojiKey.lastIndex -> {
             val pack = emojiKey.substring(0, colonIdx)
             val name = emojiKey.substring(colonIdx + 1)
+            val baseUrl = remember(emojiKey) { MediaUrlRewriter.stickerUrl(pack, name) }
+            var retryAttempt by remember(emojiKey) { mutableIntStateOf(0) }
+            var pendingRetry by remember(emojiKey) { mutableStateOf(false) }
             var failed by remember(emojiKey) { mutableStateOf(false) }
+            LaunchedEffect(emojiKey, pendingRetry) {
+                if (pendingRetry) {
+                    delay(1800L)
+                    retryAttempt++
+                    pendingRetry = false
+                }
+            }
             if (failed) {
                 Text(
                     text = name,
@@ -188,12 +201,21 @@ fun ReactionEmojiView(
                     modifier = modifier,
                 )
             } else {
+                val reqUrl = if (retryAttempt == 0) baseUrl else "$baseUrl?retry=$retryAttempt"
                 AsyncImage(
-                    model = remember(emojiKey) { MediaUrlRewriter.stickerUrl(pack, name) },
+                    model = reqUrl,
                     imageLoader = imageLoader,
                     contentDescription = emojiKey,
                     contentScale = ContentScale.Fit,
-                    onError = { failed = true },
+                    onError = {
+                        if (!pendingRetry) {
+                            if (retryAttempt < 1) {
+                                pendingRetry = true
+                            } else {
+                                failed = true
+                            }
+                        }
+                    },
                     modifier = modifier.size(size),
                 )
             }
@@ -339,30 +361,40 @@ fun BoostPillText(
 
     val iconDp = if (fontSize.value <= 11f) 15.dp else 18.dp
     val iconSp = if (fontSize.value <= 11f) 16.sp else 19.sp
-    val inlineContent = remember(tokens, iconDp, iconSp) {
-        buildMap<String, InlineTextContent> {
+    var failedInlineKeys by remember(tokens) { mutableStateOf(emptySet<String>()) }
+    val inlineContent = remember(tokens, failedInlineKeys, iconDp, iconSp, palette.muted) {
+        buildInlineMediaMap(
+            tokens = tokens,
+            keyPrefix = "bst",
+            failedKeys = failedInlineKeys,
+            stickerDp = iconDp,
+            stickerSp = iconSp,
+            twemojiDp = iconDp,
+            twemojiSp = iconSp,
+            imageLoader = imageLoader,
+            onPermanentError = { key -> failedInlineKeys = failedInlineKeys + key },
+        )
+    }
+    val annotated = remember(tokens, failedInlineKeys, textColor, palette) {
+        buildAnnotatedString {
             tokens.forEachIndexed { idx, tk ->
                 when (tk) {
                     is ChatRichTextParser.Token.Sticker -> {
                         val key = "bst_stk_$idx"
-                        put(key, stickerInlineContent(MediaUrlRewriter.stickerUrl(tk.pack, tk.name), "[${tk.pack}:${tk.name}]", iconDp, iconSp, imageLoader, palette.muted))
+                        if (key in failedInlineKeys) {
+                            withStyle(SpanStyle(color = palette.muted)) { append("[${tk.pack}:${tk.name}]") }
+                        } else {
+                            appendInlineContent(key, "[${tk.pack}:${tk.name}]")
+                        }
                     }
                     is ChatRichTextParser.Token.Twemoji -> {
                         val key = "bst_twe_$idx"
-                        val url = MediaUrlRewriter.rewriteWithExtProxy("https://cdn.ldstatic.com/images/emoji/twemoji/${tk.code}.png")
-                        put(key, stickerInlineContent(url, ":${tk.code}:", iconDp, iconSp, imageLoader, palette.muted))
+                        if (key in failedInlineKeys) {
+                            withStyle(SpanStyle(color = palette.muted)) { append(":${tk.code}:") }
+                        } else {
+                            appendInlineContent(key, ":${tk.code}:")
+                        }
                     }
-                    else -> Unit
-                }
-            }
-        }
-    }
-    val annotated = remember(tokens, textColor, palette) {
-        buildAnnotatedString {
-            tokens.forEachIndexed { idx, tk ->
-                when (tk) {
-                    is ChatRichTextParser.Token.Sticker -> appendInlineContent("bst_stk_$idx", "[stk]")
-                    is ChatRichTextParser.Token.Twemoji -> appendInlineContent("bst_twe_$idx", ":${tk.code}:")
                     is ChatRichTextParser.Token.Bold -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(tk.text) }
                     is ChatRichTextParser.Token.PlainText -> append(tk.text)
                     is ChatRichTextParser.Token.PostRef -> append(tk.label)
@@ -711,56 +743,46 @@ private fun InlineTokensText(
 ) {
     val palette = LocalForHappyPalette.current
     var revealedSpoilers by remember(tokens) { mutableStateOf(emptySet<Int>()) }
+    var failedInlineKeys by remember(tokens) { mutableStateOf(emptySet<String>()) }
 
-    val inlineContent = remember(tokens, stickerSize, stickerSp, palette.muted) {
-        buildMap<String, InlineTextContent> {
-            tokens.forEachIndexed { idx, token ->
-                when (token) {
-                    is ChatRichTextParser.Token.Sticker -> {
-                        val key = "stk_${idx}_${token.pack}_${token.name}"
-                        put(
-                            key,
-                            stickerInlineContent(
-                                url = MediaUrlRewriter.stickerUrl(token.pack, token.name),
-                                fallbackText = "[${token.pack}:${token.name}]",
-                                stickerDp = stickerSize,
-                                stickerSp = stickerSp,
-                                imageLoader = imageLoader,
-                                mutedColor = palette.muted,
-                            ),
-                        )
-                    }
-                    is ChatRichTextParser.Token.Twemoji -> {
-                        val key = "twe_${idx}_${token.code}"
-                        val url = MediaUrlRewriter.rewriteWithExtProxy("https://cdn.ldstatic.com/images/emoji/twemoji/${token.code}.png")
-                        put(
-                            key,
-                            stickerInlineContent(
-                                url = url,
-                                fallbackText = ":${token.code}:",
-                                stickerDp = 19.dp,
-                                stickerSp = 20.sp,
-                                imageLoader = imageLoader,
-                                mutedColor = palette.muted,
-                            ),
-                        )
-                    }
-                    else -> Unit
-                }
-            }
-        }
+    val inlineContent = remember(tokens, failedInlineKeys, stickerSize, stickerSp, palette.muted) {
+        buildInlineMediaMap(
+            tokens = tokens,
+            keyPrefix = "msg",
+            failedKeys = failedInlineKeys,
+            stickerDp = stickerSize,
+            stickerSp = stickerSp,
+            twemojiDp = 19.dp,
+            twemojiSp = 20.sp,
+            imageLoader = imageLoader,
+            onPermanentError = { key -> failedInlineKeys = failedInlineKeys + key },
+        )
     }
 
-    val annotated = remember(tokens, textColor, palette, revealedSpoilers, appendEditedBadge) {
+    val annotated = remember(tokens, failedInlineKeys, textColor, palette, revealedSpoilers, appendEditedBadge) {
         buildAnnotatedString {
             tokens.forEachIndexed { idx, token ->
                 when (token) {
                     is ChatRichTextParser.Token.PlainText -> append(token.text)
                     is ChatRichTextParser.Token.Sticker -> {
-                        appendInlineContent("stk_${idx}_${token.pack}_${token.name}", "[${token.pack}:${token.name}]")
+                        val key = "msg_stk_$idx"
+                        if (key in failedInlineKeys) {
+                            withStyle(SpanStyle(color = palette.muted)) {
+                                append("[${token.pack}:${token.name}]")
+                            }
+                        } else {
+                            appendInlineContent(key, "[${token.pack}:${token.name}]")
+                        }
                     }
                     is ChatRichTextParser.Token.Twemoji -> {
-                        appendInlineContent("twe_${idx}_${token.code}", ":${token.code}:")
+                        val key = "msg_twe_$idx"
+                        if (key in failedInlineKeys) {
+                            withStyle(SpanStyle(color = palette.muted)) {
+                                append(":${token.code}:")
+                            }
+                        } else {
+                            appendInlineContent(key, ":${token.code}:")
+                        }
                     }
                     is ChatRichTextParser.Token.Bold -> {
                         withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
@@ -911,13 +933,64 @@ private fun InlineTokensText(
     )
 }
 
+private fun buildInlineMediaMap(
+    tokens: List<ChatRichTextParser.Token>,
+    keyPrefix: String,
+    failedKeys: Set<String>,
+    stickerDp: Dp,
+    stickerSp: TextUnit,
+    twemojiDp: Dp,
+    twemojiSp: TextUnit,
+    imageLoader: ImageLoader,
+    onPermanentError: (String) -> Unit,
+): Map<String, InlineTextContent> = buildMap {
+    tokens.forEachIndexed { idx, token ->
+        when (token) {
+            is ChatRichTextParser.Token.Sticker -> {
+                val key = "${keyPrefix}_stk_$idx"
+                if (key !in failedKeys) {
+                    put(
+                        key,
+                        stickerInlineContent(
+                            url = MediaUrlRewriter.stickerUrl(token.pack, token.name),
+                            fallbackText = "[${token.pack}:${token.name}]",
+                            stickerDp = stickerDp,
+                            stickerSp = stickerSp,
+                            imageLoader = imageLoader,
+                            onPermanentError = { onPermanentError(key) },
+                        ),
+                    )
+                }
+            }
+            is ChatRichTextParser.Token.Twemoji -> {
+                val key = "${keyPrefix}_twe_$idx"
+                if (key !in failedKeys) {
+                    val url = MediaUrlRewriter.rewriteWithExtProxy("https://cdn.ldstatic.com/images/emoji/twemoji/${token.code}.png")
+                    put(
+                        key,
+                        stickerInlineContent(
+                            url = url,
+                            fallbackText = ":${token.code}:",
+                            stickerDp = twemojiDp,
+                            stickerSp = twemojiSp,
+                            imageLoader = imageLoader,
+                            onPermanentError = { onPermanentError(key) },
+                        ),
+                    )
+                }
+            }
+            else -> Unit
+        }
+    }
+}
+
 private fun stickerInlineContent(
     url: String,
     fallbackText: String,
     stickerDp: Dp,
     stickerSp: TextUnit,
     imageLoader: ImageLoader,
-    mutedColor: Color,
+    onPermanentError: () -> Unit,
 ): InlineTextContent = InlineTextContent(
     Placeholder(
         width = stickerSp,
@@ -925,28 +998,33 @@ private fun stickerInlineContent(
         placeholderVerticalAlign = PlaceholderVerticalAlign.Center,
     ),
 ) {
-    var stkFailed by remember(url) { mutableStateOf(false) }
-    if (stkFailed) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.size(stickerDp),
-        ) {
-            Text(
-                text = fallbackText,
-                color = mutedColor,
-                fontSize = 9.sp,
-                maxLines = 1,
-            )
+    var retryAttempt by remember(url) { mutableIntStateOf(0) }
+    var pendingRetry by remember(url) { mutableStateOf(false) }
+
+    LaunchedEffect(url, pendingRetry) {
+        if (pendingRetry) {
+            delay(1800L)
+            retryAttempt++
+            pendingRetry = false
         }
-    } else {
-        AsyncImage(
-            model = url,
-            imageLoader = imageLoader,
-            contentDescription = fallbackText,
-            onError = { stkFailed = true },
-            modifier = Modifier.size(stickerDp),
-        )
     }
+
+    val reqUrl = if (retryAttempt == 0) url else "$url?retry=$retryAttempt"
+    AsyncImage(
+        model = reqUrl,
+        imageLoader = imageLoader,
+        contentDescription = fallbackText,
+        onError = {
+            if (!pendingRetry) {
+                if (retryAttempt < 1) {
+                    pendingRetry = true
+                } else {
+                    onPermanentError()
+                }
+            }
+        },
+        modifier = Modifier.size(stickerDp),
+    )
 }
 
 @Composable

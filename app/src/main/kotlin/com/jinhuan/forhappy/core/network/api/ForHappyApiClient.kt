@@ -105,7 +105,7 @@ class ForHappyApiClient(
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .connectionPool(ConnectionPool(8, 90, TimeUnit.SECONDS))
-        .addInterceptor(StickerFallbackInterceptor(db))
+        .addInterceptor(StickerFallbackInterceptor.forDatabase(db))
         .addInterceptor(RequestSchedulerInterceptor(rustNetManager, cookieJar))
         .build()
 
@@ -126,7 +126,7 @@ class ForHappyApiClient(
             }
             .diskCache {
                 DiskCache.Builder()
-                    .directory(File(context.cacheDir, "forhappy_coil_disk").toOkioPath())
+                    .directory(File(context.cacheDir, "forhappy_coil_disk_v2").toOkioPath())
                     .maxSizeBytes(192L * 1024L * 1024L)
                     .build()
             }

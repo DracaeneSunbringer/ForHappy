@@ -32,7 +32,7 @@ object ChatRichTextParser {
             """~~([^~\n]{1,300})~~|""" +
             """(?<!\*)\*\*(?!\s)([^*\n]{1,300}?)(?<!\s)\*\*(?!\*)|""" +
             """\[spoiler]([^\n]*?)\[/spoiler]|""" +
-            """\[([A-Za-z0-9_-]{1,32}):([A-Za-z0-9_-]{1,48})]|""" +
+            """\[([a-z][a-z0-9_-]{0,31}):([a-z0-9_-]{1,48})]|""" +
             """(?<![\w]):([a-z0-9_+-]{1,40}):(?![\w])|""" +
             """https?://[^\s<>"'\])]+|""" +
             """(?<![\w@.])@([A-Za-z0-9_][\w.-]{0,30}[\w])|""" +
@@ -364,11 +364,15 @@ object ChatRichTextParser {
 
     fun stripQuotes(raw: String): String = QUOTE_BLOCK_REGEX.replace(raw, "").trim()
 
+    private val PREVIEW_STICKER_REGEX = Regex("""\[([a-z][a-z0-9_-]{0,31}):([a-z0-9_-]{1,48})]""")
+
     fun previewSummary(raw: String): String {
         val noQuotes = UNCLOSED_LEADING_QUOTE_REGEX.replace(stripQuotes(raw), "")
         return noQuotes
+            .replace(PREVIEW_STICKER_REGEX, "[表情]")
             .replace(Regex("""\[details(?:="[^"]*")?]|\[/details]|\[spoiler]|\[/spoiler]"""), "")
             .replace(Regex("""```[^\n]*\n?|```"""), "")
+            .replace(Regex("""\s+"""), " ")
             .trim()
     }
 
