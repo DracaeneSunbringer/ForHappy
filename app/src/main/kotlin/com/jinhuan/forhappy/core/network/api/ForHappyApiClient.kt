@@ -60,11 +60,13 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import okhttp3.ConnectionPool
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
@@ -505,13 +507,37 @@ class ForHappyApiClient(
         }.joinToString("&")
         val res = executeRawJson("GET", "/api/chat/groups/$groupId/messages?$qs")
         if (res.code !in 200..299) return null
-        return runCatching { ForHappyJson.decodeFromString<ChatMessagesResponse>(res.body) }.getOrNull()
+        return decodeChatMessagesResponse(res.body)
     }
 
     suspend fun fetchChatMessagesAround(groupId: Long, aroundId: Long): ChatMessagesResponse? {
         val res = executeRawJson("GET", "/api/chat/groups/$groupId/messages?around=$aroundId")
         if (res.code !in 200..299) return null
-        return runCatching { ForHappyJson.decodeFromString<ChatMessagesResponse>(res.body) }.getOrNull()
+        return decodeChatMessagesResponse(res.body)
+    }
+
+    private fun decodeChatMessagesResponse(rawBody: String): ChatMessagesResponse? {
+        val obj = runCatching { ForHappyJson.parseToJsonElement(rawBody).jsonObject }.getOrNull() ?: return null
+        val items = runCatching { obj["items"]?.jsonArray }.getOrNull()?.mapNotNull { el ->
+            runCatching { ForHappyJson.decodeFromJsonElement(ChatMessage.serializer(), el) }.getOrNull()
+        }.orEmpty()
+        val changed = runCatching { obj["changed"]?.jsonArray }.getOrNull()?.mapNotNull { el ->
+            runCatching { ForHappyJson.decodeFromJsonElement(ChatMessage.serializer(), el) }.getOrNull()
+        }.orEmpty()
+        val more = obj["more"]?.jsonPrimitive?.booleanOrNull ?: false
+        val moreAfter = obj["more_after"]?.jsonPrimitive?.booleanOrNull ?: false
+        val lastRead = obj["last_read"]?.jsonPrimitive?.longOrNull ?: 0L
+        val total = obj["total"]?.jsonPrimitive?.longOrNull
+        val now = obj["now"]?.jsonPrimitive?.doubleOrNull
+        return ChatMessagesResponse(
+            items = items,
+            changed = changed,
+            more = more,
+            moreAfter = moreAfter,
+            lastRead = lastRead,
+            total = total,
+            now = now,
+        )
     }
 
     suspend fun searchChatMessages(

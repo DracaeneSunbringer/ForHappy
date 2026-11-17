@@ -6,9 +6,11 @@ import com.jinhuan.forhappy.core.model.ChatBoost
 import com.jinhuan.forhappy.core.model.ChatGroup
 import com.jinhuan.forhappy.core.model.ChatMessage
 import com.jinhuan.forhappy.core.model.ChatMessagesResponse
+import com.jinhuan.forhappy.core.model.ChatReaction
 import com.jinhuan.forhappy.core.model.ChatReplyPreview
 import com.jinhuan.forhappy.core.model.ChatUser
 import com.jinhuan.forhappy.ui.chat.canGroupContinuation
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -214,5 +216,216 @@ class ChatRichTextAndInflightTest {
         assertEquals(1, boosts.size)
         assertEquals("甚好", boosts.first().text)
         assertTrue(boosts.first().mine)
+    }
+
+    @Test
+    fun changedItemsOutOfWindowNeverSplicedIntoLiveMessages() = runBlocking {
+        val currentWindow = (1451L..1460L).map { id ->
+            ChatMessage(id = id, groupId = 1L, body = "msg-$id", floor = id.toInt(), createdAt = id)
+        }
+        val replyReferencingOld = ChatMessage(
+            id = 1461L,
+            groupId = 1L,
+            body = "replying",
+            replyTo = ChatReplyPreview(id = 1100L, body = "old-before"),
+            createdAt = 1461L,
+        )
+        val outOfWindowChanged = ChatMessage(
+            id = 1100L,
+            groupId = 1L,
+            body = "old-reacted",
+            reactions = listOf(ChatReaction(emoji = "❤️", count = 2)),
+            boosts = listOf(ChatBoost(username = "a", text = "666")),
+            createdAt = 1100L,
+        )
+        val inWindowChanged = ChatMessage(
+            id = 1455L,
+            groupId = 1L,
+            body = "msg-1455-edited",
+            edited = true,
+            floor = null,
+            createdAt = 1455L,
+        )
+
+        val controller = ChatSessionController(
+            fetchGroupsFn = { emptyList() },
+            fetchMessagesFn = { _, _, _, _ -> ChatMessagesResponse() },
+            sendMessageFn = { _, _, _, _ -> Result.success(null) },
+            markReadFn = { _, _ -> true },
+            toggleReactionFn = { _, _ -> true },
+            editMessageFn = { _, _ -> true },
+            deleteMessageFn = { _ -> true },
+        )
+
+        val merged = controller.mergeServerDelta(
+            current = currentWindow + replyReferencingOld,
+            newItems = emptyList(),
+            changedItems = listOf(outOfWindowChanged, inWindowChanged),
+        )
+
+        assertEquals((1451L..1461L).toList(), merged.map { it.id })
+        assertFalse(merged.any { it.id == 1100L })
+        val updated1455 = merged.first { it.id == 1455L }
+        assertEquals("msg-1455-edited", updated1455.body)
+        assertEquals(1455, updated1455.floor)
+
+        // Applying an out-of-window reaction response also must not insert into timeline
+        controller.seedCachedWindow(1L, merged)
+        controller.applyUpdatedServerMessage(outOfWindowChanged)
+        assertEquals((1451L..1461L).toList(), controller.uiState.value.messages.map { it.id })
+    }
+
+    @Test
+    fun initialPollDisjointFromCacheReplacesStaleWindowWithoutGap() = runBlocking {
+        val staleCached = (100L..120L).map { id ->
+            ChatMessage(id = id, groupId = 1L, body = "stale-$id", createdAt = id)
+        }
+        val freshWindow = (200L..250L).map { id ->
+            ChatMessage(id = id, groupId = 1L, body = "fresh-$id", createdAt = id)
+        }
+        val controller = ChatSessionController(
+            fetchGroupsFn = { listOf(ChatGroup(id = 1L, name = "g1")) },
+            fetchMessagesFn = { _, afterId, _, _ ->
+                if (afterId == 0L) ChatMessagesResponse(items = freshWindow, more = true, now = 3000.0)
+                else ChatMessagesResponse()
+            },
+            sendMessageFn = { _, _, _, _ -> Result.success(null) },
+            markReadFn = { _, _ -> true },
+            toggleReactionFn = { _, _ -> true },
+            editMessageFn = { _, _ -> true },
+            deleteMessageFn = { _ -> true },
+        )
+
+        controller.seedCachedWindow(1L, staleCached, hasMore = true)
+        controller.pollOnce(1L)
+
+        assertEquals((200L..250L).toList(), controller.uiState.value.messages.map { it.id })
+        assertTrue(controller.uiState.value.hasMoreOlder)
+    }
+
+    @Test
+    fun sendMessageDoesNotAdvanceCursorPastUnpolledPeerMessages() = runBlocking {
+        val requestedAfters = mutableListOf<Long>()
+        val controller = ChatSessionController(
+            fetchGroupsFn = { listOf(ChatGroup(id = 1L, name = "g1")) },
+            fetchMessagesFn = { _, afterId, _, _ ->
+                requestedAfters += afterId
+                when (afterId) {
+                    0L -> ChatMessagesResponse(
+                        items = (100L..101L).map { ChatMessage(id = it, groupId = 1L, body = "m$it", createdAt = it) },
+                        more = false,
+                        now = 1000.0,
+                    )
+                    101L -> ChatMessagesResponse(
+                        items = listOf(
+                            ChatMessage(id = 102L, groupId = 1L, body = "peer-102", createdAt = 102L),
+                            ChatMessage(id = 103L, groupId = 1L, body = "peer-103", createdAt = 103L),
+                            ChatMessage(id = 104L, groupId = 1L, body = "my-msg", mine = true, createdAt = 104L),
+                        ),
+                        more = false,
+                        now = 1005.0,
+                    )
+                    else -> ChatMessagesResponse()
+                }
+            },
+            sendMessageFn = { _, body, _, _ ->
+                Result.success(ChatMessage(id = 104L, groupId = 1L, body = body, mine = true, createdAt = 104L))
+            },
+            markReadFn = { _, _ -> true },
+            toggleReactionFn = { _, _ -> true },
+            editMessageFn = { _, _ -> true },
+            deleteMessageFn = { _ -> true },
+        )
+
+        controller.pollOnce(1L)
+        assertEquals(listOf(100L, 101L), controller.uiState.value.messages.map { it.id })
+
+        controller.sendOrEditMessage("my-msg")
+
+        assertTrue(requestedAfters.contains(101L))
+        assertEquals(listOf(100L, 101L, 102L, 103L, 104L), controller.uiState.value.messages.map { it.id })
+    }
+
+    @Test
+    fun pollOnceCatchesUpMultiplePagesContiguously() = runBlocking {
+        val controller = ChatSessionController(
+            fetchGroupsFn = { listOf(ChatGroup(id = 1L, name = "g1")) },
+            fetchMessagesFn = { _, afterId, _, _ ->
+                when (afterId) {
+                    0L -> ChatMessagesResponse(
+                        items = listOf(ChatMessage(id = 10L, groupId = 1L, body = "m10", createdAt = 10L)),
+                        more = false,
+                        now = 1000.0,
+                    )
+                    10L -> ChatMessagesResponse(
+                        items = (11L..13L).map { ChatMessage(id = it, groupId = 1L, body = "m$it", createdAt = it) },
+                        more = true,
+                        now = 1002.0,
+                    )
+                    13L -> ChatMessagesResponse(
+                        items = (14L..16L).map { ChatMessage(id = it, groupId = 1L, body = "m$it", createdAt = it) },
+                        more = false,
+                        now = 1004.0,
+                    )
+                    else -> ChatMessagesResponse()
+                }
+            },
+            sendMessageFn = { _, _, _, _ -> Result.success(null) },
+            markReadFn = { _, _ -> true },
+            toggleReactionFn = { _, _ -> true },
+            editMessageFn = { _, _ -> true },
+            deleteMessageFn = { _ -> true },
+        )
+
+        controller.pollOnce(1L)
+        val moreAfterCatchup = controller.pollOnce(1L)
+
+        assertFalse(moreAfterCatchup)
+        assertEquals((10L..16L).toList(), controller.uiState.value.messages.map { it.id })
+    }
+
+    @Test
+    fun setActiveGroupPreservesLoadedMessagesAcrossGroupSwitches() = runBlocking {
+        val controller = ChatSessionController(
+            fetchGroupsFn = {
+                listOf(
+                    ChatGroup(id = 1L, name = "g1"),
+                    ChatGroup(id = 2L, name = "g2"),
+                )
+            },
+            fetchMessagesFn = { gid, afterId, _, _ ->
+                if (gid == 1L && afterId == 0L) {
+                    ChatMessagesResponse(
+                        items = (50L..55L).map { ChatMessage(id = it, groupId = 1L, body = "g1-$it", createdAt = it) },
+                        more = true,
+                    )
+                } else if (gid == 2L && afterId == 0L) {
+                    ChatMessagesResponse(
+                        items = (200L..202L).map { ChatMessage(id = it, groupId = 2L, body = "g2-$it", createdAt = it) },
+                        more = false,
+                    )
+                } else {
+                    ChatMessagesResponse()
+                }
+            },
+            sendMessageFn = { _, _, _, _ -> Result.success(null) },
+            markReadFn = { _, _ -> true },
+            toggleReactionFn = { _, _ -> true },
+            editMessageFn = { _, _ -> true },
+            deleteMessageFn = { _ -> true },
+        )
+
+        controller.pollOnce(1L)
+        assertEquals((50L..55L).toList(), controller.uiState.value.messages.map { it.id })
+
+        controller.setActiveGroup(2L)
+        delay(120L)
+        assertEquals(2L, controller.uiState.value.activeGroupId)
+        assertEquals((200L..202L).toList(), controller.uiState.value.messages.map { it.id })
+
+        controller.setActiveGroup(1L)
+        delay(120L)
+        assertEquals(1L, controller.uiState.value.activeGroupId)
+        assertEquals((50L..55L).toList(), controller.uiState.value.messages.map { it.id })
     }
 }

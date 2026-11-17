@@ -1634,7 +1634,7 @@ private fun SwipeableChatRow(
                     msg.replyTo?.let { rep ->
                         val cleanRefText = remember(rep.resolvedText) {
                             ChatRichTextParser.previewSummary(rep.resolvedText).ifBlank {
-                                if (rep.deleted) "消息已撤回" else if (rep.file != null) "[文件] ${rep.file}" else if (rep.image || rep.thumb != null) "[图片]" else "…"
+                                if (rep.deleted) "消息已撤回" else if (rep.file != null) "[文件] ${rep.file}" else if (rep.hasImage || rep.thumb != null) "[图片]" else "…"
                             }
                         }
                         Surface(

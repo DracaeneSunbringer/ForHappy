@@ -23,7 +23,7 @@ class ForHappyDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME, nu
 
     companion object {
         private const val DB_NAME = "forhappy.db"
-        private const val DB_VERSION = 1
+        private const val DB_VERSION = 2
 
         private const val TBL_KV = "kv_store"
         private const val TBL_COOKIES = "cookie_store"
@@ -100,7 +100,12 @@ class ForHappyDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME, nu
         )
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            // Purge cached chat windows persisted with reversed-limit / out-of-window `changed` gaps.
+            db.execSQL("DELETE FROM $TBL_CHAT_MESSAGES")
+        }
+    }
 
     suspend fun getKv(key: String): String? = withContext(Dispatchers.IO) {
         readableDatabase.rawQuery("SELECT v FROM $TBL_KV WHERE k = ?", arrayOf(key)).use { c ->
@@ -154,37 +159,55 @@ class ForHappyDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME, nu
         val db = writableDatabase
         db.beginTransaction()
         try {
-            for (m in messages) {
-                val msgKey = if (m.id > 0L) "srv:${m.id}" else "loc:${m.localId ?: System.nanoTime()}"
-                val cv = ContentValues().apply {
-                    put("group_id", groupId)
-                    put("msg_key", msgKey)
-                    put("server_id", m.id)
-                    put("local_id", m.localId)
-                    put("delivery_state", m.deliveryState)
-                    put("created_at", m.createdAt)
-                    put("json", ForHappyJson.encodeToString(m))
-                }
-                db.insertWithOnConflict(TBL_CHAT_MESSAGES, null, cv, SQLiteDatabase.CONFLICT_REPLACE)
-            }
-            // Trim cached rows per group to latest 400
-            db.execSQL(
-                """
-                DELETE FROM $TBL_CHAT_MESSAGES
-                WHERE group_id = ? AND msg_key NOT IN (
-                    SELECT msg_key FROM $TBL_CHAT_MESSAGES
-                    WHERE group_id = ?
-                    ORDER BY CASE WHEN server_id > 0 THEN server_id ELSE 9223372036854775807 END DESC,
-                             created_at DESC
-                    LIMIT 400
-                )
-                """.trimIndent(),
-                arrayOf(groupId.toString(), groupId.toString()),
-            )
+            upsertChatMessagesLocked(db, groupId, messages)
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
         }
+    }
+
+    suspend fun replaceGroupServerMessages(groupId: Long, messages: List<ChatMessage>) = withContext(Dispatchers.IO) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete(TBL_CHAT_MESSAGES, "group_id = ? AND server_id > 0", arrayOf(groupId.toString()))
+            if (messages.isNotEmpty()) {
+                upsertChatMessagesLocked(db, groupId, messages)
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    private fun upsertChatMessagesLocked(db: SQLiteDatabase, groupId: Long, messages: List<ChatMessage>) {
+        for (m in messages) {
+            val msgKey = if (m.id > 0L) "srv:${m.id}" else "loc:${m.localId ?: System.nanoTime()}"
+            val cv = ContentValues().apply {
+                put("group_id", groupId)
+                put("msg_key", msgKey)
+                put("server_id", m.id)
+                put("local_id", m.localId)
+                put("delivery_state", m.deliveryState)
+                put("created_at", m.createdAt)
+                put("json", ForHappyJson.encodeToString(m))
+            }
+            db.insertWithOnConflict(TBL_CHAT_MESSAGES, null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+        }
+        // Trim cached rows per group to latest 400
+        db.execSQL(
+            """
+            DELETE FROM $TBL_CHAT_MESSAGES
+            WHERE group_id = ? AND msg_key NOT IN (
+                SELECT msg_key FROM $TBL_CHAT_MESSAGES
+                WHERE group_id = ?
+                ORDER BY CASE WHEN server_id > 0 THEN server_id ELSE 9223372036854775807 END DESC,
+                         created_at DESC
+                LIMIT 400
+            )
+            """.trimIndent(),
+            arrayOf(groupId.toString(), groupId.toString()),
+        )
     }
 
     suspend fun deleteLocalChatMessage(groupId: Long, localId: String) = withContext(Dispatchers.IO) {
@@ -196,15 +219,19 @@ class ForHappyDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME, nu
         Unit
     }
 
-    suspend fun loadChatMessages(groupId: Long, limit: Int = 150): List<ChatMessage> = withContext(Dispatchers.IO) {
+    suspend fun loadChatMessages(groupId: Long, limit: Int = 200): List<ChatMessage> = withContext(Dispatchers.IO) {
         val list = mutableListOf<ChatMessage>()
         readableDatabase.rawQuery(
             """
-            SELECT json FROM $TBL_CHAT_MESSAGES
-            WHERE group_id = ?
+            SELECT json FROM (
+                SELECT json, server_id, created_at FROM $TBL_CHAT_MESSAGES
+                WHERE group_id = ?
+                ORDER BY CASE WHEN server_id > 0 THEN server_id ELSE 9223372036854775807 END DESC,
+                         created_at DESC
+                LIMIT ?
+            )
             ORDER BY CASE WHEN server_id > 0 THEN server_id ELSE 9223372036854775807 END ASC,
                      created_at ASC
-            LIMIT ?
             """.trimIndent(),
             arrayOf(groupId.toString(), limit.toString()),
         ).use { c ->

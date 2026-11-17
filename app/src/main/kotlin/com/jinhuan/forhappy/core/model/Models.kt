@@ -84,7 +84,7 @@ data class MeUser(
     val deco: JsonElement? = null,
     @SerialName("trust_level") val trustLevel: Int = 0,
     @SerialName("is_admin") val isAdmin: Boolean = false,
-    val fancy: Boolean = false,
+    val fancy: JsonElement? = null,
     @SerialName("linuxdo_id") val linuxdoId: Long? = null,
 ) {
     val displayName: String
@@ -101,7 +101,7 @@ data class ChatUser(
     val nick: String? = null,
     val avatar: String? = null,
     @SerialName("is_admin") val isAdmin: Boolean = false,
-    val fancy: Boolean = false,
+    val fancy: JsonElement? = null,
     val deco: JsonElement? = null,
 ) {
     val displayName: String
@@ -343,6 +343,14 @@ data class MemeComment(
 }
 
 @Serializable
+data class ChatGroupLatest(
+    val id: Long = 0L,
+    val at: Long = 0L,
+    val by: String? = null,
+    val text: String? = null,
+)
+
+@Serializable
 data class ChatGroup(
     val id: Long = 0L,
     val name: String = "",
@@ -353,12 +361,14 @@ data class ChatGroup(
     @SerialName("last_read_id") val lastReadId: Long = 0L,
     @SerialName("last_read") val lastRead: Long = 0L,
     @SerialName("latest_id") val latestId: Long = 0L,
+    val latest: ChatGroupLatest? = null,
     @SerialName("member_count") val memberCount: Int = 0,
     val joined: Boolean = true,
     val muted: Boolean = false,
     @SerialName("has_pending_join") val hasPendingJoin: Boolean = false,
 ) {
     val effectiveLastRead: Long get() = maxOf(lastReadId, lastRead)
+    val effectiveLatestId: Long get() = maxOf(latestId, latest?.id ?: 0L)
 }
 
 @Serializable
@@ -401,10 +411,19 @@ data class ChatReplyPreview(
     val username: String? = null,
     val avatar: String? = null,
     val deleted: Boolean = false,
-    val image: Boolean = false,
+    val image: JsonElement? = null,
     val thumb: String? = null,
     val file: String? = null,
 ) {
+    val hasImage: Boolean
+        get() {
+            val prim = image as? JsonPrimitive ?: return false
+            return prim.booleanOrNull == true ||
+                prim.intOrNull == 1 ||
+                (prim.isString && prim.contentOrNull?.isNotBlank() == true &&
+                    prim.contentOrNull != "false" && prim.contentOrNull != "0")
+        }
+
     val resolvedAuthor: String
         get() = name?.takeIf { it.isNotBlank() }
             ?: nick?.takeIf { it.isNotBlank() }
@@ -419,7 +438,7 @@ data class ChatReplyPreview(
                 ?: body.ifBlank {
                     when {
                         file != null -> "[文件] $file"
-                        image || thumb != null -> "[图片]"
+                        hasImage || thumb != null -> "[图片]"
                         else -> "…"
                     }
                 }
