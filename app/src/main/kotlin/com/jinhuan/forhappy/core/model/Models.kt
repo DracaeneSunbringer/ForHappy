@@ -86,11 +86,14 @@ data class MeUser(
     @SerialName("is_admin") val isAdmin: Boolean = false,
     val fancy: JsonElement? = null,
     @SerialName("linuxdo_id") val linuxdoId: Long? = null,
+    @SerialName("notif_prefs") val notifPrefs: Map<String, Boolean> = emptyMap(),
 ) {
     val displayName: String
         get() = name?.takeIf { it.isNotBlank() }
             ?: nick?.takeIf { it.isNotBlank() }
             ?: username.ifBlank { "欢友" }
+
+    fun isNotifEnabled(key: String): Boolean = notifPrefs[key] != false
 }
 
 @Serializable
@@ -671,6 +674,64 @@ data class DmMessage(
     @SerialName("created_at") val createdAt: Long = 0L,
 )
 
+data class NotifCategoryTab(
+    val id: String,
+    val label: String,
+    val kinds: Set<String>? = null,
+)
+
+val NOTIF_CATEGORY_TABS = listOf(
+    NotifCategoryTab("all", "全部", null),
+    NotifCategoryTab("at", "@我", setOf("mention", "chat_at", "post_at")),
+    NotifCategoryTab("cmt", "评论", setOf("comment", "creply")),
+    NotifCategoryTab("rx", "回应", setOf("emoji", "reply")),
+    NotifCategoryTab("like", "喜欢", setOf("like")),
+    NotifCategoryTab("chat", "群聊", setOf("chat_at", "chat_reply", "join_req", "packet", "chat_idle")),
+    NotifCategoryTab("post", "新帖", setOf("post")),
+    NotifCategoryTab("farm", "农场", setOf("farm_conflict")),
+    NotifCategoryTab("system", "系统", setOf("release", "skin_alert", "pet_refund", "ai_alert", "badge")),
+)
+
+val NOTIF_PREF_OPTIONS = listOf(
+    "release" to "系统通知提醒",
+    "farm_conflict" to "农场攻防预警与结算",
+    "packet" to "红包参与与开奖结果",
+    "like" to "有人喜欢我的图",
+    "emoji" to "有人给我的图回应表情",
+    "reply" to "有人给我的图一句回应",
+    "comment" to "有人评论我的图",
+    "creply" to "有人回复我的评论",
+    "post" to "有人发了新帖",
+    "mention" to "有人在评论里 @ 我",
+    "chat_at" to "有人在群聊里 @ 我",
+    "chat_reply" to "有人在群聊里回复我",
+    "post_at" to "有人在帖子里 @ 我",
+    "ai_comment" to "AI 评论、回复和提及提醒",
+    "badge" to "我拿到了新徽章",
+    "join_req" to "有人申请加入群聊（群管理）",
+)
+
+private val NOTIF_VERB_MAP = mapOf(
+    "packet" to "红包提醒",
+    "like" to "喜欢了",
+    "emoji" to "回应了表情",
+    "reply" to "回应了",
+    "comment" to "评论了",
+    "creply" to "回复了你在这帖的评论",
+    "post" to "发了新帖",
+    "mention" to "在评论里 @ 了你",
+    "chat_at" to "在群聊里 @ 了你",
+    "chat_reply" to "在群聊里回复了你",
+    "post_at" to "在帖子里 @ 了你",
+    "join_req" to "申请加入群聊",
+    "badge" to "你获得了徽章",
+)
+
+private val CHAT_MSG_NOTIF_KINDS = setOf("chat_at", "chat_reply", "packet")
+private val CHAT_GROUP_NOTIF_KINDS = setOf("chat_at", "chat_reply", "packet", "chat_idle", "join_req")
+private val POST_NOTIF_KINDS = setOf("like", "emoji", "reply", "comment", "creply", "post", "mention", "post_at")
+private val SHOW_VAL_KINDS = setOf("reply", "comment", "creply", "mention", "post_at")
+
 @Serializable
 data class NotifItem(
     val id: Long = 0L,
@@ -679,26 +740,138 @@ data class NotifItem(
     val body: String? = null,
     @SerialName("val") val valueText: String? = null,
     @SerialName("group_name") val groupName: String? = null,
+    @SerialName("user_id") val userId: Long? = null,
     val username: String? = null,
     val name: String? = null,
     val avatar: String? = null,
     val thumb: String? = null,
     @SerialName("meme_id") val memeId: Long? = null,
     val gid: Long? = null,
+    @SerialName("badge_n") val badgeCount: Int? = null,
+    val url: String? = null,
     val href: String? = null,
     val read: Boolean = false,
     val unread: Boolean = false,
     val at: Long = 0L,
     @SerialName("created_at") val createdAt: Long = 0L,
 ) {
-    val isUnread: Boolean get() = unread || (!read && at > 0L)
+    /**
+     * Authoritative unread state reported by `/api/notifs?system=1` via `unread: Boolean`.
+     * Server items omit any `read` field, so checking `!read && at > 0L` previously pinned
+     * all notifications as permanently unread.
+     */
+    val isUnread: Boolean get() = unread
+
+    val isChatMessageNotif: Boolean get() = kind in CHAT_MSG_NOTIF_KINDS
+    val isChatGroupNotif: Boolean get() = kind in CHAT_GROUP_NOTIF_KINDS
+    val isPostNotif: Boolean get() = kind in POST_NOTIF_KINDS
+
+    val actorDisplay: String
+        get() = name?.takeIf { it.isNotBlank() }
+            ?: username?.takeIf { it.isNotBlank() }
+            ?: "有人"
+
+    val effectiveAtSec: Long
+        get() {
+            val raw = if (at > 0L) at else createdAt
+            return if (raw > 10_000_000_000L) raw / 1000L else raw
+        }
+
+    val identityKey: String
+        get() = "${kind}_${memeId ?: 0L}_${userId ?: 0L}_${gid ?: 0L}_${at}_${id}"
+
+    fun matchesSameItem(other: NotifItem): Boolean =
+        kind == other.kind &&
+            at == other.at &&
+            memeId == other.memeId &&
+            userId == other.userId &&
+            gid == other.gid &&
+            id == other.id
+
+    fun isSystemAlertKind(): Boolean =
+        kind in setOf("release", "farm_conflict", "badge", "ai_alert", "skin_alert", "pet_refund", "chat_idle") ||
+            !NOTIF_VERB_MAP.containsKey(kind)
+
+    fun headlineSummary(): String = when (kind) {
+        "release" -> "系统更新与公告"
+        "farm_conflict" -> "农场攻防"
+        "skin_alert" -> "装扮投稿状态"
+        "pet_refund" -> "鱼鱼谷 · 今日可一键回收"
+        "ai_alert" -> when (valueText) {
+            "cap" -> "今日 AI 请求已达上限"
+            "breaker" -> "AI 服务连续失败，已暂停"
+            "configuration" -> "AI 服务配置需要检查"
+            else -> "AI 运行提醒"
+        }
+        "badge" -> if (valueText == "guide") "邀请徽章已更新" else "你获得了新徽章"
+        "chat_idle" -> "你已被移出「${groupName?.takeIf { it.isNotBlank() } ?: "群聊"}」"
+        "join_req" -> {
+            val verb = when (valueText) {
+                "left", "kick" -> "申请重新加入"
+                else -> "申请加入"
+            }
+            "$actorDisplay $verb「${groupName?.takeIf { it.isNotBlank() } ?: "群聊"}」"
+        }
+        else -> {
+            val verb = NOTIF_VERB_MAP[kind]
+            if (verb == null) {
+                title?.takeIf { it.isNotBlank() } ?: "系统提醒"
+            } else if (isChatMessageNotif) {
+                "$actorDisplay $verb「${groupName?.takeIf { it.isNotBlank() } ?: "群聊"}」"
+            } else {
+                val targetTitle = title?.takeIf { it.isNotBlank() }
+                    ?: when (kind) {
+                        "post" -> "一帖"
+                        "creply", "mention" -> "这帖"
+                        else -> "你的帖"
+                    }
+                "$actorDisplay $verb「$targetTitle」"
+            }
+        }
+    }
+
+    fun detailBodyText(): String = when (kind) {
+        "ai_alert" -> valueText?.takeIf { it.isNotBlank() }?.let { "状态：$it · 请前往网站 AI 设置查看" } ?: "查看 AI 设置与运行状态"
+        "chat_idle" -> valueText?.takeIf { it.isNotBlank() }
+            ?: "超过 10 天没有登录网站，系统自动清理。点此进入对应群聊重新加入。"
+        "join_req" -> when (valueText) {
+            "left" -> "曾主动退群 · 请前往群管理审核"
+            "kick" -> "曾被踢出 · 请前往群管理审核"
+            else -> "首次申请入群 · 请前往群管理审核"
+        }
+        "badge" -> valueText?.takeIf { it.isNotBlank() }?.let { badgeKey ->
+            if (badgeKey == "guide") {
+                val n = badgeCount ?: 0
+                if (n > 0) "当前合格邀请 $n 人" else "邀请已作废，徽章暂未点亮"
+            } else {
+                "徽章：$badgeKey"
+            }
+        }.orEmpty()
+        "emoji" -> body?.takeIf { it.isNotBlank() }.orEmpty()
+        else -> {
+            val text = valueText?.takeIf { it.isNotBlank() } ?: body?.takeIf { it.isNotBlank() }
+            if (text != null) {
+                text
+            } else if (kind !in NOTIF_VERB_MAP || kind in SHOW_VAL_KINDS || isChatMessageNotif) {
+                if (!NOTIF_VERB_MAP.containsKey(kind)) "请点击查看完整提醒内容" else ""
+            } else {
+                ""
+            }
+        }
+    }
+
     val displayLine: String
         get() = listOfNotNull(
-            name?.takeIf { it.isNotBlank() } ?: username?.takeIf { it.isNotBlank() },
-            title?.takeIf { it.isNotBlank() },
-            valueText?.takeIf { it.isNotBlank() } ?: body?.takeIf { it.isNotBlank() },
+            headlineSummary().takeIf { it.isNotBlank() },
+            detailBodyText().takeIf { it.isNotBlank() },
         ).joinToString(" · ").ifBlank { kind }
 }
+
+@Serializable
+data class NotifsPayload(
+    val unread: Int = 0,
+    val items: List<NotifItem> = emptyList(),
+)
 
 @Serializable
 data class FolderItem(

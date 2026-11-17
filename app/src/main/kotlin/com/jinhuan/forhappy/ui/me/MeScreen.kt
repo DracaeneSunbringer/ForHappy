@@ -16,12 +16,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Speed
@@ -59,7 +62,6 @@ import com.jinhuan.forhappy.core.model.AppThemeMode
 import com.jinhuan.forhappy.core.model.CustomEdgeNode
 import com.jinhuan.forhappy.core.model.FolderItem
 import com.jinhuan.forhappy.core.model.MeUser
-import com.jinhuan.forhappy.core.model.NotifItem
 import com.jinhuan.forhappy.core.model.Owner52bCard
 import com.jinhuan.forhappy.core.model.WalletSummary
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
@@ -86,6 +88,9 @@ fun MeScreen(
     themeMode: AppThemeMode,
     privacyShieldEnabled: Boolean,
     activeIconAlias: AppIconAlias,
+    notifUnreadCount: Int = 0,
+    notifTotalCount: Int = 0,
+    onOpenNotifications: () -> Unit = {},
     onChangeTheme: (AppThemeMode) -> Unit,
     onTogglePrivacyShield: (Boolean) -> Unit,
     onChangeIconAlias: (AppIconAlias) -> Unit,
@@ -105,7 +110,6 @@ fun MeScreen(
     var wallet by remember { mutableStateOf<WalletSummary?>(null) }
     var cards52b by remember { mutableStateOf<List<Owner52bCard>>(emptyList()) }
     var folders by remember { mutableStateOf<List<FolderItem>>(emptyList()) }
-    var notifs by remember { mutableStateOf<List<NotifItem>>(emptyList()) }
     var customIpInput by remember { mutableStateOf("") }
     var showCustomMirrorEditor by remember { mutableStateOf(false) }
     var customMirrorInput by remember(updateState.customMirrorPrefix) { mutableStateOf(updateState.customMirrorPrefix) }
@@ -130,13 +134,11 @@ fun MeScreen(
             wallet = api.fetchWallet()
             cards52b = api.fetchOwner52bCards()
             folders = api.fetchFolders()
-            notifs = api.fetchNotifs()
         } else {
             stats = null
             wallet = null
             cards52b = emptyList()
             folders = emptyList()
-            notifs = emptyList()
         }
     }
 
@@ -240,6 +242,52 @@ fun MeScreen(
                                 color = palette.muted,
                                 fontSize = 11.sp,
                                 modifier = Modifier.padding(vertical = 1.dp),
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+                    HorizontalDivider(color = palette.line)
+                    Spacer(Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpenNotifications() }
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = if (notifUnreadCount > 0) Icons.Rounded.Notifications else Icons.Rounded.NotificationsNone,
+                                contentDescription = null,
+                                tint = palette.primary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "互动与系统提醒",
+                                color = palette.text,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            BadgePill(
+                                text = when {
+                                    notifUnreadCount > 0 -> "$notifUnreadCount 条未读"
+                                    notifTotalCount > 0 -> "全部已读 · $notifTotalCount"
+                                    else -> "查看全部"
+                                },
+                                containerColor = if (notifUnreadCount > 0) palette.primary else palette.surface2,
+                                contentColor = if (notifUnreadCount > 0) palette.onPrimary else palette.muted,
+                            )
+                            Spacer(Modifier.width(2.dp))
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                                contentDescription = null,
+                                tint = palette.muted,
+                                modifier = Modifier.size(18.dp),
                             )
                         }
                     }
@@ -408,44 +456,6 @@ fun MeScreen(
                         ) {
                             Text("GitHub Release", fontSize = 12.sp)
                         }
-                    }
-                }
-            }
-        }
-
-        // Notifications summary
-        if (me != null && notifs.isNotEmpty()) {
-            item {
-                SectionCard {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.Notifications, contentDescription = null, tint = palette.primary)
-                            Spacer(Modifier.width(6.dp))
-                            Text("通知中心 (${notifs.count { it.isUnread }} 未读)", color = palette.text, fontWeight = FontWeight.SemiBold)
-                        }
-                        OutlinedButton(onClick = {
-                            scope.launch {
-                                api.markAllNotifsRead()
-                                notifs = api.fetchNotifs()
-                            }
-                        }) {
-                            Text("全部已读", fontSize = 11.sp)
-                        }
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    notifs.take(4).forEach { n ->
-                        Text(
-                            text = "• ${n.displayLine}",
-                            color = if (!n.isUnread) palette.muted else palette.text,
-                            fontSize = 12.sp,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(vertical = 2.dp),
-                        )
                     }
                 }
             }

@@ -35,6 +35,7 @@ import com.jinhuan.forhappy.core.model.MemeComment
 import com.jinhuan.forhappy.core.model.MemeDetailResponse
 import com.jinhuan.forhappy.core.model.MemeItem
 import com.jinhuan.forhappy.core.model.NotifItem
+import com.jinhuan.forhappy.core.model.NotifsPayload
 import com.jinhuan.forhappy.core.model.Owner52bCard
 import com.jinhuan.forhappy.core.model.PetGuardBattle
 import com.jinhuan.forhappy.core.model.PetNeighborSummary
@@ -63,6 +64,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -777,17 +779,62 @@ class ForHappyApiClient(
         return res.code in 200..299
     }
 
-    suspend fun fetchNotifs(): List<NotifItem> {
+    suspend fun fetchNotifsPayload(): NotifsPayload {
         val res = executeRawJson("GET", "/api/notifs?system=1")
-        if (res.code !in 200..299) return emptyList()
-        val obj = runCatching { ForHappyJson.parseToJsonElement(res.body).jsonObject }.getOrNull() ?: return emptyList()
-        val arr = obj["items"] ?: obj["notifs"] ?: return emptyList()
-        return runCatching { ForHappyJson.decodeFromJsonElement(kotlinx.serialization.builtins.ListSerializer(NotifItem.serializer()), arr) }
-            .getOrDefault(emptyList())
+        if (res.code !in 200..299) return NotifsPayload()
+        val obj = runCatching { ForHappyJson.parseToJsonElement(res.body).jsonObject }.getOrNull()
+            ?: return NotifsPayload()
+        val serverUnread = obj["unread"]?.jsonPrimitive?.intOrNull
+        val arr = (obj["items"] ?: obj["notifs"]) as? JsonArray
+            ?: return NotifsPayload(unread = serverUnread ?: 0)
+        val decoded = arr.mapNotNull { elem ->
+            runCatching { ForHappyJson.decodeFromJsonElement(NotifItem.serializer(), elem) }.getOrNull()
+        }.sortedWith(
+            compareByDescending<NotifItem> { it.isUnread }
+                .thenByDescending { it.effectiveAtSec },
+        )
+        return NotifsPayload(
+            unread = serverUnread ?: decoded.count { it.isUnread },
+            items = decoded,
+        )
     }
 
-    suspend fun markAllNotifsRead() {
-        executeRawJson("POST", "/api/notifs/read", "{}")
+    suspend fun fetchNotifs(): List<NotifItem> = fetchNotifsPayload().items
+
+    suspend fun markAllNotifsRead(): Boolean {
+        val res = executeRawJson("POST", "/api/notifs/read", "{}")
+        return res.code in 200..299
+    }
+
+    suspend fun markSingleNotifRead(item: NotifItem): Boolean {
+        val itemObj = buildJsonObject {
+            put("kind", JsonPrimitive(item.kind))
+            item.memeId?.let { put("meme_id", JsonPrimitive(it)) }
+            item.userId?.let { put("user_id", JsonPrimitive(it)) }
+            if (item.at > 0L) put("at", JsonPrimitive(item.at))
+            item.gid?.let { put("gid", JsonPrimitive(it)) }
+        }
+        val payload = buildJsonObject {
+            put("item", itemObj)
+        }
+        val res = executeRawJson("POST", "/api/notifs/read", ForHappyJson.encodeToString(payload))
+        return res.code in 200..299
+    }
+
+    suspend fun updateNotifPref(key: String, enabled: Boolean): Map<String, Boolean>? {
+        val payload = buildJsonObject {
+            put(key, JsonPrimitive(enabled))
+        }
+        val res = executeRawJson("PUT", "/api/notifs/prefs", ForHappyJson.encodeToString(payload))
+        if (res.code !in 200..299) return null
+        val prefsObj = runCatching {
+            ForHappyJson.parseToJsonElement(res.body).jsonObject["prefs"]?.jsonObject
+        }.getOrNull() ?: return null
+        return buildMap {
+            prefsObj.forEach { (k, v) ->
+                v.jsonPrimitive.booleanOrNull?.let { put(k, it) }
+            }
+        }
     }
 
     suspend fun fetchMeStats(): JsonObject? {

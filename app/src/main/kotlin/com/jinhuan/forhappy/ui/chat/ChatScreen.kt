@@ -158,6 +158,12 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
 
+data class ChatNotificationJump(
+    val groupId: Long,
+    val messageId: Long? = null,
+    val triggerSeq: Long = 0L,
+)
+
 /**
  * Group chat + 1:1 Direct Message screen driven by HTTP cursor polling ([ChatSessionController]).
  * - Compact single-line header maximizing viewport ratio for message content.
@@ -171,6 +177,8 @@ fun ChatScreen(
     api: ForHappyApiClient,
     controller: ChatSessionController,
     me: MeUser?,
+    initialJump: ChatNotificationJump? = null,
+    onConsumeInitialJump: () -> Unit = {},
     onNavigateToMeme: (Long) -> Unit,
     onNavigateToTag: (String) -> Unit,
     onOpenUrl: (String) -> Unit,
@@ -322,7 +330,11 @@ fun ChatScreen(
 
     // Scroll to bottom ONCE when entering a group and receiving initial messages
     LaunchedEffect(state.activeGroupId, state.messages.size) {
-        if (channelMode == "group" && state.messages.isNotEmpty() && didInitialScrollGroupId != state.activeGroupId) {
+        if (channelMode == "group" &&
+            initialJump?.messageId == null &&
+            state.messages.isNotEmpty() &&
+            didInitialScrollGroupId != state.activeGroupId
+        ) {
             didInitialScrollGroupId = state.activeGroupId
             val lastIdx = (if (state.hasMoreOlder) 1 else 0) + state.messages.size - 1
             if (lastIdx >= 0) {
@@ -439,9 +451,13 @@ fun ChatScreen(
         }
     }
 
-    fun jumpToMessage(targetId: Long) {
+    fun jumpToMessage(targetId: Long, groupId: Long = state.activeGroupId) {
         if (targetId <= 0L) return
-        val localIdx = state.messages.indexOfFirst { it.id == targetId }
+        val localIdx = if (groupId == state.activeGroupId) {
+            state.messages.indexOfFirst { it.id == targetId }
+        } else {
+            -1
+        }
         if (localIdx >= 0) {
             historyMsgs = null
             highlightedMsgId = targetId
@@ -450,7 +466,7 @@ fun ChatScreen(
             return
         }
         scope.launch {
-            val resp = api.fetchChatMessagesAround(state.activeGroupId, targetId)
+            val resp = api.fetchChatMessagesAround(groupId, targetId)
             if (resp != null && resp.items.isNotEmpty()) {
                 historyMsgs = resp.items
                 historyHasOlder = resp.more
@@ -464,6 +480,30 @@ fun ChatScreen(
                 }
             }
         }
+    }
+
+    LaunchedEffect(initialJump?.triggerSeq) {
+        val jump = initialJump ?: return@LaunchedEffect
+        channelMode = "group"
+        showSearchSheet = false
+        historyMsgs = null
+        val targetGroupId = if (jump.groupId > 0L) jump.groupId else state.activeGroupId
+        if (jump.groupId > 0L && state.activeGroupId != jump.groupId) {
+            controller.setActiveGroup(jump.groupId)
+            var waited = 0L
+            while (waited < 1600L) {
+                if (state.activeGroupId == jump.groupId && state.messages.isNotEmpty()) break
+                delay(40L)
+                waited += 40L
+            }
+            withFrameNanos { }
+        }
+        val targetMsgId = jump.messageId
+        if (targetMsgId != null && targetMsgId > 0L) {
+            didInitialScrollGroupId = targetGroupId
+            jumpToMessage(targetMsgId, targetGroupId)
+        }
+        onConsumeInitialJump()
     }
 
     Column(

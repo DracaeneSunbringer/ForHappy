@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Collections
+import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.VisibilityOff
@@ -41,9 +42,12 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -61,16 +65,22 @@ import com.jinhuan.forhappy.core.model.AppIconAlias
 import com.jinhuan.forhappy.core.model.AppThemeMode
 import com.jinhuan.forhappy.core.model.DynamicModule
 import com.jinhuan.forhappy.core.model.MeUser
+import com.jinhuan.forhappy.core.model.NotifItem
 import com.jinhuan.forhappy.core.update.UpdateStatus
+import com.jinhuan.forhappy.ui.chat.ChatNotificationJump
 import com.jinhuan.forhappy.ui.chat.ChatScreen
 import com.jinhuan.forhappy.ui.components.BadgePill
 import com.jinhuan.forhappy.ui.hub.HubScreen
 import com.jinhuan.forhappy.ui.me.MeScreen
+import com.jinhuan.forhappy.ui.notifications.NotificationsSheet
 import com.jinhuan.forhappy.ui.pets.PetsScreen
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
+import com.jinhuan.forhappy.ui.wall.FullscreenMediaOverlay
+import com.jinhuan.forhappy.ui.wall.MemeDetailModal
 import com.jinhuan.forhappy.ui.wall.WallScreen
 import com.jinhuan.forhappy.ui.web.LoginWebSheet
 import com.jinhuan.forhappy.ui.web.ShelllessWebScreen
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -104,10 +114,23 @@ fun ForHappyShell(
     var showLoginModal by remember { mutableStateOf(false) }
     var bossKeyActive by remember { mutableStateOf(false) }
 
-    // Cross-tab jump parameters (`No.1234` / `#tag`)
+    // Cross-tab jump parameters (`No.1234` / `#tag` / notification routing)
     var wallTagArg by remember { mutableStateOf<String?>(null) }
     var wallMemeArg by remember { mutableStateOf<Long?>(null) }
     var webLinkModalUrl by remember { mutableStateOf<String?>(null) }
+    var shellDetailMemeId by remember { mutableStateOf<Long?>(null) }
+    var shellFullscreenImgUrl by remember { mutableStateOf<String?>(null) }
+    var pendingChatJump by remember { mutableStateOf<ChatNotificationJump?>(null) }
+    var chatJumpSeq by remember { mutableLongStateOf(0L) }
+
+    // Notification center shared state
+    var notifs by remember { mutableStateOf<List<NotifItem>>(emptyList()) }
+    var notifUnreadCount by remember { mutableIntStateOf(0) }
+    var notifsLoading by remember { mutableStateOf(false) }
+    var inFlightNotifWrites by remember { mutableIntStateOf(0) }
+    var notifReloadQueued by remember { mutableStateOf(false) }
+    var notifRequestSeq by remember { mutableLongStateOf(0L) }
+    var showNotifsSheet by remember { mutableStateOf(false) }
 
     val netStatus by api.rustNetManager.status.collectAsState()
     val chatState by chatController.uiState.collectAsState()
@@ -115,15 +138,92 @@ fun ForHappyShell(
     var dismissedUpdateTag by remember { mutableStateOf<String?>(null) }
     val totalChatUnread = remember(chatState.groups) { chatState.groups.sumOf { it.unread } }
 
+    fun refreshNotifs(targetUserId: Long? = me?.id) {
+        val uid = targetUserId ?: return
+        if (inFlightNotifWrites > 0) {
+            notifReloadQueued = true
+            return
+        }
+        val seq = ++notifRequestSeq
+        scope.launch {
+            notifsLoading = true
+            try {
+                val payload = api.fetchNotifsPayload()
+                if (seq == notifRequestSeq && me?.id == uid && inFlightNotifWrites == 0) {
+                    notifs = payload.items
+                    notifUnreadCount = payload.unread.coerceAtLeast(0)
+                }
+            } finally {
+                if (seq == notifRequestSeq) {
+                    notifsLoading = false
+                }
+            }
+        }
+    }
+
+    fun markAllNotificationsRead() {
+        notifRequestSeq++
+        notifs = notifs.map { it.copy(unread = false) }
+        notifUnreadCount = 0
+        inFlightNotifWrites++
+        scope.launch {
+            try {
+                val ok = api.markAllNotifsRead()
+                if (!ok) notifReloadQueued = true
+            } finally {
+                inFlightNotifWrites = (inFlightNotifWrites - 1).coerceAtLeast(0)
+                if (inFlightNotifWrites == 0 && notifReloadQueued) {
+                    notifReloadQueued = false
+                    refreshNotifs()
+                }
+            }
+        }
+    }
+
+    fun markSingleNotificationRead(target: NotifItem) {
+        if (!target.isUnread) return
+        notifRequestSeq++
+        var decremented = false
+        notifs = notifs.map { item ->
+            if (!decremented && item.matchesSameItem(target) && item.isUnread) {
+                decremented = true
+                item.copy(unread = false)
+            } else {
+                item
+            }
+        }
+        if (decremented || notifUnreadCount > 0) {
+            notifUnreadCount = (notifUnreadCount - 1).coerceAtLeast(0)
+        }
+        inFlightNotifWrites++
+        scope.launch {
+            try {
+                val ok = api.markSingleNotifRead(target)
+                if (!ok) notifReloadQueued = true
+            } finally {
+                inFlightNotifWrites = (inFlightNotifWrites - 1).coerceAtLeast(0)
+                if (inFlightNotifWrites == 0 && notifReloadQueued) {
+                    notifReloadQueued = false
+                    refreshNotifs()
+                }
+            }
+        }
+    }
+
     fun bootstrapSession() {
         scope.launch {
             val savedPin = app.db.getKv("ui.pinned_slot3_id")
             if (!savedPin.isNullOrBlank()) pinnedModuleId = savedPin
-            me = api.fetchMe()
+            val currentUser = api.fetchMe()
+            me = currentUser
             modules = api.scanDynamicTopbarModules()
-            if (me != null) {
+            if (currentUser != null) {
                 api.recordSiteVisit()
                 chatController.refreshGroups()
+                refreshNotifs(currentUser.id)
+            } else {
+                notifs = emptyList()
+                notifUnreadCount = 0
             }
         }
     }
@@ -136,6 +236,43 @@ fun ForHappyShell(
     LaunchedEffect(netStatus.running, netStatus.winnerIp) {
         if (me == null && netStatus.running && api.cookieJar.hasSessionCookieFor()) {
             bootstrapSession()
+        }
+    }
+
+    LaunchedEffect(me?.id) {
+        val uid = me?.id ?: return@LaunchedEffect
+        while (me?.id == uid) {
+            delay(90_000L)
+            refreshNotifs(uid)
+        }
+    }
+
+    LaunchedEffect(showNotifsSheet) {
+        if (showNotifsSheet && me != null) {
+            refreshNotifs()
+        }
+    }
+
+    DisposableEffect(chatController) {
+        chatController.onGroupReadAcknowledged = { gid, upTo ->
+            scope.launch {
+                var seenCount = 0
+                notifs = notifs.map { item ->
+                    if (item.isUnread && item.isChatMessageNotif && item.gid == gid && (item.memeId ?: Long.MAX_VALUE) <= upTo) {
+                        seenCount++
+                        item.copy(unread = false)
+                    } else {
+                        item
+                    }
+                }
+                if (seenCount > 0) {
+                    notifRequestSeq++
+                    notifUnreadCount = (notifUnreadCount - seenCount).coerceAtLeast(0)
+                }
+            }
+        }
+        onDispose {
+            chatController.onGroupReadAcknowledged = null
         }
     }
 
@@ -219,6 +356,39 @@ fun ForHappyShell(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
+                                Spacer(Modifier.width(4.dp))
+                                IconButton(
+                                    onClick = { showNotifsSheet = true },
+                                    modifier = Modifier
+                                        .width(42.dp)
+                                        .height(34.dp),
+                                ) {
+                                    BadgedBox(
+                                        badge = {
+                                            if (notifUnreadCount > 0) {
+                                                Badge {
+                                                    Text(
+                                                        text = if (notifUnreadCount > 99) "99+" else "$notifUnreadCount",
+                                                        fontSize = 9.sp,
+                                                    )
+                                                }
+                                            }
+                                        },
+                                    ) {
+                                        Box(modifier = Modifier.padding(top = 3.dp, end = 6.dp)) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.NotificationsNone,
+                                                contentDescription = if (notifUnreadCount > 0) {
+                                                    "互动与系统提醒（$notifUnreadCount 条未读）"
+                                                } else {
+                                                    "互动与系统提醒"
+                                                },
+                                                tint = if (notifUnreadCount > 0) palette.text else palette.muted,
+                                                modifier = Modifier.size(20.dp),
+                                            )
+                                        }
+                                    }
+                                }
                             }
                             IconButton(
                                 onClick = { bossKeyActive = true },
@@ -381,6 +551,8 @@ fun ForHappyShell(
                     api = api,
                     controller = chatController,
                     me = me,
+                    initialJump = pendingChatJump,
+                    onConsumeInitialJump = { pendingChatJump = null },
                     onNavigateToMeme = { id ->
                         wallMemeArg = id
                         activeTab = "wall"
@@ -433,17 +605,86 @@ fun ForHappyShell(
                     themeMode = themeMode,
                     privacyShieldEnabled = privacyShieldEnabled,
                     activeIconAlias = activeIconAlias,
+                    notifUnreadCount = notifUnreadCount,
+                    notifTotalCount = notifs.size,
+                    onOpenNotifications = { showNotifsSheet = true },
                     onChangeTheme = onChangeTheme,
                     onTogglePrivacyShield = onTogglePrivacyShield,
                     onChangeIconAlias = onChangeIconAlias,
                     onRequireLogin = { showLoginModal = true },
                     onLoggedOut = {
                         me = null
+                        notifs = emptyList()
+                        notifUnreadCount = 0
+                        showNotifsSheet = false
                     },
                     onTriggerBossKey = { bossKeyActive = true },
                 )
             }
         }
+    }
+
+    if (showNotifsSheet && me != null) {
+        NotificationsSheet(
+            api = api,
+            items = notifs,
+            unreadCount = notifUnreadCount,
+            loading = notifsLoading,
+            notifPrefs = me?.notifPrefs.orEmpty(),
+            onRefresh = { refreshNotifs() },
+            onMarkAllRead = { markAllNotificationsRead() },
+            onMarkItemRead = { item -> markSingleNotificationRead(item) },
+            onUpdatePref = { key, enabled ->
+                val prevPrefs = me?.notifPrefs.orEmpty()
+                me = me?.copy(notifPrefs = prevPrefs + (key to enabled))
+                scope.launch {
+                    val updated = api.updateNotifPref(key, enabled)
+                    if (updated != null) {
+                        me = me?.copy(notifPrefs = updated)
+                        refreshNotifs()
+                    } else {
+                        me = me?.copy(notifPrefs = prevPrefs)
+                    }
+                }
+            },
+            onOpenMeme = { memeId -> shellDetailMemeId = memeId },
+            onOpenChat = { gid, msgId ->
+                pendingChatJump = ChatNotificationJump(
+                    groupId = gid,
+                    messageId = msgId,
+                    triggerSeq = ++chatJumpSeq,
+                )
+                activeTab = "chat"
+            },
+            onNavigateHub = { activeTab = "hub" },
+            onOpenUrl = { url -> webLinkModalUrl = url },
+            onDismiss = { showNotifsSheet = false },
+        )
+    }
+
+    shellDetailMemeId?.let { memeId ->
+        MemeDetailModal(
+            memeId = memeId,
+            api = api,
+            me = me,
+            onRequireLogin = { showLoginModal = true },
+            onDismiss = { shellDetailMemeId = null },
+            onOpenImageFullscreen = { url -> shellFullscreenImgUrl = url },
+            onTagClick = { tag ->
+                shellDetailMemeId = null
+                wallTagArg = tag
+                activeTab = "wall"
+            },
+            onStateUpdated = {},
+        )
+    }
+
+    shellFullscreenImgUrl?.let { url ->
+        FullscreenMediaOverlay(
+            imageUrl = url,
+            api = api,
+            onDismiss = { shellFullscreenImgUrl = null },
+        )
     }
 
     if (showLoginModal) {

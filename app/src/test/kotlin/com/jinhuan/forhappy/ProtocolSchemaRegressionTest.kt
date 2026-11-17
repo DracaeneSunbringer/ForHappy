@@ -7,6 +7,8 @@ import com.jinhuan.forhappy.core.model.GuessRoomOverviewResponse
 import com.jinhuan.forhappy.core.model.MeUser
 import com.jinhuan.forhappy.core.model.MemeDetailResponse
 import com.jinhuan.forhappy.core.model.MemeItem
+import com.jinhuan.forhappy.core.model.NotifItem
+import com.jinhuan.forhappy.core.model.NotifsPayload
 import com.jinhuan.forhappy.core.model.RustNetStatus
 import com.jinhuan.forhappy.core.model.StickerPack
 import com.jinhuan.forhappy.core.model.countReplyUnits
@@ -301,5 +303,95 @@ class ProtocolSchemaRegressionTest {
         assertTrue(mergedReplies.last().mine)
         assertEquals("太草了[ld:tieba_087]", mergedReplies.last().text)
         assertEquals(3, countReplyUnits("好图[ld:tieba_087]"))
+    }
+
+    @Test
+    fun notifItemUnreadFollowsServerUnreadFieldWithoutReadProperty() {
+        val readItemJson = """
+            {
+              "kind": "comment",
+              "name": "喜多郁代",
+              "username": "kita",
+              "title": "好图一张",
+              "val": "确实好笑",
+              "meme_id": 12665,
+              "user_id": 11,
+              "at": 1794880000,
+              "unread": false
+            }
+        """.trimIndent()
+        val readItem = ForHappyJson.decodeFromString<NotifItem>(readItemJson)
+        assertFalse(readItem.isUnread)
+        assertTrue(readItem.isPostNotif)
+        assertFalse(readItem.isChatGroupNotif)
+        assertTrue(readItem.headlineSummary().contains("喜多郁代"))
+        assertEquals("确实好笑", readItem.detailBodyText())
+
+        val unreadItem = ForHappyJson.decodeFromString<NotifItem>(readItemJson.replace("\"unread\": false", "\"unread\": true"))
+        assertTrue(unreadItem.isUnread)
+        assertTrue(readItem.matchesSameItem(unreadItem))
+    }
+
+    @Test
+    fun notifItemRoutingAndMeNotifPrefsCoverChatPostAndSystemAnnouncements() {
+        val payloadJson = """
+            {
+              "unread": 2,
+              "items": [
+                {
+                  "kind": "chat_at",
+                  "name": "虹夏",
+                  "username": "nijika",
+                  "group_name": "结束乐队",
+                  "gid": 1,
+                  "meme_id": 88421,
+                  "user_id": 22,
+                  "val": "@后藤独 来排练",
+                  "at": 1794885000,
+                  "unread": true
+                },
+                {
+                  "kind": "release",
+                  "val": "第一段更新说明。\n\n第二段详细更新列表与修复日志。",
+                  "at": 1794884000,
+                  "unread": true
+                }
+              ]
+            }
+        """.trimIndent()
+        val payload = ForHappyJson.decodeFromString<NotifsPayload>(payloadJson)
+        assertEquals(2, payload.unread)
+        assertEquals(2, payload.items.size)
+
+        val chatNotif = payload.items[0]
+        assertTrue(chatNotif.isChatGroupNotif)
+        assertTrue(chatNotif.isChatMessageNotif)
+        assertFalse(chatNotif.isPostNotif)
+        assertEquals(1L, chatNotif.gid)
+        assertEquals(88421L, chatNotif.memeId)
+        assertTrue(chatNotif.headlineSummary().contains("结束乐队"))
+        assertEquals("@后藤独 来排练", chatNotif.detailBodyText())
+
+        val releaseNotif = payload.items[1]
+        assertTrue(releaseNotif.isSystemAlertKind())
+        assertFalse(releaseNotif.isChatGroupNotif)
+        assertFalse(releaseNotif.isPostNotif)
+        assertTrue(releaseNotif.detailBodyText().contains("第二段详细更新列表与修复日志"))
+
+        val meJson = """
+            {
+              "id": 1,
+              "username": "hitori",
+              "name": "后藤独",
+              "notif_prefs": {
+                "like": false,
+                "chat_at": true
+              }
+            }
+        """.trimIndent()
+        val me = ForHappyJson.decodeFromString<MeUser>(meJson)
+        assertFalse(me.isNotifEnabled("like"))
+        assertTrue(me.isNotifEnabled("chat_at"))
+        assertTrue(me.isNotifEnabled("comment"))
     }
 }

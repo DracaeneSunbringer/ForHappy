@@ -75,6 +75,9 @@ class ChatSessionController(
     @Volatile
     var isChatForegroundAtBottom: Boolean = false
 
+    @Volatile
+    var onGroupReadAcknowledged: ((groupId: Long, upToId: Long) -> Unit)? = null
+
     private fun pollLockFor(groupId: Long): Mutex = groupPollLocks.getOrPut(groupId) { Mutex() }
 
     internal suspend fun seedCachedWindow(
@@ -198,6 +201,7 @@ class ChatSessionController(
         if (!ok) return
 
         sentReadByGroup[groupId] = maxOf(prevSent, upTo)
+        onGroupReadAcknowledged?.invoke(groupId, upTo)
         stateMutex.withLock {
             val cur = _uiState.value
             val groupMsgs = messagesByGroup[groupId] ?: if (cur.activeGroupId == groupId) cur.messages else emptyList()

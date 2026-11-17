@@ -141,14 +141,21 @@ fun WallScreen(
     var loadingMore by remember { mutableStateOf(false) }
     var hasMore by remember { mutableStateOf(false) }
 
-    var selectedMemeId by remember(initialDetailMemeId) { mutableStateOf(initialDetailMemeId) }
+    var selectedMemeId by remember { mutableStateOf(initialDetailMemeId) }
     var fullscreenImageUrl by remember { mutableStateOf<String?>(null) }
     var showCompose by remember { mutableStateOf(false) }
     var showFilterSheet by remember { mutableStateOf(false) }
 
+    LaunchedEffect(initialDetailMemeId) {
+        if (initialDetailMemeId != null) {
+            selectedMemeId = initialDetailMemeId
+            onConsumeInitialArgs()
+        }
+    }
+
     LaunchedEffect(Unit) {
         columns = api.getPref("ui.wall_columns")?.toIntOrNull()?.coerceIn(1, 2) ?: 2
-        if (initialTag != null || initialDetailMemeId != null) {
+        if (initialTag != null) {
             onConsumeInitialArgs()
         }
     }
