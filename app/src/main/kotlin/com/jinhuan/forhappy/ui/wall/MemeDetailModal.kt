@@ -103,6 +103,7 @@ import com.jinhuan.forhappy.core.model.StickerPack
 import com.jinhuan.forhappy.core.model.countReplyUnits
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
+import com.jinhuan.forhappy.core.seen.LocalSeenTracker
 import com.jinhuan.forhappy.ui.components.BadgePill
 import com.jinhuan.forhappy.ui.components.BoostPillText
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
@@ -131,6 +132,7 @@ fun MemeDetailModal(
     onStateUpdated: (MemeItem) -> Unit,
 ) {
     val palette = LocalForHappyPalette.current
+    val seenTracker = LocalSeenTracker.current
     val scope = rememberCoroutineScope()
     var item by remember(memeId) { mutableStateOf<MemeItem?>(null) }
     var comments by remember(memeId) { mutableStateOf<List<MemeComment>>(emptyList()) }
@@ -154,11 +156,19 @@ fun MemeDetailModal(
         loading = true
         val detailDef = async { api.fetchMemeDetail(memeId) }
         val commentsDef = async { api.fetchMemeComments(memeId) }
-        val viewsDef = async { runCatching { api.recordMemeViews(listOf(memeId)) } }
         val detail = detailDef.await()
         val fetchedComments = commentsDef.await()
-        viewsDef.await()
-        item = detail?.resolvedMeme
+        val resolved = detail?.resolvedMeme
+        if (seenTracker != null) {
+            seenTracker.markSeen(
+                memeId = memeId,
+                existingSeenAt = resolved?.seenAt,
+                memeDay = resolved?.day,
+            )
+        } else {
+            runCatching { api.recordMemeViews(listOf(memeId)) }
+        }
+        item = resolved
         comments = if (fetchedComments.isNotEmpty()) fetchedComments else detail?.comments.orEmpty()
         loading = false
     }

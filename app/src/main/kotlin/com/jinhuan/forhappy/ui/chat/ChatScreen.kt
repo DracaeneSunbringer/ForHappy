@@ -141,6 +141,7 @@ import com.jinhuan.forhappy.ui.components.ReactionEmojiView
 import com.jinhuan.forhappy.ui.components.RichChatBodyView
 import com.jinhuan.forhappy.ui.components.boostPresetAccent
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
+import com.jinhuan.forhappy.ui.theme.LocalPrivacyStealthConfig
 import com.jinhuan.forhappy.ui.wall.FullscreenMediaOverlay
 import com.jinhuan.forhappy.ui.wall.MemeDetailModal
 import kotlinx.coroutines.async
@@ -183,6 +184,9 @@ fun ChatScreen(
     onNavigateToTag: (String) -> Unit,
     onOpenUrl: (String) -> Unit,
     onRequireLogin: () -> Unit,
+    hideChannelHeader: Boolean = false,
+    forcedChannelMode: String? = null,
+    forcedDmThreadId: Long? = null,
 ) {
     val palette = LocalForHappyPalette.current
     val clipboard = LocalClipboardManager.current
@@ -190,7 +194,7 @@ fun ChatScreen(
     val state by controller.uiState.collectAsState()
     val isImeVisible = WindowInsets.isImeVisible
 
-    var channelMode by remember { mutableStateOf("group") } // "group" | "dm"
+    var channelMode by remember(forcedChannelMode) { mutableStateOf(forcedChannelMode ?: "group") } // "group" | "dm"
     var draft by remember { mutableStateOf("") }
     var showStickerTray by remember { mutableStateOf(false) }
     var stickerPacks by remember { mutableStateOf<List<StickerPack>>(emptyList()) }
@@ -432,6 +436,15 @@ fun ChatScreen(
         }
     }
 
+    LaunchedEffect(forcedChannelMode, forcedDmThreadId) {
+        if (forcedChannelMode != null) {
+            channelMode = forcedChannelMode
+        }
+        if (forcedDmThreadId != null) {
+            activeDmId = forcedDmThreadId
+        }
+    }
+
     LaunchedEffect(channelMode, activeDmId) {
         if (channelMode == "dm" && me != null) {
             if (dmThreads.isEmpty()) dmThreads = api.fetchDmThreads()
@@ -511,109 +524,111 @@ fun ChatScreen(
             .fillMaxSize()
             .background(palette.bg),
     ) {
-        // Single sleek compact ~42dp chat header maximizing message area
-        Surface(color = palette.surface) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                LazyRow(
-                    modifier = Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+        // Single sleek compact ~42dp chat header maximizing message area (hidden when hosted inside Feishu IM header)
+        if (!hideChannelHeader) {
+            Surface(color = palette.surface) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 5.dp),
                     verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    items(state.groups, key = { "grp_${it.id}" }) { g ->
-                        val selected = channelMode == "group" && g.id == state.activeGroupId
-                        val label = if (g.unread > 0) "${g.name} (${g.unread})" else g.name
-                        ChatHeaderPill(
-                            label = label,
-                            selected = selected,
-                            onClick = {
-                                channelMode = "group"
-                                historyMsgs = null
-                                controller.setActiveGroup(g.id)
-                            },
-                        )
-                    }
-                    item {
-                        val dmUnread = dmThreads.sumOf { it.unread }
-                        ChatHeaderPill(
-                            label = if (dmUnread > 0) "私信 ($dmUnread)" else "私信",
-                            selected = channelMode == "dm",
-                            onClick = {
-                                channelMode = "dm"
-                                historyMsgs = null
-                            },
-                        )
-                    }
-                }
-
-                if (channelMode == "group") {
-                    // Search button
-                    Surface(
-                        color = palette.surface2,
-                        shape = RoundedCornerShape(999.dp),
-                        modifier = Modifier.clickable { showSearchSheet = true },
+                    LazyRow(
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Box(modifier = Modifier.padding(7.dp), contentAlignment = Alignment.Center) {
-                            Icon(Icons.Rounded.Search, contentDescription = "搜索消息", tint = palette.text, modifier = Modifier.size(16.dp))
-                        }
-                    }
-
-                    // Guess Room button
-                    Surface(
-                        color = if (activeRedpackMsg?.parseRedpackMeta()?.isGuessGame == true) {
-                            palette.gold.copy(alpha = 0.2f)
-                        } else {
-                            palette.surface2
-                        },
-                        shape = RoundedCornerShape(999.dp),
-                        modifier = Modifier.clickable {
-                            guessInitialMid = activeRedpackMsg?.takeIf { it.parseRedpackMeta()?.isGuessGame == true }?.id
-                            showGuessSheet = true
-                        },
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(3.dp),
-                        ) {
-                            Icon(
-                                Icons.Rounded.AutoAwesome,
-                                contentDescription = "欢欢猜词屋",
-                                tint = palette.gold,
-                                modifier = Modifier.size(14.dp),
+                        items(state.groups, key = { "grp_${it.id}" }) { g ->
+                            val selected = channelMode == "group" && g.id == state.activeGroupId
+                            val label = if (g.unread > 0) "${g.name} (${g.unread})" else g.name
+                            ChatHeaderPill(
+                                label = label,
+                                selected = selected,
+                                onClick = {
+                                    channelMode = "group"
+                                    historyMsgs = null
+                                    controller.setActiveGroup(g.id)
+                                },
                             )
-                            Text(
-                                text = "猜词",
-                                color = palette.gold,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
+                        }
+                        item {
+                            val dmUnread = dmThreads.sumOf { it.unread }
+                            ChatHeaderPill(
+                                label = if (dmUnread > 0) "私信 ($dmUnread)" else "私信",
+                                selected = channelMode == "dm",
+                                onClick = {
+                                    channelMode = "dm"
+                                    historyMsgs = null
+                                },
                             )
                         }
                     }
 
-                    // Active non-guess redpack shortcut icon when present
-                    if (activeRedpackMsg != null && activeRedpackMsg.parseRedpackMeta()?.isGuessGame != true) {
+                    if (channelMode == "group") {
+                        // Search button
                         Surface(
-                            color = Color(0xFFC84B31).copy(alpha = 0.14f),
+                            color = palette.surface2,
                             shape = RoundedCornerShape(999.dp),
-                            modifier = Modifier.clickable {
-                                redpackFallbackMeta = activeRedpackMsg.parseRedpackMeta()
-                                redpackSenderName = activeRedpackMsg.displayAuthor
-                                redpackDialogMsgId = activeRedpackMsg.id
-                            },
+                            modifier = Modifier.clickable { showSearchSheet = true },
                         ) {
                             Box(modifier = Modifier.padding(7.dp), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Rounded.Search, contentDescription = "搜索消息", tint = palette.text, modifier = Modifier.size(16.dp))
+                            }
+                        }
+
+                        // Guess Room button
+                        Surface(
+                            color = if (activeRedpackMsg?.parseRedpackMeta()?.isGuessGame == true) {
+                                palette.gold.copy(alpha = 0.2f)
+                            } else {
+                                palette.surface2
+                            },
+                            shape = RoundedCornerShape(999.dp),
+                            modifier = Modifier.clickable {
+                                guessInitialMid = activeRedpackMsg?.takeIf { it.parseRedpackMeta()?.isGuessGame == true }?.id
+                                showGuessSheet = true
+                            },
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                            ) {
                                 Icon(
-                                    Icons.Rounded.CardGiftcard,
-                                    contentDescription = "最新红包",
-                                    tint = Color(0xFFC84B31),
-                                    modifier = Modifier.size(16.dp),
+                                    Icons.Rounded.AutoAwesome,
+                                    contentDescription = "欢欢猜词屋",
+                                    tint = palette.gold,
+                                    modifier = Modifier.size(14.dp),
                                 )
+                                Text(
+                                    text = "猜词",
+                                    color = palette.gold,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
+
+                        // Active non-guess redpack shortcut icon when present
+                        if (activeRedpackMsg != null && activeRedpackMsg.parseRedpackMeta()?.isGuessGame != true) {
+                            Surface(
+                                color = Color(0xFFC84B31).copy(alpha = 0.14f),
+                                shape = RoundedCornerShape(999.dp),
+                                modifier = Modifier.clickable {
+                                    redpackFallbackMeta = activeRedpackMsg.parseRedpackMeta()
+                                    redpackSenderName = activeRedpackMsg.displayAuthor
+                                    redpackDialogMsgId = activeRedpackMsg.id
+                                },
+                            ) {
+                                Box(modifier = Modifier.padding(7.dp), contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        Icons.Rounded.CardGiftcard,
+                                        contentDescription = "最新红包",
+                                        tint = Color(0xFFC84B31),
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
                             }
                         }
                     }
@@ -621,8 +636,8 @@ fun ChatScreen(
             }
         }
 
-        // Secondary DM peer strip only when viewing DMs
-        if (channelMode == "dm" && dmThreads.isNotEmpty()) {
+        // Secondary DM peer strip only when viewing DMs without forced DM thread
+        if (channelMode == "dm" && dmThreads.isNotEmpty() && forcedDmThreadId == null) {
             Surface(color = palette.surface.copy(alpha = 0.92f)) {
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
@@ -1938,13 +1953,22 @@ private fun ChatVisualMediaCell(
     onOpenVideo: (String, String) -> Unit,
 ) {
     val palette = LocalForHappyPalette.current
+    val stealthConfig = LocalPrivacyStealthConfig.current
     val rawUrl = media.resolvedUrl
     val imgUrl = MediaUrlRewriter.rewriteWithExtProxy(rawUrl)
     val rawVid = media.v
     val isVideo = media.k == "v" || !rawVid.isNullOrBlank()
     val isLive = media.k == "l"
     val videoUrl = if (!rawVid.isNullOrBlank()) MediaUrlRewriter.rewriteWithExtProxy(rawVid) else ""
-    var unblurred by remember(msgId, rawUrl) { mutableStateOf(false) }
+    var unblurred by remember(msgId, rawUrl, stealthConfig.blurAllEnabled) { mutableStateOf(false) }
+
+    if (stealthConfig.autoReblurOnScrollOff) {
+        DisposableEffect(msgId, rawUrl) {
+            onDispose { unblurred = false }
+        }
+    }
+
+    val isBlurred = (media.b || stealthConfig.blurAllEnabled) && !unblurred
 
     val mw = media.w ?: media.width ?: 0
     val mh = media.h ?: media.height ?: 0
@@ -1961,7 +1985,7 @@ private fun ChatVisualMediaCell(
             .clip(RoundedCornerShape(12.dp))
             .background(palette.surface2)
             .clickable {
-                if (media.b && !unblurred) {
+                if (isBlurred) {
                     unblurred = true
                 } else if (isVideo && videoUrl.isNotBlank()) {
                     onOpenVideo(imgUrl, videoUrl)
@@ -1978,10 +2002,10 @@ private fun ChatVisualMediaCell(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .fillMaxSize()
-                    .let { if (media.b && !unblurred) it.blur(20.dp) else it },
+                    .let { if (isBlurred) it.blur(20.dp) else it },
             )
         }
-        if (media.b && !unblurred) {
+        if (isBlurred) {
             Surface(
                 color = Color.Black.copy(alpha = 0.62f),
                 shape = RoundedCornerShape(999.dp),

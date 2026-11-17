@@ -135,10 +135,37 @@ data class AnchorTag(
 )
 
 @Serializable
+data class DayLatest(
+    val id: Long = 0L,
+    val at: Long = 0L,
+    val by: String? = null,
+    val text: String? = null,
+    val src: Boolean = false,
+)
+
+@Serializable
 data class DayEntry(
     val day: String = "",
     val count: Int = 0,
+    val n: Int = 0,
+    val unseen: Int = 0,
+    val latest: DayLatest? = null,
     val items: List<MemeItem> = emptyList(),
+) {
+    val totalCount: Int get() = if (n > 0) n else count
+}
+
+@Serializable
+data class MemesPageResponse(
+    val items: List<MemeItem> = emptyList(),
+    val offset: Int = 0,
+    val more: Boolean = false,
+)
+
+@Serializable
+data class SeenVisitEntry(
+    val id: Long,
+    val at: Long,
 )
 
 @Serializable
@@ -260,6 +287,8 @@ data class MemeItem(
     @SerialName("author_username") val authorUsername: String? = null,
     @SerialName("author_avatar") val authorAvatar: String? = null,
     @SerialName("created_at") val createdAt: Long? = null,
+    @SerialName("seen_at") val seenAt: Long? = null,
+    @SerialName("source_url") val sourceUrl: String? = null,
     val puzzle: PuzzleSpec? = null,
 ) {
     val primaryImageUrl: String?
@@ -586,7 +615,10 @@ data class ChatSearchResponse(
 data class TagStatItem(
     val tag: String = "",
     val count: Int = 0,
-)
+    val n: Int = 0,
+) {
+    val totalCount: Int get() = if (n > 0) n else count
+}
 
 @Serializable
 data class TagsResponse(
@@ -657,6 +689,7 @@ data class DmThread(
     @SerialName("peer_username") val peerUsername: String? = null,
     @SerialName("peer_avatar") val peerAvatar: String? = null,
     @SerialName("last_body") val lastBody: String? = null,
+    @SerialName("last_sender") val lastSender: Long? = null,
     val unread: Int = 0,
     @SerialName("updated_at") val updatedAt: Long = 0L,
     @SerialName("last_at") val lastAt: Long = 0L,
@@ -1073,7 +1106,50 @@ enum class AppThemeMode(val label: String) {
     FEISHU_WORK("飞书工作伪装"),
     LINUX_DO("LINUX DO 伪装"),
     FOLLOW_SYSTEM("跟随系统（暖纸/深松）"),
+    ;
+
+    companion object {
+        val dayNightEntries: List<AppThemeMode>
+            get() = listOf(FOLLOW_SYSTEM, WARM_PAPER_LIGHT, PINE_NIGHT_DARK)
+    }
 }
+
+@Serializable
+enum class AppDisguiseMode(
+    val skinKey: String,
+    val label: String,
+    val subtitle: String,
+) {
+    NONE("", "不伪装（默认尽欢）", "原版五栏主界面（图廊、群聊、鱼鱼谷、百宝箱、我的）"),
+    FEISHU("feishu", "飞书聊天界面", "整站变成飞书 IM 会话与工作群，看图、回应、评论、真群聊与私信照常用"),
+    LINUX_DO("linuxdo", "LINUX DO 论坛帖子", "整站变成一篇论坛盖楼长帖，每张图一楼，右下角楼层进度条，顶栏拉出群聊抽屉"),
+}
+
+@Serializable
+enum class ShortcutGestureMode(
+    val key: String,
+    val label: String,
+) {
+    NONE("none", "关闭"),
+    VOL_DOUBLE_DOWN("vol_down", "双击音量下键"),
+    VOL_DOUBLE_UP("vol_up", "双击音量上键"),
+    SHAKE("shake", "轻晃手机"),
+}
+
+@Serializable
+data class PrivacyStealthConfig(
+    val disguiseMode: AppDisguiseMode = AppDisguiseMode.NONE,
+    val blurAllEnabled: Boolean = false,
+    val blurBeforeDisguise: Boolean = false,
+    val autoBlurOnEnterDisguise: Boolean = true,
+    val autoReblurOnScrollOff: Boolean = true,
+    val autoBlurOnBackground: Boolean = false,
+    val blurShortcut: ShortcutGestureMode = ShortcutGestureMode.NONE,
+    val bossDoubleBack: Boolean = true,
+    val bossVolumeShortcut: ShortcutGestureMode = ShortcutGestureMode.NONE,
+    val bossFlipFaceDown: Boolean = false,
+    val bossOnBackgroundResume: Boolean = false,
+)
 
 @Serializable
 enum class AppIconAlias(

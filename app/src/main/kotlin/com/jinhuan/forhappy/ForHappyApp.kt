@@ -6,6 +6,7 @@ import com.jinhuan.forhappy.core.db.ForHappyDatabase
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.core.network.cookie.PersistentCookieJar
 import com.jinhuan.forhappy.core.network.rust.RustNetManager
+import com.jinhuan.forhappy.core.seen.SeenTracker
 import com.jinhuan.forhappy.core.update.AppUpdateController
 
 /**
@@ -25,6 +26,8 @@ class ForHappyApp : Application() {
         private set
     lateinit var updateController: AppUpdateController
         private set
+    lateinit var seenTracker: SeenTracker
+        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -37,6 +40,10 @@ class ForHappyApp : Application() {
             db = db,
             rustNetManager = rustNetManager,
             cookieJar = cookieJar,
+        )
+        seenTracker = SeenTracker.forDatabase(
+            db = db,
+            sendVisitsFn = { visits, uid -> apiClient.recordMemeVisits(visits, uid) },
         )
         chatController = ChatSessionController(
             db = db,

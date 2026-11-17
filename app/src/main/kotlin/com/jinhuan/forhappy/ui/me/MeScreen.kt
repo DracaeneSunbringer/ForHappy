@@ -9,6 +9,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -57,12 +59,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jinhuan.forhappy.BuildConfig
+import com.jinhuan.forhappy.core.model.AppDisguiseMode
 import com.jinhuan.forhappy.core.model.AppIconAlias
 import com.jinhuan.forhappy.core.model.AppThemeMode
 import com.jinhuan.forhappy.core.model.CustomEdgeNode
 import com.jinhuan.forhappy.core.model.FolderItem
 import com.jinhuan.forhappy.core.model.MeUser
 import com.jinhuan.forhappy.core.model.Owner52bCard
+import com.jinhuan.forhappy.core.model.PrivacyStealthConfig
+import com.jinhuan.forhappy.core.model.ShortcutGestureMode
 import com.jinhuan.forhappy.core.model.WalletSummary
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.core.update.AppUpdateController
@@ -86,17 +91,19 @@ fun MeScreen(
     updateController: AppUpdateController,
     me: MeUser?,
     themeMode: AppThemeMode,
+    privacyConfig: PrivacyStealthConfig,
     privacyShieldEnabled: Boolean,
     activeIconAlias: AppIconAlias,
     notifUnreadCount: Int = 0,
     notifTotalCount: Int = 0,
     onOpenNotifications: () -> Unit = {},
     onChangeTheme: (AppThemeMode) -> Unit,
+    onChangeDisguise: (AppDisguiseMode) -> Unit,
+    onUpdatePrivacyConfig: (PrivacyStealthConfig) -> Unit,
     onTogglePrivacyShield: (Boolean) -> Unit,
     onChangeIconAlias: (AppIconAlias) -> Unit,
     onRequireLogin: () -> Unit,
     onLoggedOut: () -> Unit,
-    onTriggerBossKey: () -> Unit,
 ) {
     val palette = LocalForHappyPalette.current
     val context = LocalContext.current
@@ -466,76 +473,24 @@ fun MeScreen(
             SectionCard {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Security, contentDescription = null, tint = palette.primary)
-                        Spacer(Modifier.width(6.dp))
-                        Text("界面伪装与隐私防护", color = palette.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                    }
-                    OutlinedButton(onClick = onTriggerBossKey) {
-                        Text("一键老板键", fontSize = 11.sp)
-                    }
+                    Icon(Icons.Rounded.Security, contentDescription = null, tint = palette.primary)
+                    Spacer(Modifier.width(6.dp))
+                    Text("界面伪装与隐私防护", color = palette.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 }
-                Spacer(Modifier.height(8.dp))
-
-                Text("视觉主题", color = palette.muted, fontSize = 12.sp)
-                Spacer(Modifier.height(4.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    AppThemeMode.entries.forEach { mode ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onChangeTheme(mode) }
-                                .padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(mode.label, color = palette.text, fontSize = 13.sp)
-                            if (themeMode == mode) {
-                                BadgePill("当前", containerColor = palette.primary, contentColor = palette.onPrimary)
-                            }
-                        }
-                    }
-                }
-
-                Spacer(Modifier.height(8.dp))
-                HorizontalDivider(color = palette.line)
-                Spacer(Modifier.height(8.dp))
-
-                Text("桌面启动器图标伪装（切换后桌面数秒内刷新）", color = palette.muted, fontSize = 12.sp)
-                Spacer(Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    AppIconAlias.entries.forEach { alias ->
-                        FilterChip(
-                            selected = activeIconAlias == alias,
-                            onClick = {
-                                switchLauncherAlias(context, alias)
-                                onChangeIconAlias(alias)
-                            },
-                            label = { Text(alias.title, fontSize = 12.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = palette.primary,
-                                selectedLabelColor = palette.onPrimary,
-                            ),
-                        )
-                    }
-                }
-
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("防截屏 / 后台任务预览隐私模糊", color = palette.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        Text("开启 FLAG_SECURE，切换后台时不显示真实内容缩略图", color = palette.muted, fontSize = 11.sp)
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Switch(checked = privacyShieldEnabled, onCheckedChange = onTogglePrivacyShield)
-                }
+                Spacer(Modifier.height(10.dp))
+                PrivacyStealthSettingsContent(
+                    themeMode = themeMode,
+                    privacyConfig = privacyConfig,
+                    privacyShieldEnabled = privacyShieldEnabled,
+                    activeIconAlias = activeIconAlias,
+                    onChangeTheme = onChangeTheme,
+                    onChangeDisguise = onChangeDisguise,
+                    onUpdatePrivacyConfig = onUpdatePrivacyConfig,
+                    onTogglePrivacyShield = onTogglePrivacyShield,
+                    onChangeIconAlias = onChangeIconAlias,
+                )
             }
         }
 
@@ -686,6 +641,217 @@ fun MeScreen(
                 }
             }
         }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun PrivacyStealthSettingsContent(
+    themeMode: AppThemeMode,
+    privacyConfig: PrivacyStealthConfig,
+    privacyShieldEnabled: Boolean,
+    activeIconAlias: AppIconAlias,
+    onChangeTheme: (AppThemeMode) -> Unit,
+    onChangeDisguise: (AppDisguiseMode) -> Unit,
+    onUpdatePrivacyConfig: (PrivacyStealthConfig) -> Unit,
+    onTogglePrivacyShield: (Boolean) -> Unit,
+    onChangeIconAlias: (AppIconAlias) -> Unit,
+) {
+    val palette = LocalForHappyPalette.current
+    val context = LocalContext.current
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // 1. Disguise Mode
+        Text("界面伪装模式（隐藏原站五栏底栏）", color = palette.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            AppDisguiseMode.entries.forEach { mode ->
+                val selected = privacyConfig.disguiseMode == mode
+                Surface(
+                    color = if (selected) palette.primary.copy(alpha = 0.08f) else palette.surface2.copy(alpha = 0.6f),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onChangeDisguise(mode) },
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 9.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(mode.label, color = palette.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            Text(mode.subtitle, color = palette.muted, fontSize = 11.sp, lineHeight = 15.sp)
+                        }
+                        if (selected) {
+                            Spacer(Modifier.width(8.dp))
+                            BadgePill("当前", containerColor = palette.primary, contentColor = palette.onPrimary)
+                        }
+                    }
+                }
+            }
+        }
+
+        HorizontalDivider(color = palette.line)
+
+        // 2. Day / Night Theme (decoupled from disguise)
+        Text("日夜视觉主题", color = palette.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            AppThemeMode.dayNightEntries.forEach { mode ->
+                FilterChip(
+                    selected = themeMode == mode,
+                    onClick = { onChangeTheme(mode) },
+                    label = { Text(mode.label, fontSize = 12.sp) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = palette.primary,
+                        selectedLabelColor = palette.onPrimary,
+                    ),
+                )
+            }
+        }
+
+        HorizontalDivider(color = palette.line)
+
+        // 3. Blur All Configuration
+        Text("全图模糊（防突现大图）", color = palette.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        StealthToggleRow(
+            title = "开启全图模糊",
+            subtitle = "所有图片视频默认高斯模糊，点哪张哪张变清晰",
+            checked = privacyConfig.blurAllEnabled,
+            onCheckedChange = { onUpdatePrivacyConfig(privacyConfig.copy(blurAllEnabled = it)) },
+        )
+        StealthToggleRow(
+            title = "进入伪装模式时自动开启全图模糊",
+            subtitle = "切入飞书 / LINUX DO 自动糊图，退出伪装恢复",
+            checked = privacyConfig.autoBlurOnEnterDisguise,
+            onCheckedChange = { onUpdatePrivacyConfig(privacyConfig.copy(autoBlurOnEnterDisguise = it)) },
+        )
+        StealthToggleRow(
+            title = "点开看清的图片滑出屏幕后自动恢复模糊",
+            subtitle = "滑走后自动糊回，无需手动点第二下",
+            checked = privacyConfig.autoReblurOnScrollOff,
+            onCheckedChange = { onUpdatePrivacyConfig(privacyConfig.copy(autoReblurOnScrollOff = it)) },
+        )
+        StealthToggleRow(
+            title = "切后台 / 锁屏恢复时自动开启全图模糊",
+            subtitle = "离开或息屏回来时自动进入模糊防窥状态",
+            checked = privacyConfig.autoBlurOnBackground,
+            onCheckedChange = { onUpdatePrivacyConfig(privacyConfig.copy(autoBlurOnBackground = it)) },
+        )
+        Text("全图模糊快捷手势", color = palette.muted, fontSize = 11.sp)
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            ShortcutGestureMode.entries.forEach { gesture ->
+                FilterChip(
+                    selected = privacyConfig.blurShortcut == gesture,
+                    onClick = { onUpdatePrivacyConfig(privacyConfig.copy(blurShortcut = gesture)) },
+                    label = { Text(gesture.label, fontSize = 11.sp) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = palette.primary,
+                        selectedLabelColor = palette.onPrimary,
+                    ),
+                )
+            }
+        }
+
+        HorizontalDivider(color = palette.line)
+
+        // 4. Boss Key (Feishu Cloud Doc) Blind Triggers
+        Text("老板键（飞书云文档《Q4 项目复盘》）盲操触发", color = palette.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        StealthToggleRow(
+            title = "无弹窗时连滑两次系统返回",
+            subtitle = "450ms 内连滑两次返回即切入云文档（对应网页双击 Esc）",
+            checked = privacyConfig.bossDoubleBack,
+            onCheckedChange = { onUpdatePrivacyConfig(privacyConfig.copy(bossDoubleBack = it)) },
+        )
+        StealthToggleRow(
+            title = "手机屏幕朝下扣放桌面自动切入云文档",
+            subtitle = "传感器检测到翻转扣屏立即掩护，再拿起即为云文档",
+            checked = privacyConfig.bossFlipFaceDown,
+            onCheckedChange = { onUpdatePrivacyConfig(privacyConfig.copy(bossFlipFaceDown = it)) },
+        )
+        StealthToggleRow(
+            title = "切后台 / 锁屏恢复时自动挂起云文档",
+            subtitle = "切换应用或息屏时自动定格为云文档页面",
+            checked = privacyConfig.bossOnBackgroundResume,
+            onCheckedChange = { onUpdatePrivacyConfig(privacyConfig.copy(bossOnBackgroundResume = it)) },
+        )
+        Text("双击侧面音量键切入云文档", color = palette.muted, fontSize = 11.sp)
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            listOf(
+                ShortcutGestureMode.NONE,
+                ShortcutGestureMode.VOL_DOUBLE_DOWN,
+                ShortcutGestureMode.VOL_DOUBLE_UP,
+            ).forEach { gesture ->
+                FilterChip(
+                    selected = privacyConfig.bossVolumeShortcut == gesture,
+                    onClick = { onUpdatePrivacyConfig(privacyConfig.copy(bossVolumeShortcut = gesture)) },
+                    label = { Text(gesture.label, fontSize = 11.sp) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = palette.primary,
+                        selectedLabelColor = palette.onPrimary,
+                    ),
+                )
+            }
+        }
+
+        HorizontalDivider(color = palette.line)
+
+        // 5. Launcher Icon Disguise & FLAG_SECURE
+        Text("桌面启动器图标伪装（切换后桌面数秒内刷新）", color = palette.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            AppIconAlias.entries.forEach { alias ->
+                FilterChip(
+                    selected = activeIconAlias == alias,
+                    onClick = {
+                        switchLauncherAlias(context, alias)
+                        onChangeIconAlias(alias)
+                    },
+                    label = { Text(alias.title, fontSize = 12.sp) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = palette.primary,
+                        selectedLabelColor = palette.onPrimary,
+                    ),
+                )
+            }
+        }
+        StealthToggleRow(
+            title = "防截屏 / 后台任务预览隐私模糊",
+            subtitle = "开启 FLAG_SECURE，切换后台时不显示真实内容缩略图",
+            checked = privacyShieldEnabled,
+            onCheckedChange = onTogglePrivacyShield,
+        )
+    }
+}
+
+@Composable
+private fun StealthToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    val palette = LocalForHappyPalette.current
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = palette.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            Text(subtitle, color = palette.muted, fontSize = 11.sp, lineHeight = 15.sp)
+        }
+        Spacer(Modifier.width(12.dp))
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 

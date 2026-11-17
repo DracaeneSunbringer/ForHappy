@@ -66,12 +66,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -97,10 +99,13 @@ import com.jinhuan.forhappy.core.model.TagStatItem
 import com.jinhuan.forhappy.core.model.WallFilterState
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
+import com.jinhuan.forhappy.core.seen.LocalSeenTracker
+import com.jinhuan.forhappy.core.seen.ObserveMemeSeenDwell
 import com.jinhuan.forhappy.ui.components.BoostPillText
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
 import com.jinhuan.forhappy.ui.components.ReactionChip
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
+import com.jinhuan.forhappy.ui.theme.LocalPrivacyStealthConfig
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -121,8 +126,11 @@ fun WallScreen(
     initialDetailMemeId: Long? = null,
     onConsumeInitialArgs: () -> Unit = {},
     onRequireLogin: () -> Unit = {},
+    onToggleBlurAll: (Boolean) -> Unit = {},
 ) {
     val palette = LocalForHappyPalette.current
+    val privacyConfig = LocalPrivacyStealthConfig.current
+    val seenTracker = LocalSeenTracker.current
     val scope = rememberCoroutineScope()
 
     var columns by remember { mutableIntStateOf(2) }
@@ -171,6 +179,9 @@ fun WallScreen(
     fun reload(curFilter: WallFilterState = filter) {
         scope.launch {
             loading = true
+            if (curFilter.unseenOnly) {
+                seenTracker?.flushNow()
+            }
             val tagsCsv = curFilter.tags.takeIf { it.isNotEmpty() }?.joinToString(",")
             val q = curFilter.searchQuery.trim().ifBlank { null }
             val author = curFilter.author.trim().ifBlank { null }
@@ -187,7 +198,12 @@ fun WallScreen(
                 nsfwHide = hideNsfw,
                 author = author,
             )
-            memes = flat
+            seenTracker?.ingestFetchedMemes(flat)
+            memes = if (curFilter.unseenOnly) {
+                flat.filter { seenTracker?.isSeen(it.id, it.seenAt) != true }
+            } else {
+                flat
+            }
             hasMore = flat.size >= 30
             loading = false
         }
@@ -203,7 +219,7 @@ fun WallScreen(
             val hideNsfw = filter.nsfwMode == "hide"
             val existingIds = memes.asSequence().map { it.id }.toHashSet()
 
-            val appended = api.fetchMemes(
+            val appendedRaw = api.fetchMemes(
                 limit = 30,
                 offset = memes.size,
                 tag = tagsCsv,
@@ -213,10 +229,14 @@ fun WallScreen(
                 textFilter = filter.textFilter,
                 nsfwHide = hideNsfw,
                 author = author,
-            ).filter { existingIds.add(it.id) }
+            )
+            seenTracker?.ingestFetchedMemes(appendedRaw)
+            val appended = appendedRaw.filter { existingIds.add(it.id) }.let { list ->
+                if (filter.unseenOnly) list.filter { seenTracker?.isSeen(it.id, it.seenAt) != true } else list
+            }
             if (appended.isNotEmpty()) {
                 memes = memes + appended
-                hasMore = appended.size >= 25
+                hasMore = appendedRaw.size >= 25
             } else {
                 hasMore = false
             }
@@ -621,6 +641,8 @@ fun WallScreen(
     if (showFilterSheet) {
         WallFilterSheet(
             current = filter,
+            blurAllEnabled = privacyConfig.blurAllEnabled,
+            onToggleBlurAll = onToggleBlurAll,
             availableTags = popularTags.map { it.tag }.ifEmpty { anchors.map { it.name } },
             onDismiss = { showFilterSheet = false },
             onApply = { next ->
@@ -717,6 +739,8 @@ private fun RemovableConditionChip(
 @Composable
 private fun WallFilterSheet(
     current: WallFilterState,
+    blurAllEnabled: Boolean,
+    onToggleBlurAll: (Boolean) -> Unit,
     availableTags: List<String>,
     onDismiss: () -> Unit,
     onApply: (WallFilterState) -> Unit,
@@ -792,6 +816,23 @@ private fun WallFilterSheet(
                         Switch(
                             checked = draft.unseenOnly,
                             onCheckedChange = { draft = draft.copy(unseenOnly = it) },
+                        )
+                    }
+                }
+
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("全图模糊", color = palette.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            Text("所有图片先高斯模糊防窥，轻触可单张查看", color = palette.muted, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = blurAllEnabled,
+                            onCheckedChange = onToggleBlurAll,
                         )
                     }
                 }
@@ -896,11 +937,18 @@ private fun MemeWaterfallCard(
     onDoubleTapLike: () -> Unit,
 ) {
     val palette = LocalForHappyPalette.current
+    val privacyConfig = LocalPrivacyStealthConfig.current
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     var showHeartBurst by remember { mutableStateOf(false) }
-    var revealNsfw by remember(meme.id) { mutableStateOf(false) }
+    var revealed by remember(meme.id, privacyConfig.blurAllEnabled) { mutableStateOf(false) }
     var useExtFallback by remember(meme.id) { mutableStateOf(false) }
+
+    if (privacyConfig.autoReblurOnScrollOff) {
+        DisposableEffect(meme.id) {
+            onDispose { revealed = false }
+        }
+    }
 
     LaunchedEffect(showHeartBurst) {
         if (showHeartBurst) {
@@ -919,6 +967,21 @@ private fun MemeWaterfallCard(
         if (useExtFallback && primary.isNotBlank()) MediaUrlRewriter.externalFallbackUrl(primary) else primary
     }
 
+    var imageLoaded by remember(rawUrl) { mutableStateOf(rawUrl.isBlank()) }
+    val hasVisual = rawUrl.isNotBlank()
+    val isBlurred = hasVisual && (privacyConfig.blurAllEnabled || meme.isRisky) && !revealed
+    val currentBlurred by rememberUpdatedState(isBlurred)
+    val currentBlurAll by rememberUpdatedState(privacyConfig.blurAllEnabled)
+    val currentRevealed by rememberUpdatedState(revealed)
+
+    ObserveMemeSeenDwell(
+        memeId = meme.id,
+        seenAt = meme.seenAt,
+        memeDay = meme.day,
+        isMediaReady = imageLoaded,
+        isBlurred = isBlurred,
+    )
+
     val knownAspect = remember(meme.effectiveWidth, meme.effectiveHeight, isSingleColumn) {
         val w = meme.effectiveWidth ?: 0
         val h = meme.effectiveHeight ?: 0
@@ -935,23 +998,7 @@ private fun MemeWaterfallCard(
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, palette.line.copy(alpha = 0.7f), RoundedCornerShape(16.dp))
-            .pointerInput(meme.id) {
-                detectTapGestures(
-                    onTap = {
-                        if (meme.isRisky && !revealNsfw) {
-                            revealNsfw = true
-                        } else {
-                            onOpenDetail()
-                        }
-                    },
-                    onDoubleTap = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        showHeartBurst = true
-                        onDoubleTapLike()
-                    },
-                )
-            },
+            .border(1.dp, palette.line.copy(alpha = 0.7f), RoundedCornerShape(16.dp)),
     ) {
         Column {
             if (rawUrl.isNotBlank()) {
@@ -967,7 +1014,23 @@ private fun MemeWaterfallCard(
                         .background(palette.surface2)
                 }
                 Box(
-                    modifier = imgContainerModifier,
+                    modifier = imgContainerModifier
+                        .pointerInput(meme.id) {
+                            detectTapGestures(
+                                onTap = {
+                                    when {
+                                        currentBlurred -> revealed = true
+                                        currentBlurAll && currentRevealed -> revealed = false
+                                        else -> onOpenDetail()
+                                    }
+                                },
+                                onDoubleTap = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    showHeartBurst = true
+                                    onDoubleTapLike()
+                                },
+                            )
+                        },
                     contentAlignment = Alignment.Center,
                 ) {
                     AsyncImage(
@@ -975,6 +1038,7 @@ private fun MemeWaterfallCard(
                         imageLoader = api.imageLoader,
                         contentDescription = meme.safeLabel,
                         contentScale = if (isSingleColumn) ContentScale.FillWidth else ContentScale.Crop,
+                        onSuccess = { imageLoaded = true },
                         onError = {
                             if (!useExtFallback && !rawUrl.contains("/ext?u=")) {
                                 useExtFallback = true
@@ -982,10 +1046,10 @@ private fun MemeWaterfallCard(
                         },
                         modifier = (if (knownAspect != null) Modifier.fillMaxSize() else Modifier.fillMaxWidth())
                             .let { mod ->
-                                if (meme.isRisky && !revealNsfw) mod.blur(20.dp) else mod
+                                if (isBlurred) mod.blur(22.dp) else mod
                             },
                     )
-                    if (meme.isRisky && !revealNsfw) {
+                    if (isBlurred) {
                         Surface(
                             color = Color.Black.copy(alpha = 0.65f),
                             shape = RoundedCornerShape(12.dp),
@@ -996,7 +1060,11 @@ private fun MemeWaterfallCard(
                             ) {
                                 Icon(Icons.Rounded.VisibilityOff, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
                                 Spacer(Modifier.width(4.dp))
-                                Text("NSFW · 轻触显示", color = Color.White, fontSize = 11.sp)
+                                Text(
+                                    text = if (meme.isRisky && !privacyConfig.blurAllEnabled) "NSFW · 轻触显示" else "已模糊 · 轻触显示",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                )
                             }
                         }
                     }
@@ -1020,7 +1088,18 @@ private fun MemeWaterfallCard(
                 if (snippet.isNotBlank()) {
                     Surface(
                         color = palette.surface2.copy(alpha = 0.6f),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .pointerInput(meme.id) {
+                                detectTapGestures(
+                                    onTap = { onOpenDetail() },
+                                    onDoubleTap = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        showHeartBurst = true
+                                        onDoubleTapLike()
+                                    },
+                                )
+                            },
                     ) {
                         Text(
                             text = snippet,
@@ -1034,7 +1113,28 @@ private fun MemeWaterfallCard(
                 }
             }
 
-            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .pointerInput(meme.id) {
+                        detectTapGestures(
+                            onTap = {
+                                if (currentBlurred) {
+                                    revealed = true
+                                } else {
+                                    onOpenDetail()
+                                }
+                            },
+                            onDoubleTap = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                showHeartBurst = true
+                                onDoubleTapLike()
+                            },
+                        )
+                    }
+                    .padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
                 Text(
                     text = meme.safeLabel,
                     color = palette.text,

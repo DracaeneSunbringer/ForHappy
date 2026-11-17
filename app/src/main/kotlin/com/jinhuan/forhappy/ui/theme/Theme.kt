@@ -12,7 +12,11 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.jinhuan.forhappy.core.model.AppDisguiseMode
 import com.jinhuan.forhappy.core.model.AppThemeMode
+import com.jinhuan.forhappy.core.model.PrivacyStealthConfig
+import com.jinhuan.forhappy.core.seen.LocalSeenTracker
+import com.jinhuan.forhappy.core.seen.SeenTracker
 
 @Immutable
 data class ForHappyPalette(
@@ -76,7 +80,23 @@ val FeishuWorkPalette = ForHappyPalette(
     line = Color(0xFFDEE0E3),
     danger = Color(0xFFF54A45),
     isDark = false,
-    appDisplayName = "飞书文档",
+    appDisplayName = "飞书",
+)
+
+val FeishuWorkDarkPalette = ForHappyPalette(
+    bg = Color(0xFF191919),
+    surface = Color(0xFF222326),
+    surface2 = Color(0xFF2B2C30),
+    text = Color(0xFFEFF0F1),
+    muted = Color(0xFF8F959E),
+    primary = Color(0xFF4C88FF),
+    onPrimary = Color(0xFFFFFFFF),
+    accent = Color(0xFF27395E),
+    gold = Color(0xFFF59E0B),
+    line = Color(0xFF33353A),
+    danger = Color(0xFFF54A45),
+    isDark = true,
+    appDisplayName = "飞书",
 )
 
 val LinuxDoPalette = ForHappyPalette(
@@ -85,7 +105,7 @@ val LinuxDoPalette = ForHappyPalette(
     surface2 = Color(0xFFECEFF4),
     text = Color(0xFF222222),
     muted = Color(0xFF6B7280),
-    primary = Color(0xFF2C3E50),
+    primary = Color(0xFF0088CC),
     onPrimary = Color(0xFFFFFFFF),
     accent = Color(0xFF93C5FD),
     gold = Color(0xFFB45309),
@@ -95,7 +115,24 @@ val LinuxDoPalette = ForHappyPalette(
     appDisplayName = "LINUX DO",
 )
 
+val LinuxDoDarkPalette = ForHappyPalette(
+    bg = Color(0xFF1D1F21),
+    surface = Color(0xFF25282A),
+    surface2 = Color(0xFF2F3336),
+    text = Color(0xFFDDDDDD),
+    muted = Color(0xFF91979E),
+    primary = Color(0xFF1A95E0),
+    onPrimary = Color(0xFFFFFFFF),
+    accent = Color(0xFF274863),
+    gold = Color(0xFFF59E0B),
+    line = Color(0xFF393D40),
+    danger = Color(0xFFEF4444),
+    isDark = true,
+    appDisplayName = "LINUX DO",
+)
+
 val LocalForHappyPalette = staticCompositionLocalOf { WarmPaperLightPalette }
+val LocalPrivacyStealthConfig = staticCompositionLocalOf { PrivacyStealthConfig() }
 
 private val ForHappyShapes = Shapes(
     small = RoundedCornerShape(12.dp),
@@ -107,15 +144,28 @@ private val ForHappyShapes = Shapes(
 @Composable
 fun ForHappyTheme(
     mode: AppThemeMode,
+    privacyConfig: PrivacyStealthConfig = PrivacyStealthConfig(),
+    seenTracker: SeenTracker? = null,
     content: @Composable () -> Unit,
 ) {
     val systemDark = isSystemInDarkTheme()
-    val palette = when (mode) {
-        AppThemeMode.WARM_PAPER_LIGHT -> WarmPaperLightPalette
-        AppThemeMode.PINE_NIGHT_DARK -> PineNightDarkPalette
-        AppThemeMode.FEISHU_WORK -> FeishuWorkPalette
-        AppThemeMode.LINUX_DO -> LinuxDoPalette
-        AppThemeMode.FOLLOW_SYSTEM -> if (systemDark) PineNightDarkPalette else WarmPaperLightPalette
+    val useDark = when (mode) {
+        AppThemeMode.WARM_PAPER_LIGHT -> false
+        AppThemeMode.PINE_NIGHT_DARK -> true
+        AppThemeMode.FOLLOW_SYSTEM -> systemDark
+        AppThemeMode.FEISHU_WORK -> false
+        AppThemeMode.LINUX_DO -> false
+    }
+    val effectiveDisguise = when {
+        privacyConfig.disguiseMode != AppDisguiseMode.NONE -> privacyConfig.disguiseMode
+        mode == AppThemeMode.FEISHU_WORK -> AppDisguiseMode.FEISHU
+        mode == AppThemeMode.LINUX_DO -> AppDisguiseMode.LINUX_DO
+        else -> AppDisguiseMode.NONE
+    }
+    val palette = when (effectiveDisguise) {
+        AppDisguiseMode.FEISHU -> if (useDark) FeishuWorkDarkPalette else FeishuWorkPalette
+        AppDisguiseMode.LINUX_DO -> if (useDark) LinuxDoDarkPalette else LinuxDoPalette
+        AppDisguiseMode.NONE -> if (useDark) PineNightDarkPalette else WarmPaperLightPalette
     }
 
     val colorScheme = if (palette.isDark) {
@@ -150,7 +200,11 @@ fun ForHappyTheme(
         )
     }
 
-    CompositionLocalProvider(LocalForHappyPalette provides palette) {
+    CompositionLocalProvider(
+        LocalForHappyPalette provides palette,
+        LocalPrivacyStealthConfig provides privacyConfig,
+        LocalSeenTracker provides seenTracker,
+    ) {
         MaterialTheme(
             colorScheme = colorScheme,
             shapes = ForHappyShapes,
