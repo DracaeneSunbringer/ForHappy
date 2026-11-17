@@ -31,7 +31,7 @@ class ForHappyApp : Application() {
         db = ForHappyDatabase(this)
         cookieJar = PersistentCookieJar(db)
         rustNetManager = RustNetManager(this, db).also { it.start() }
-        updateController = AppUpdateController(this)
+        updateController = AppUpdateController(this, db)
         apiClient = ForHappyApiClient(
             context = this,
             db = db,

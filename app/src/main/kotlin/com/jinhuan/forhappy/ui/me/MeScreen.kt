@@ -107,6 +107,8 @@ fun MeScreen(
     var folders by remember { mutableStateOf<List<FolderItem>>(emptyList()) }
     var notifs by remember { mutableStateOf<List<NotifItem>>(emptyList()) }
     var customIpInput by remember { mutableStateOf("") }
+    var showCustomMirrorEditor by remember { mutableStateOf(false) }
+    var customMirrorInput by remember(updateState.customMirrorPrefix) { mutableStateOf(updateState.customMirrorPrefix) }
     var cacheBytes by remember { mutableStateOf(api.webAssetCache.cacheSizeBytes()) }
     var consoleMsg by remember { mutableStateOf<String?>(null) }
     var showLedger by remember { mutableStateOf(false) }
@@ -270,6 +272,64 @@ fun MeScreen(
                     color = if (updateState.status == UpdateStatus.ERROR) palette.danger else palette.muted,
                     fontSize = 12.sp,
                 )
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "加速通道：${if (updateState.customMirrorPrefix.isNotBlank()) "自定义源优先 + " else ""}${updateState.activeMirrorCount} 个公益镜像并发竞速",
+                        color = palette.muted,
+                        fontSize = 11.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = if (showCustomMirrorEditor) "收起" else "自定义加速源",
+                        color = palette.primary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier
+                            .clickable { showCustomMirrorEditor = !showCustomMirrorEditor }
+                            .padding(start = 8.dp, top = 2.dp, bottom = 2.dp),
+                    )
+                }
+
+                if (showCustomMirrorEditor) {
+                    Spacer(Modifier.height(6.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        OutlinedTextField(
+                            value = customMirrorInput,
+                            onValueChange = { customMirrorInput = it },
+                            placeholder = { Text("https://example.com/https://github.com（留空自动）", fontSize = 11.sp) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Button(
+                            onClick = {
+                                updateController.saveCustomMirrorPrefix(customMirrorInput)
+                                showCustomMirrorEditor = false
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = palette.primary, contentColor = palette.onPrimary),
+                        ) {
+                            Text("保存", fontSize = 12.sp)
+                        }
+                        if (updateState.customMirrorPrefix.isNotBlank() || customMirrorInput.isNotBlank()) {
+                            OutlinedButton(
+                                onClick = {
+                                    customMirrorInput = ""
+                                    updateController.saveCustomMirrorPrefix("")
+                                    showCustomMirrorEditor = false
+                                },
+                            ) {
+                                Text("清空", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
 
                 if (updateState.status == UpdateStatus.DOWNLOADING) {
                     Spacer(Modifier.height(8.dp))
