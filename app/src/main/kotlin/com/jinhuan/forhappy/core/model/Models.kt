@@ -73,6 +73,13 @@ data class RustNetStatus(
 )
 
 @Serializable
+data class AccountLimitItem(
+    val kind: String = "",
+    val until: Long = 0L,
+    val reason: String? = null,
+)
+
+@Serializable
 data class MeUser(
     val id: Long = 0L,
     val username: String = "",
@@ -84,7 +91,13 @@ data class MeUser(
     val deco: JsonElement? = null,
     @SerialName("trust_level") val trustLevel: Int = 0,
     @SerialName("is_admin") val isAdmin: Boolean = false,
+    val owner: Boolean = false,
+    @SerialName("can_manage_ai") val canManageAi: Boolean = false,
     val fancy: JsonElement? = null,
+    val badges: JsonElement? = null,
+    val unlocks: JsonElement? = null,
+    @SerialName("created_at") val createdAt: Long? = null,
+    val limits: List<AccountLimitItem> = emptyList(),
     @SerialName("linuxdo_id") val linuxdoId: Long? = null,
     @SerialName("notif_prefs") val notifPrefs: Map<String, Boolean> = emptyMap(),
 ) {
@@ -129,10 +142,78 @@ data class AuthConfigResponse(
 @Serializable
 data class AnchorTag(
     val id: Long = 0L,
+    val day: String = "",
+    val thumb: String? = null,
+    val spoiler: Boolean = false,
+    val note: String? = null,
+    val title: String? = null,
     val name: String = "",
     val slug: String = "",
     val kind: String = "",
+) {
+    val displayLabel: String
+        get() = note?.takeIf { it.isNotBlank() }
+            ?: title?.takeIf { it.isNotBlank() }
+            ?: name.ifBlank { "No.$id" }
+}
+
+@Serializable
+data class SiteNotice(
+    val id: Long = 0L,
+    val kind: String = "site",
+    val body: String = "",
+    @SerialName("created_at") val createdAt: Long? = null,
 )
+
+@Serializable
+data class AuthorOption(
+    val username: String = "",
+    val name: String? = null,
+    val avatar: String? = null,
+    val posts: Int = 0,
+) {
+    val displayName: String
+        get() = name?.takeIf { it.isNotBlank() } ?: username.ifBlank { "佚名" }
+}
+
+@Serializable
+data class SeriesCover(
+    val src: String = "",
+    val spoiler: Boolean = false,
+)
+
+@Serializable
+data class SeriesItem(
+    val name: String = "",
+    val desc: String? = null,
+    val n: Int = 0,
+    val likes: Int = 0,
+    @SerialName("first_at") val firstAt: Long = 0L,
+    @SerialName("last_at") val lastAt: Long = 0L,
+    val covers: List<SeriesCover> = emptyList(),
+)
+
+@Serializable
+data class WhoReactedEntry(
+    val username: String = "",
+    val name: String? = null,
+    val avatar: String? = null,
+    val emoji: String? = null,
+    val text: String? = null,
+) {
+    val displayName: String
+        get() = name?.takeIf { it.isNotBlank() } ?: username.ifBlank { "欢友" }
+}
+
+@Serializable
+data class WhoReactedResponse(
+    val items: List<WhoReactedEntry> = emptyList(),
+    val reactions: List<WhoReactedEntry> = emptyList(),
+    val replies: List<WhoReactedEntry> = emptyList(),
+) {
+    val resolvedReactions: List<WhoReactedEntry>
+        get() = items.ifEmpty { reactions }
+}
 
 @Serializable
 data class DayLatest(
@@ -186,7 +267,14 @@ data class MemeMediaItem(
     val w: Int? = null,
     val h: Int? = null,
     val b: Boolean = false,
-)
+) {
+    val resolvedThumbOrUrl: String get() = t?.takeIf { it.isNotBlank() } ?: u.orEmpty()
+    val resolvedFullUrl: String get() = u?.takeIf { it.isNotBlank() } ?: t.orEmpty()
+    val isVideo: Boolean get() = k == "v" || (!v.isNullOrBlank() && k != "l")
+    val isLive: Boolean get() = k == "l" && !v.isNullOrBlank()
+    val isGif: Boolean get() = k == "g" || resolvedFullUrl.endsWith(".gif", ignoreCase = true)
+    val hasOriginalUnmasked: Boolean get() = !o.isNullOrBlank()
+}
 
 @Serializable
 data class MemeQuickReply(
@@ -237,6 +325,9 @@ data class PuzzleSpec(
     val solved: Boolean = false,
     @SerialName("is_owner") val isOwner: Boolean = false,
     val current: PuzzleLayer? = null,
+    val passed: List<PuzzleLayer> = emptyList(),
+    @SerialName("all_layers") val allLayers: List<PuzzleLayer> = emptyList(),
+    val winners: List<ChatUser> = emptyList(),
 )
 
 @Serializable
@@ -304,8 +395,45 @@ data class MemeItem(
             listOfNotNull(image ?: thumb ?: media).filter { it.isNotBlank() }
         }
 
+    val mediaItems: List<MemeMediaItem>
+        get() {
+            if (images.isNotEmpty()) return images
+            val rawVisual = image?.takeIf { it.isNotBlank() }
+                ?: media?.takeIf { it.isNotBlank() }
+                ?: thumb?.takeIf { it.isNotBlank() }
+                ?: return emptyList()
+            val isVid = mediaType?.startsWith("video", ignoreCase = true) == true ||
+                ext.equals("mp4", ignoreCase = true) ||
+                ext.equals("webm", ignoreCase = true) ||
+                rawVisual.endsWith(".mp4", ignoreCase = true) ||
+                rawVisual.endsWith(".webm", ignoreCase = true)
+            val isGifMedia = ext.equals("gif", ignoreCase = true) ||
+                rawVisual.endsWith(".gif", ignoreCase = true)
+            return listOf(
+                MemeMediaItem(
+                    u = if (isVid) (thumb ?: image ?: rawVisual) else rawVisual,
+                    t = thumb ?: image ?: rawVisual,
+                    v = if (isVid) (media?.takeIf { it.isNotBlank() } ?: rawVisual) else null,
+                    k = when {
+                        isVid -> "v"
+                        isGifMedia -> "g"
+                        else -> null
+                    },
+                    w = width,
+                    h = height,
+                ),
+            )
+        }
+
     val effectiveWidth: Int? get() = images.firstOrNull()?.w ?: width
     val effectiveHeight: Int? get() = images.firstOrNull()?.h ?: height
+
+    val isLongImage: Boolean
+        get() {
+            val w = effectiveWidth ?: 0
+            val h = effectiveHeight ?: 0
+            return w > 0 && h.toFloat() / w.toFloat() >= 2.2f
+        }
 
     val totalLikes: Int get() = if (likeCount + ldLikes > 0) likeCount + ldLikes else likes
     val totalComments: Int get() = if (commentCount > 0) commentCount else comments
@@ -388,6 +516,7 @@ data class ChatGroup(
     val name: String = "",
     val slug: String? = null,
     val desc: String? = null,
+    val notice: String? = null,
     val unread: Int = 0,
     @SerialName("at_me") val atMe: Int = 0,
     @SerialName("last_read_id") val lastReadId: Long = 0L,
@@ -398,16 +527,71 @@ data class ChatGroup(
     val joined: Boolean = true,
     val muted: Boolean = false,
     @SerialName("has_pending_join") val hasPendingJoin: Boolean = false,
+    @SerialName("can_manage") val canManage: Boolean = false,
+    val internal: Boolean = false,
+    val idle: Boolean = false,
+    @SerialName("pending_req_count") val pendingReqCount: Int = 0,
+    @SerialName("active_guess_mid") val activeGuessMid: Long = 0L,
+    @SerialName("active_guess_summary") val activeGuessSummary: String = "",
 ) {
     val effectiveLastRead: Long get() = maxOf(lastReadId, lastRead)
     val effectiveLatestId: Long get() = maxOf(latestId, latest?.id ?: 0L)
 }
 
 @Serializable
+data class ChatGoneGroup(
+    val id: Long = 0L,
+    val name: String = "",
+    val desc: String? = null,
+    val kind: String = "new", // "left" | "new" | "kick"
+    val internal: Boolean = false,
+    val idle: Boolean = false,
+    @SerialName("req") val reqCount: Int = 0,
+    @SerialName("member_count") val memberCount: Int = 0,
+    @SerialName("adult_only") val adultOnly: Boolean = false,
+)
+
+@Serializable
 data class ChatGroupsResponse(
     val groups: List<ChatGroup> = emptyList(),
+    @SerialName("dm_unread") val dmUnread: Int = 0,
+    val gone: List<ChatGoneGroup> = emptyList(),
+    @SerialName("can_manage") val canManage: Boolean = false,
+    @SerialName("can_create") val canCreate: Boolean = false,
     val now: Double? = null,
 )
+
+@Serializable
+data class GroupMemberItem(
+    val id: Long = 0L,
+    val username: String = "",
+    val name: String? = null,
+    val nick: String? = null,
+    val avatar: String? = null,
+    val title: String? = null,
+    val role: String? = null,
+    val owner: Boolean = false,
+    val admin: Boolean = false,
+    val online: Boolean = false,
+    @SerialName("joined_at") val joinedAt: Long = 0L,
+    @SerialName("trust_level") val trustLevel: Int = 0,
+    val deco: JsonElement? = null,
+) {
+    val displayName: String
+        get() = name?.takeIf { it.isNotBlank() }
+            ?: nick?.takeIf { it.isNotBlank() }
+            ?: username.ifBlank { "群友 #$id" }
+}
+
+@Serializable
+data class GroupMembersResponse(
+    val members: List<GroupMemberItem> = emptyList(),
+    val items: List<GroupMemberItem> = emptyList(),
+    val users: List<GroupMemberItem> = emptyList(),
+) {
+    val resolvedMembers: List<GroupMemberItem>
+        get() = members.ifEmpty { items.ifEmpty { users } }
+}
 
 @Serializable
 data class ChatMedia(
@@ -625,27 +809,79 @@ data class TagsResponse(
     val tags: List<TagStatItem> = emptyList(),
 )
 
-/** Gallery filter & sort parameters matching `app.js` `listParams`. */
+/** Gallery filter & view preferences matching `app.js` `listParams` + `02a §2`. */
+@Serializable
 data class WallFilterState(
     val sort: String = "new",        // "new" | "hot" | "old"
     val unseenOnly: Boolean = false,
     val textFilter: String = "",     // "" | "only" | "0"
-    val nsfwMode: String = "blur",   // "blur" | "hide"
+    val nsfwMode: String = "blur",   // "hide" | "blur" | "show" | "only"
+    val maskTap: String = "peek",    // "peek" | "view"
+    val viewMode: String = "dual",   // "dual" | "single" | "pager"
+    val byDay: Boolean = true,
     val tags: Set<String> = emptySet(),
     val author: String = "",
+    val series: String = "",
+    val fromDay: String? = null,
+    val focusMemeId: Long? = null,
     val searchQuery: String = "",
 ) {
-    val isByDay: Boolean get() = sort != "hot"
+    val isByDay: Boolean get() = byDay && sort != "hot"
 
     val activeFilterCount: Int
         get() = listOf(
             sort != "new",
             unseenOnly,
             textFilter.isNotBlank(),
-            nsfwMode == "hide",
+            nsfwMode != "blur",
             tags.isNotEmpty(),
             author.isNotBlank(),
+            series.isNotBlank(),
+            !fromDay.isNullOrBlank(),
         ).count { it }
+
+    fun nsfwQueryValue(): String? = when (nsfwMode) {
+        "hide" -> "0"
+        "only" -> "only"
+        else -> null
+    }
+
+    fun shouldBlurMeme(meme: MemeItem, blurAllEnabled: Boolean): Boolean =
+        blurAllEnabled || ((nsfwMode == "blur" || nsfwMode == "only") && meme.isRisky)
+
+    fun summaryCapsuleLabel(): String {
+        val segments = buildList {
+            add(
+                when (sort) {
+                    "hot" -> "热门"
+                    "old" -> "最早"
+                    else -> "最新"
+                },
+            )
+            if (unseenOnly) add("未看")
+            when (nsfwMode) {
+                "hide" -> add("隐藏敏感")
+                "show" -> add("直显")
+                "only" -> add("仅敏感")
+            }
+            when (textFilter) {
+                "only" -> add("纯文")
+                "0" -> add("仅图")
+            }
+            add(
+                when (viewMode) {
+                    "single" -> "单列"
+                    "pager" -> "沉浸"
+                    else -> "双列"
+                },
+            )
+        }
+        return if (segments.size <= 3) {
+            segments.joinToString("·")
+        } else {
+            segments.take(3).joinToString("·") + " +${segments.size - 3}"
+        }
+    }
 }
 
 @Serializable
@@ -690,7 +926,9 @@ data class DmThread(
     @SerialName("peer_avatar") val peerAvatar: String? = null,
     @SerialName("last_body") val lastBody: String? = null,
     @SerialName("last_sender") val lastSender: Long? = null,
+    @SerialName("peer_last_read") val peerLastRead: Long = 0L,
     val unread: Int = 0,
+    val muted: Boolean = false,
     @SerialName("updated_at") val updatedAt: Long = 0L,
     @SerialName("last_at") val lastAt: Long = 0L,
 )
@@ -702,10 +940,25 @@ data class DmMessage(
     @SerialName("sender_id") val senderId: Long = 0L,
     val body: String = "",
     val deleted: Boolean = false,
+    val edited: Boolean = false,
+    @SerialName("edited_at") val editedAt: Long? = null,
     @SerialName("reply_to") val replyTo: ChatReplyPreview? = null,
     val media: List<ChatMedia> = emptyList(),
     @SerialName("created_at") val createdAt: Long = 0L,
 )
+
+@Serializable
+data class DmMessagesResponse(
+    val thread: DmThread? = null,
+    val messages: List<DmMessage> = emptyList(),
+    val items: List<DmMessage> = emptyList(),
+    val updates: List<DmMessage> = emptyList(),
+    @SerialName("has_more") val hasMore: Boolean = false,
+    @SerialName("server_now") val serverNow: Double? = null,
+) {
+    val resolvedMessages: List<DmMessage>
+        get() = messages.ifEmpty { items }
+}
 
 data class NotifCategoryTab(
     val id: String,
@@ -1120,7 +1373,7 @@ enum class AppDisguiseMode(
     val label: String,
     val subtitle: String,
 ) {
-    NONE("", "不伪装（默认尽欢）", "原版五栏主界面（图廊、群聊、鱼鱼谷、百宝箱、我的）"),
+    NONE("", "不伪装（默认尽欢）", "4 Tab 主界面（图廊、消息、发现、我的）"),
     FEISHU("feishu", "飞书聊天界面", "整站变成飞书 IM 会话与工作群，看图、回应、评论、真群聊与私信照常用"),
     LINUX_DO("linuxdo", "LINUX DO 论坛帖子", "整站变成一篇论坛盖楼长帖，每张图一楼，右下角楼层进度条，顶栏拉出群聊抽屉"),
 }
@@ -1149,6 +1402,13 @@ data class PrivacyStealthConfig(
     val bossVolumeShortcut: ShortcutGestureMode = ShortcutGestureMode.NONE,
     val bossFlipFaceDown: Boolean = false,
     val bossOnBackgroundResume: Boolean = false,
+    val isBossPersisted: Boolean = false,
+    val bossReturnDisguise: AppDisguiseMode = AppDisguiseMode.NONE,
+    val keepBlurAfterBossExit: Boolean = true,
+    val bossExitLongPressTitle: Boolean = true,
+    val bossExitTapCollabFive: Boolean = false,
+    val stealthHapticFeedback: Boolean = true,
+    val feishuMemberAliasEnabled: Boolean = true,
 )
 
 @Serializable
@@ -1315,6 +1575,18 @@ data class GuessRecipient(
 }
 
 @Serializable
+data class GuessCloseVote(
+    val active: Boolean = false,
+    val votes: Int = 0,
+    val threshold: Int = 0,
+    @SerialName("voted_by_me") val votedByMe: Boolean = false,
+    @SerialName("can_request") val canRequest: Boolean = false,
+    @SerialName("can_force") val canForce: Boolean = false,
+    @SerialName("fee_coin52") val feeCoin52: Int = 0,
+    val status: String? = null,
+)
+
+@Serializable
 data class GuessRound(
     @SerialName("message_id") val messageId: Long = 0L,
     val state: String = "open",
@@ -1326,6 +1598,7 @@ data class GuessRound(
     val total: JsonElement? = null,
     val currency: String? = null,
     @SerialName("answer_length") val answerLength: Int? = null,
+    @SerialName("response_mode") val responseMode: String? = null,
     val count: Int = 1,
     @SerialName("claimed_count") val claimedCount: Int = 0,
     @SerialName("guess_count") val guessCount: Int = 0,
@@ -1343,6 +1616,7 @@ data class GuessRound(
     val explanation: String? = null,
     @SerialName("owner_answers") val ownerAnswers: List<String> = emptyList(),
     val recipients: List<GuessRecipient> = emptyList(),
+    @SerialName("close_vote") val closeVote: GuessCloseVote? = null,
 ) {
     val totalText: String get() = (total as? JsonPrimitive)?.contentOrNull.orEmpty()
 }
@@ -1417,4 +1691,226 @@ data class GuessHistoryItem(
 data class GuessHistoryResponse(
     val items: List<GuessHistoryItem> = emptyList(),
     val next: String? = null,
+)
+
+@Serializable
+data class NovelExcerptSpec(
+    val bookId: String,
+    val chapter: Int,
+    val theme: String = "paper", // "paper" | "white" | "green" | "night"
+    val title: String,
+    val chapterTitle: String,
+    val excerpt: String,
+)
+
+@Serializable
+data class TitleRaffleItem(
+    val id: Long = 0L,
+    @SerialName("title_name") val titleName: String = "",
+    val title: String? = null,
+    @SerialName("sponsor_name") val sponsorName: String? = null,
+    @SerialName("participant_count") val participantCount: Int = 0,
+    val count: Int = 0,
+    val joined: Boolean = false,
+    @SerialName("ends_at") val endsAt: Long = 0L,
+    @SerialName("winner_name") val winnerName: String? = null,
+) {
+    val resolvedTitleName: String get() = titleName.ifBlank { title.orEmpty() }
+    val resolvedParticipantCount: Int get() = maxOf(participantCount, count)
+}
+
+@Serializable
+enum class ChatScrollPolicy(val key: String, val label: String) {
+    AUTO_FOLLOW("auto", "自动跟随"),
+    SMART("smart", "智能（默认）"),
+    MANUAL("manual", "手动浏览"),
+    ;
+
+    companion object {
+        fun fromKey(key: String?): ChatScrollPolicy =
+            entries.firstOrNull { it.key == key } ?: SMART
+    }
+}
+
+@Serializable
+enum class ChatInputMode(val label: String) {
+    CHAT("聊天"),
+    GUESS("猜"),
+    ASK("问"),
+}
+
+@Serializable
+data class GroupInputDrafts(
+    val chat: String = "",
+    val guess: String = "",
+    val ask: String = "",
+) {
+    fun textFor(mode: ChatInputMode): String = when (mode) {
+        ChatInputMode.CHAT -> chat
+        ChatInputMode.GUESS -> guess
+        ChatInputMode.ASK -> ask
+    }
+
+    fun withText(mode: ChatInputMode, value: String): GroupInputDrafts = when (mode) {
+        ChatInputMode.CHAT -> copy(chat = value)
+        ChatInputMode.GUESS -> copy(guess = value)
+        ChatInputMode.ASK -> copy(ask = value)
+    }
+
+    val isAllBlank: Boolean
+        get() = chat.isBlank() && guess.isBlank() && ask.isBlank()
+}
+
+sealed interface UnifiedSessionItem {
+    val sessionKey: String
+    val sortTimestamp: Long
+    val isPinned: Boolean
+    val isMuted: Boolean
+    val unreadCount: Int
+    val hasMention: Boolean
+
+    data class Group(
+        val group: ChatGroup,
+        override val isPinned: Boolean,
+        val hasActiveGuess: Boolean = false,
+    ) : UnifiedSessionItem {
+        override val sessionKey: String get() = "g:${group.id}"
+        override val sortTimestamp: Long get() = group.latest?.at ?: 0L
+        override val isMuted: Boolean get() = group.muted
+        override val unreadCount: Int get() = if (group.muted) group.atMe else group.unread
+        override val hasMention: Boolean get() = group.atMe > 0
+    }
+
+    data class Dm(
+        val thread: DmThread,
+        override val isPinned: Boolean,
+        override val isMuted: Boolean,
+    ) : UnifiedSessionItem {
+        override val sessionKey: String get() = "d:${thread.id}"
+        override val sortTimestamp: Long get() = maxOf(thread.lastAt, thread.updatedAt)
+        override val unreadCount: Int get() = if (isMuted) 0 else thread.unread
+        override val hasMention: Boolean get() = false
+    }
+}
+
+data class ChatOpenSessionRequest(
+    val requestId: Long = System.nanoTime(),
+    val mode: String = "group", // "group" | "dm"
+    val groupId: Long = 1L,
+    val dmThreadId: Long? = null,
+    val jumpMessageId: Long? = null,
+    val filter: String? = null,
+)
+
+@Serializable
+data class RedpackArchiveItem(
+    val id: Long = 0L,
+    @SerialName("message_id") val messageId: Long = 0L,
+    val title: String = "",
+    val prompt: String = "",
+    val provider: String = "native",
+    @SerialName("payment_provider") val paymentProvider: String? = null,
+    val mode: String = "open",
+    val state: String = "open",
+    val total: JsonElement? = null,
+    val currency: String? = null,
+    val count: Int = 0,
+    val opened: Int = 0,
+    @SerialName("sender_name") val senderName: String? = null,
+    @SerialName("created_at") val createdAt: Long = 0L,
+) {
+    val displayTitle: String get() = prompt.ifBlank { title.ifBlank { "红包 #${if (messageId > 0L) messageId else id}" } }
+    val totalText: String get() = (total as? JsonPrimitive)?.contentOrNull.orEmpty()
+}
+
+@Serializable
+data class SenderStatItem(
+    @SerialName("user_id") val userId: Long = 0L,
+    val username: String = "",
+    val name: String? = null,
+    val avatar: String? = null,
+    val count: Int = 0,
+    val total: JsonElement? = null,
+    val currency: String? = null,
+) {
+    val displayName: String get() = name?.takeIf { it.isNotBlank() } ?: username.ifBlank { "欢友" }
+    val totalText: String get() = (total as? JsonPrimitive)?.contentOrNull.orEmpty()
+}
+
+@Serializable
+data class FishFundingStatus(
+    val bound: Boolean = false,
+    val enabled: Boolean = false,
+    val masked: String? = null,
+    @SerialName("balance_text") val balanceText: String? = null,
+    @SerialName("auth_url") val authUrl: String? = null,
+)
+
+@Serializable
+data class CreditFundingStatus(
+    val bound: Boolean = false,
+    val enabled: Boolean = false,
+    @SerialName("client_id_masked") val clientIdMasked: String? = null,
+    @SerialName("balance_text") val balanceText: String? = null,
+    @SerialName("auth_url") val authUrl: String? = null,
+)
+
+@Serializable
+data class MeItemsResponse(
+    val items: List<MemeItem> = emptyList(),
+    val more: Boolean = false,
+    val total: Int = 0,
+)
+
+@Serializable
+data class HbKeyStatus(
+    val bound: Boolean = false,
+    @SerialName("key_id") val keyId: String? = null,
+    @SerialName("revealed_key") val revealedKey: String? = null,
+)
+
+@Serializable
+data class RoadCommentItem(
+    val id: Long = 0L,
+    @SerialName("road_id") val roadId: Long = 0L,
+    val body: String = "",
+    val user: ChatUser? = null,
+    @SerialName("author_name") val authorName: String? = null,
+    @SerialName("created_at") val createdAt: Long = 0L,
+) {
+    val displayAuthor: String get() = user?.displayName ?: authorName ?: "欢友"
+}
+
+@Serializable
+data class MoyuCustomHoliday(
+    val name: String = "",
+    val dateIso: String = "", // YYYY-MM-DD
+)
+
+@Serializable
+data class MoyuConfig(
+    val startHm: String = "09:00",
+    val offHm: String = "18:00",
+    val payDay: Int = 10,
+    val monthlySalary: Double = 0.0,
+    val workDaysPerMonth: Double = 21.75,
+    val dailyHours: Double = 8.0,
+    val showInWallHeader: Boolean = false,
+    val showPetOnCard: Boolean = false,
+    val holidays: List<MoyuCustomHoliday> = emptyList(),
+)
+
+@Serializable
+data class DecoConfig(
+    val customTitle: String = "",
+    val titleStyle: String = "pill", // "pill" | "tag" | "ribbon"
+    val fillMode: String = "solid", // "solid" | "gradient" | "glow"
+    val primaryHex: String = "#1B7F4B",
+    val secondaryHex: String = "#34A853",
+    val nickGradient: String = "", // "" | "pine" | "sunset" | "aurora" | "gold"
+    val bubbleSkin: String = "default", // "default" | "warm" | "moss" | "ocean" | "paper"
+    val cleanHideOthersNick: Boolean = false,
+    val cleanHideOthersBadges: Boolean = false,
+    val cleanHideOthersStyles: Boolean = false,
+    val cleanHideBubbles: Boolean = false,
 )

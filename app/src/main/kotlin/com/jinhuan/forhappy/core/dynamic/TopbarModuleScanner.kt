@@ -4,7 +4,7 @@ import com.jinhuan.forhappy.core.model.DynamicModule
 
 /**
  * Parses live topbar `<nav class="mainnav">` and `.mobile-nav` entries from `/` HTML
- * to dynamically discover newly launched or retired server modules without app updates.
+ * to dynamically discover newly launched server modules while strictly excluding retired routes.
  */
 object TopbarModuleScanner {
     private val NAV_BLOCK_REGEX = Regex("""<nav\b[^>]*class\s*=\s*["'][^"']*mainnav[^"']*["'][^>]*>([\s\S]*?)</nav>""", RegexOption.IGNORE_CASE)
@@ -13,14 +13,23 @@ object TopbarModuleScanner {
     private val HREF_REGEX = Regex("""href\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
     private val STRIP_TAGS_REGEX = Regex("""<[^>]+>""")
 
+    val RETIRED_ROUTE_PREFIXES = setOf(
+        "/puzzles",
+        "/tools",
+        "/farm",
+        "/manor",
+        "/huancai",
+        "/music",
+        "/nsfw",
+    )
+
     val DEFAULT_BUILT_IN_MODULES = listOf(
         DynamicModule("wall", "图廊", "/", iconKey = "gallery", isBuiltInNative = true),
         DynamicModule("chat", "群聊", "/chat", iconKey = "chat", isBuiltInNative = true),
         DynamicModule("road", "鞭打", "/road", iconKey = "road", isBuiltInNative = true),
         DynamicModule("novels", "小说", "/novels", iconKey = "book", isBuiltInNative = true),
         DynamicModule("pets", "鱼鱼谷", "/pets", iconKey = "pets", isBuiltInNative = true),
-        DynamicModule("puzzles", "解谜", "/puzzles", iconKey = "puzzle", isBuiltInNative = true, visibleInNav = true),
-        DynamicModule("moyu", "摸鱼工具", "/moyu", iconKey = "tools", isBuiltInNative = true, visibleInNav = true),
+        DynamicModule("moyu", "摸鱼日历", "/moyu", iconKey = "tools", isBuiltInNative = true, visibleInNav = true),
     )
 
     private val KNOWN_ROUTE_META = mapOf(
@@ -31,11 +40,14 @@ object TopbarModuleScanner {
         "/novels" to Triple("novels", "book", true),
         "/pets" to Triple("pets", "pets", true),
         "/pet-isle" to Triple("pets", "pets", true),
-        "/puzzles" to Triple("puzzles", "puzzle", true),
-        "/farm" to Triple("farm", "farm", false),
-        "/manor" to Triple("manor", "manor", false),
-        "/huancai" to Triple("huancai", "sparkle", false),
     )
+
+    fun isRetiredRoute(route: String): Boolean {
+        val clean = normalizeRoute(route)
+        return RETIRED_ROUTE_PREFIXES.any { prefix ->
+            clean == prefix || clean.startsWith("$prefix/")
+        }
+    }
 
     fun parseTopbarHtml(html: String): List<DynamicModule> {
         if (html.isBlank()) return emptyList()
@@ -61,7 +73,9 @@ object TopbarModuleScanner {
                 return@forEach
             }
             val normalizedRoute = normalizeRoute(href)
-            if (normalizedRoute == "/me" || normalizedRoute == "/login") return@forEach
+            if (normalizedRoute == "/me" || normalizedRoute == "/login" || isRetiredRoute(normalizedRoute)) {
+                return@forEach
+            }
 
             val label = rawLabel.ifBlank { fallbackLabelForRoute(normalizedRoute) }
             val known = KNOWN_ROUTE_META.entries.firstOrNull { (prefix, _) ->
@@ -89,17 +103,18 @@ object TopbarModuleScanner {
     }
 
     /**
-     * Merges parsed server topbar items with offline defaults so core tools stay accessible even offline
-     * while new server topbar modules surface with a `NEW` badge.
+     * Merges parsed server topbar items with offline defaults while strictly filtering out retired routes
+     * so offline navigation stays clean and newly launched server modules surface with a `NEW` badge.
      */
     fun mergeWithDefaults(parsed: List<DynamicModule>): List<DynamicModule> {
-        if (parsed.isEmpty()) return DEFAULT_BUILT_IN_MODULES
+        val activeParsed = parsed.filterNot { isRetiredRoute(it.route) }
+        if (activeParsed.isEmpty()) return DEFAULT_BUILT_IN_MODULES
         val merged = linkedMapOf<String, DynamicModule>()
-        for (mod in parsed) {
+        for (mod in activeParsed) {
             merged[mod.route] = mod
         }
         for (fallback in DEFAULT_BUILT_IN_MODULES) {
-            if (!merged.containsKey(fallback.route)) {
+            if (!merged.containsKey(fallback.route) && !isRetiredRoute(fallback.route)) {
                 merged[fallback.route] = fallback
             }
         }
@@ -113,7 +128,8 @@ object TopbarModuleScanner {
             else -> href
         }
         val pathOnly = withoutOrigin.substringBefore('?').substringBefore('#')
-        return if (pathOnly.isBlank()) "/" else if (pathOnly.startsWith('/')) pathOnly else "/$pathOnly"
+        val clean = if (pathOnly.isBlank()) "/" else if (pathOnly.startsWith('/')) pathOnly else "/$pathOnly"
+        return if (clean.length > 1) clean.trimEnd('/') else clean
     }
 
     private fun fallbackLabelForRoute(route: String): String = when {

@@ -2,10 +2,19 @@ package com.jinhuan.forhappy.core.chat
 
 import com.jinhuan.forhappy.core.clock.ServerClock
 import com.jinhuan.forhappy.core.db.ForHappyDatabase
+import com.jinhuan.forhappy.core.model.ChatGoneGroup
 import com.jinhuan.forhappy.core.model.ChatGroup
+import com.jinhuan.forhappy.core.model.ChatGroupsResponse
+import com.jinhuan.forhappy.core.model.ChatInputMode
 import com.jinhuan.forhappy.core.model.ChatMessage
 import com.jinhuan.forhappy.core.model.ChatMessagesResponse
 import com.jinhuan.forhappy.core.model.ChatReplyPreview
+import com.jinhuan.forhappy.core.model.ChatScrollPolicy
+import com.jinhuan.forhappy.core.model.DmThread
+import com.jinhuan.forhappy.core.model.ForHappyJson
+import com.jinhuan.forhappy.core.model.GroupInputDrafts
+import com.jinhuan.forhappy.core.model.GuessRound
+import com.jinhuan.forhappy.core.model.UnifiedSessionItem
 import com.jinhuan.forhappy.core.network.scheduler.BackgroundGate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -15,10 +24,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -43,9 +55,12 @@ class ChatSessionController(
     private val deleteMessageFn: suspend (msgId: Long) -> Boolean,
     private val postBoostFn: suspend (msgId: Long, text: String) -> Result<ChatMessage?> = { _, _ -> Result.success(null) },
     private val postReactionMsgFn: suspend (msgId: Long, emoji: String) -> ChatMessage? = { _, _ -> null },
+    private val fetchDmThreadsFn: (suspend () -> List<DmThread>)? = null,
+    private val fetchGroupsEnvelopeFn: (suspend () -> ChatGroupsResponse?)? = null,
 ) {
     data class ChatUiState(
         val groups: List<ChatGroup> = emptyList(),
+        val dmThreads: List<DmThread> = emptyList(),
         val activeGroupId: Long = 1L,
         val messages: List<ChatMessage> = emptyList(),
         val hasMoreOlder: Boolean = false,
@@ -54,7 +69,44 @@ class ChatSessionController(
         val lastError: String? = null,
         val replyTarget: ChatMessage? = null,
         val editTarget: ChatMessage? = null,
-    )
+        val goneGroups: List<ChatGoneGroup> = emptyList(),
+        val serverDmUnread: Int = 0,
+        val hasLoadedDmThreads: Boolean = false,
+        val pinnedSessionKeys: Set<String> = setOf("g:1"),
+        val mutedDmIds: Set<Long> = emptySet(),
+        val scrollPolicy: ChatScrollPolicy = ChatScrollPolicy.SMART,
+        val cleanDecoMode: Boolean = false,
+        val activeGuessRoundByGroup: Map<Long, GuessRound> = emptyMap(),
+        val draftsByGroup: Map<Long, GroupInputDrafts> = emptyMap(),
+        val unreadEntryBoundaryByGroup: Map<Long, Long> = emptyMap(),
+        val aroundJumpActiveByGroup: Map<Long, Boolean> = emptyMap(),
+        val aroundTargetMsgIdByGroup: Map<Long, Long> = emptyMap(),
+        val newMessagesSinceLeaveByGroup: Map<Long, Int> = emptyMap(),
+    ) {
+        val groupUnreadCount: Int
+            get() = groups.sumOf { g ->
+                (if (g.muted) g.atMe else g.unread).coerceAtLeast(0)
+            }
+
+        val dmUnreadCount: Int
+            get() = if (hasLoadedDmThreads) {
+                dmThreads.sumOf { t ->
+                    val muted = t.muted || (t.id in mutedDmIds)
+                    if (muted) 0 else t.unread.coerceAtLeast(0)
+                }
+            } else {
+                serverDmUnread.coerceAtLeast(0)
+            }
+
+        val totalUnreadCount: Int
+            get() = groupUnreadCount + dmUnreadCount
+
+        val totalAtMeCount: Int
+            get() = groups.sumOf { it.atMe.coerceAtLeast(0) }
+
+        val hasUnreadMention: Boolean
+            get() = totalAtMeCount > 0
+    }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val stateMutex = Mutex()
@@ -65,12 +117,39 @@ class ChatSessionController(
 
     private val messagesByGroup = HashMap<Long, List<ChatMessage>>()
     private val hasMoreOlderByGroup = HashMap<Long, Boolean>()
+    private val savedLiveTailByGroup = HashMap<Long, List<ChatMessage>>()
+    private val savedLiveLastIdByGroup = ConcurrentHashMap<Long, Long>()
 
     private val lastIdByGroup = ConcurrentHashMap<Long, Long>()
     private val sinceSecByGroup = ConcurrentHashMap<Long, Long>()
     private val sentReadByGroup = ConcurrentHashMap<Long, Long>()
     private val pollCycleByGroup = ConcurrentHashMap<Long, Int>()
     private var pollJob: Job? = null
+
+    init {
+        if (db != null) {
+            val savedPinned = db.getKvBlocking(KV_PINNED_SESSIONS)?.let { raw ->
+                runCatching {
+                    ForHappyJson.decodeFromString(ListSerializer(String.serializer()), raw).toSet()
+                }.getOrNull()
+            }
+            val savedMutedDms = db.getKvBlocking(KV_MUTED_DMS)?.let { raw ->
+                runCatching {
+                    ForHappyJson.decodeFromString(ListSerializer(Long.serializer()), raw).toSet()
+                }.getOrNull()
+            }
+            val savedPolicy = ChatScrollPolicy.fromKey(db.getKvBlocking(KV_SCROLL_POLICY))
+            val savedClean = db.getKvBlocking(KV_CLEAN_DECO) == "1"
+            _uiState.update { cur ->
+                cur.copy(
+                    pinnedSessionKeys = savedPinned ?: cur.pinnedSessionKeys,
+                    mutedDmIds = savedMutedDms ?: emptySet(),
+                    scrollPolicy = savedPolicy,
+                    cleanDecoMode = savedClean,
+                )
+            }
+        }
+    }
 
     @Volatile
     var isChatForegroundAtBottom: Boolean = false
@@ -116,6 +195,9 @@ class ChatSessionController(
 
             if (loadedFromDb) {
                 val cached = db?.loadChatMessages(groupId).orEmpty()
+                val loadedDraft = db?.getKv("$KV_DRAFT_PREFIX$groupId")?.let { raw ->
+                    runCatching { ForHappyJson.decodeFromString<GroupInputDrafts>(raw) }.getOrNull()
+                }
                 stateMutex.withLock {
                     val seed = messagesByGroup[groupId] ?: cached
                     if (!messagesByGroup.containsKey(groupId) && cached.isNotEmpty()) {
@@ -123,19 +205,255 @@ class ChatSessionController(
                         hasMoreOlderByGroup.putIfAbsent(groupId, true)
                     }
                     val changedGroup = _uiState.value.activeGroupId != groupId
+                    val draftsMap = if (loadedDraft != null) {
+                        _uiState.value.draftsByGroup + (groupId to loadedDraft)
+                    } else {
+                        _uiState.value.draftsByGroup
+                    }
                     _uiState.value = _uiState.value.copy(
                         activeGroupId = groupId,
                         messages = seed,
                         hasMoreOlder = hasMoreOlderByGroup[groupId] ?: (seed.isNotEmpty()),
                         replyTarget = if (changedGroup) null else _uiState.value.replyTarget,
                         editTarget = if (changedGroup) null else _uiState.value.editTarget,
+                        draftsByGroup = draftsMap,
                         lastError = null,
                     )
                 }
             }
 
+            enterGroupUnreadBoundary(groupId)
             pollOnce(groupId)
         }
+    }
+
+    fun draftForGroup(groupId: Long, mode: ChatInputMode): String {
+        val current = _uiState.value.draftsByGroup[groupId]
+        if (current != null) return current.textFor(mode)
+        val raw = db?.getKvBlocking("$KV_DRAFT_PREFIX$groupId") ?: return ""
+        val decoded = runCatching { ForHappyJson.decodeFromString<GroupInputDrafts>(raw) }.getOrNull() ?: return ""
+        _uiState.update { it.copy(draftsByGroup = it.draftsByGroup + (groupId to decoded)) }
+        return decoded.textFor(mode)
+    }
+
+    fun updateGroupDraft(groupId: Long, mode: ChatInputMode, text: String) {
+        val prev = _uiState.value.draftsByGroup[groupId] ?: GroupInputDrafts()
+        val next = prev.withText(mode, text)
+        _uiState.update { cur ->
+            cur.copy(draftsByGroup = cur.draftsByGroup + (groupId to next))
+        }
+        db?.let { database ->
+            scope.launch {
+                database.putKv("$KV_DRAFT_PREFIX$groupId", ForHappyJson.encodeToString(GroupInputDrafts.serializer(), next))
+            }
+        }
+    }
+
+    fun toggleSessionPinned(sessionKey: String) {
+        val next = _uiState.value.pinnedSessionKeys.let { cur ->
+            if (sessionKey in cur) cur - sessionKey else cur + sessionKey
+        }
+        _uiState.update { it.copy(pinnedSessionKeys = next) }
+        db?.let { database ->
+            scope.launch {
+                database.putKv(
+                    KV_PINNED_SESSIONS,
+                    ForHappyJson.encodeToString(ListSerializer(String.serializer()), next.toList()),
+                )
+            }
+        }
+    }
+
+    fun setGroupMutedLocal(groupId: Long, muted: Boolean) {
+        _uiState.update { cur ->
+            cur.copy(
+                groups = cur.groups.map { g -> if (g.id == groupId) g.copy(muted = muted) else g },
+            )
+        }
+    }
+
+    fun setDmMutedLocal(threadId: Long, muted: Boolean) {
+        val nextMuted = _uiState.value.mutedDmIds.let { cur ->
+            if (muted) cur + threadId else cur - threadId
+        }
+        _uiState.update { cur ->
+            cur.copy(
+                mutedDmIds = nextMuted,
+                dmThreads = cur.dmThreads.map { t -> if (t.id == threadId) t.copy(muted = muted) else t },
+            )
+        }
+        db?.let { database ->
+            scope.launch {
+                database.putKv(
+                    KV_MUTED_DMS,
+                    ForHappyJson.encodeToString(ListSerializer(Long.serializer()), nextMuted.toList()),
+                )
+            }
+        }
+    }
+
+    fun setScrollPolicy(policy: ChatScrollPolicy) {
+        _uiState.update { it.copy(scrollPolicy = policy) }
+        db?.let { database ->
+            scope.launch { database.putKv(KV_SCROLL_POLICY, policy.key) }
+        }
+    }
+
+    fun setCleanDecoMode(enabled: Boolean) {
+        _uiState.update { it.copy(cleanDecoMode = enabled) }
+        db?.let { database ->
+            scope.launch { database.putKv(KV_CLEAN_DECO, if (enabled) "1" else "0") }
+        }
+    }
+
+    fun updateActiveGuessRound(groupId: Long, round: GuessRound?) {
+        _uiState.update { cur ->
+            val next = if (round != null && round.messageId > 0L && round.state == "open") {
+                cur.activeGuessRoundByGroup + (groupId to round)
+            } else {
+                cur.activeGuessRoundByGroup - groupId
+            }
+            cur.copy(activeGuessRoundByGroup = next)
+        }
+    }
+
+    fun enterGroupUnreadBoundary(groupId: Long) {
+        _uiState.update { cur ->
+            if (cur.unreadEntryBoundaryByGroup.containsKey(groupId)) return@update cur
+            val grp = cur.groups.firstOrNull { it.id == groupId } ?: return@update cur
+            val boundary = grp.effectiveLastRead
+            if (grp.unread >= 5 && boundary > 0L) {
+                cur.copy(unreadEntryBoundaryByGroup = cur.unreadEntryBoundaryByGroup + (groupId to boundary))
+            } else {
+                cur
+            }
+        }
+    }
+
+    fun clearUnreadBoundary(groupId: Long) {
+        _uiState.update { cur ->
+            cur.copy(unreadEntryBoundaryByGroup = cur.unreadEntryBoundaryByGroup - groupId)
+        }
+    }
+
+    suspend fun jumpToMessageAround(
+        groupId: Long,
+        targetMsgId: Long,
+        fetchAroundFn: suspend (Long, Long) -> ChatMessagesResponse?,
+    ): Boolean {
+        val resp = fetchAroundFn(groupId, targetMsgId) ?: return false
+        resp.now?.let { ServerClock.calibrateFromServerSec(it) }
+        stateMutex.withLock {
+            val currentLive = messagesByGroup[groupId]
+                ?: if (_uiState.value.activeGroupId == groupId) _uiState.value.messages else emptyList()
+            if (_uiState.value.aroundJumpActiveByGroup[groupId] != true && currentLive.isNotEmpty()) {
+                savedLiveTailByGroup[groupId] = currentLive
+                savedLiveLastIdByGroup[groupId] = lastIdByGroup[groupId] ?: 0L
+            }
+            val sorted = resp.items.sortedWith(messageComparator)
+            messagesByGroup[groupId] = sorted
+            hasMoreOlderByGroup[groupId] = resp.more
+            _uiState.update { cur ->
+                cur.copy(
+                    activeGroupId = groupId,
+                    messages = sorted,
+                    hasMoreOlder = resp.more,
+                    aroundJumpActiveByGroup = cur.aroundJumpActiveByGroup + (groupId to true),
+                    aroundTargetMsgIdByGroup = cur.aroundTargetMsgIdByGroup + (groupId to targetMsgId),
+                    newMessagesSinceLeaveByGroup = cur.newMessagesSinceLeaveByGroup + (groupId to 0),
+                )
+            }
+        }
+        return true
+    }
+
+    suspend fun returnToLiveBottom(groupId: Long) {
+        stateMutex.withLock {
+            val savedTail = savedLiveTailByGroup.remove(groupId)
+            val savedLastId = savedLiveLastIdByGroup.remove(groupId)
+            if (!savedTail.isNullOrEmpty()) {
+                messagesByGroup[groupId] = savedTail
+                if (savedLastId != null && savedLastId > 0L) {
+                    lastIdByGroup[groupId] = savedLastId
+                } else {
+                    lastIdByGroup.remove(groupId)
+                }
+            } else {
+                messagesByGroup.remove(groupId)
+                lastIdByGroup.remove(groupId)
+            }
+            _uiState.update { cur ->
+                cur.copy(
+                    messages = if (cur.activeGroupId == groupId) (savedTail ?: emptyList()) else cur.messages,
+                    aroundJumpActiveByGroup = cur.aroundJumpActiveByGroup - groupId,
+                    aroundTargetMsgIdByGroup = cur.aroundTargetMsgIdByGroup - groupId,
+                    newMessagesSinceLeaveByGroup = cur.newMessagesSinceLeaveByGroup - groupId,
+                )
+            }
+        }
+        pollOnce(groupId)
+    }
+
+    fun buildUnifiedConversationItems(
+        filter: String = "all",
+        query: String = "",
+    ): List<UnifiedSessionItem> {
+        val snap = _uiState.value
+        val q = query.trim().lowercase()
+        val items = mutableListOf<UnifiedSessionItem>()
+
+        if (filter != "dm") {
+            snap.groups.forEach { grp ->
+                val item = UnifiedSessionItem.Group(
+                    group = grp,
+                    isPinned = "g:${grp.id}" in snap.pinnedSessionKeys,
+                    hasActiveGuess = (snap.activeGuessRoundByGroup[grp.id]?.state == "open") ||
+                        grp.activeGuessMid > 0L ||
+                        grp.activeGuessSummary.isNotBlank(),
+                )
+                items += item
+            }
+        }
+        if (filter != "groups" && filter != "at") {
+            snap.dmThreads.forEach { thread ->
+                items += UnifiedSessionItem.Dm(
+                    thread = thread,
+                    isPinned = "d:${thread.id}" in snap.pinnedSessionKeys,
+                    isMuted = thread.muted || (thread.id in snap.mutedDmIds),
+                )
+            }
+        }
+
+        val filtered = items.filter { item ->
+            val filterOk = when (filter) {
+                "at" -> item.hasMention
+                "unread" -> item.unreadCount > 0 || (item.isMuted && when (item) {
+                    is UnifiedSessionItem.Group -> item.group.unread > 0 || item.group.atMe > 0
+                    is UnifiedSessionItem.Dm -> item.thread.unread > 0
+                })
+                else -> true
+            }
+            if (!filterOk) return@filter false
+            if (q.isEmpty()) return@filter true
+            when (item) {
+                is UnifiedSessionItem.Group -> {
+                    item.group.name.lowercase().contains(q) ||
+                        item.group.desc.orEmpty().lowercase().contains(q) ||
+                        item.group.latest?.text.orEmpty().lowercase().contains(q)
+                }
+                is UnifiedSessionItem.Dm -> {
+                    item.thread.peerName.orEmpty().lowercase().contains(q) ||
+                        item.thread.peerUsername.orEmpty().lowercase().contains(q) ||
+                        item.thread.lastBody.orEmpty().lowercase().contains(q)
+                }
+            }
+        }
+
+        return filtered.sortedWith(
+            compareByDescending<UnifiedSessionItem> { it.isPinned }
+                .thenByDescending { it.sortTimestamp }
+                .thenBy { it.sessionKey },
+        )
     }
 
     fun setReplyTarget(message: ChatMessage?) {
@@ -150,9 +468,14 @@ class ChatSessionController(
         if (pollJob?.isActive == true) return
         pollJob = scope.launch {
             refreshGroups()
+            var pollCycle = 0
             while (isActive) {
                 val gid = _uiState.value.activeGroupId
                 val needsFastCatchup = pollOnce(gid)
+                pollCycle += 1
+                if (pollCycle % 5 == 0) {
+                    refreshDmThreads()
+                }
                 delay(if (needsFastCatchup) 250L else BackgroundGate.pollingIntervalMs(3_000L))
             }
         }
@@ -161,25 +484,48 @@ class ChatSessionController(
     fun stopPolling() {
         pollJob?.cancel()
         pollJob = null
-        _uiState.value = _uiState.value.copy(isPollingActive = false)
+        _uiState.update { it.copy(isPollingActive = false) }
     }
 
     suspend fun refreshGroups() {
-        val fetched = runCatching { fetchGroupsFn() }.getOrNull() ?: return
-        stateMutex.withLock {
-            val currentId = _uiState.value.activeGroupId
-            val resolvedId = if (fetched.any { it.id == currentId }) currentId else (fetched.firstOrNull()?.id ?: currentId)
-            val reconciled = fetched.map { g ->
-                val sent = sentReadByGroup[g.id] ?: 0L
-                val headId = maxOf(g.effectiveLatestId, g.effectiveLastRead)
-                if (sent > 0L && sent >= headId) {
-                    g.copy(unread = 0, atMe = 0, lastReadId = maxOf(g.lastReadId, sent), lastRead = maxOf(g.lastRead, sent))
-                } else {
-                    g
+        val envelope = fetchGroupsEnvelopeFn?.let { runCatching { it() }.getOrNull() }
+        val fetched = envelope?.groups ?: runCatching { fetchGroupsFn() }.getOrNull()
+        if (fetched != null) {
+            stateMutex.withLock {
+                val currentId = _uiState.value.activeGroupId
+                val resolvedId = if (fetched.any { it.id == currentId }) currentId else (fetched.firstOrNull()?.id ?: currentId)
+                val reconciled = fetched.map { g ->
+                    val sent = sentReadByGroup[g.id] ?: 0L
+                    val headId = maxOf(g.effectiveLatestId, g.effectiveLastRead)
+                    if (sent > 0L && sent >= headId) {
+                        g.copy(unread = 0, atMe = 0, lastReadId = maxOf(g.lastReadId, sent), lastRead = maxOf(g.lastRead, sent))
+                    } else {
+                        g
+                    }
+                }
+                _uiState.update { cur ->
+                    cur.copy(
+                        groups = reconciled,
+                        activeGroupId = resolvedId,
+                        goneGroups = envelope?.gone ?: cur.goneGroups,
+                        serverDmUnread = envelope?.dmUnread ?: cur.serverDmUnread,
+                    )
                 }
             }
-            _uiState.value = _uiState.value.copy(groups = reconciled, activeGroupId = resolvedId)
         }
+        refreshDmThreads()
+    }
+
+    suspend fun refreshDmThreads() {
+        val fetcher = fetchDmThreadsFn ?: return
+        val fetched = runCatching { fetcher() }.getOrNull() ?: return
+        stateMutex.withLock {
+            _uiState.update { it.copy(dmThreads = fetched, hasLoadedDmThreads = true) }
+        }
+    }
+
+    fun updateDmThreadsLocal(threads: List<DmThread>) {
+        _uiState.update { it.copy(dmThreads = threads, hasLoadedDmThreads = true) }
     }
 
     suspend fun acknowledgeGroupRead(
@@ -224,6 +570,9 @@ class ChatSessionController(
 
     suspend fun pollOnce(groupId: Long): Boolean {
         val moreRemaining = pollLockFor(groupId).withLock {
+            if (_uiState.value.aroundJumpActiveByGroup[groupId] == true && (lastIdByGroup[groupId] ?: 0L) == 0L) {
+                return@withLock false
+            }
             var after = lastIdByGroup[groupId] ?: 0L
             if (after == 0L) {
                 val resp = fetchMessagesFn(groupId, 0L, 0L, null) ?: return@withLock false
@@ -287,50 +636,75 @@ class ChatSessionController(
                     val advanced = nextAfter != null && nextAfter > after
 
                     stateMutex.withLock {
-                        val current = messagesByGroup[groupId]
-                            ?: if (_uiState.value.activeGroupId == groupId) _uiState.value.messages else emptyList()
-                        var merged = mergeServerDelta(
-                            current = current,
-                            newItems = resp.items,
-                            changedItems = resp.changed,
-                            isLiveIncremental = true,
-                        )
-                        var hasMore = hasMoreOlderByGroup[groupId]
-                            ?: if (_uiState.value.activeGroupId == groupId) _uiState.value.hasMoreOlder else false
-
-                        if (isChatForegroundAtBottom && _uiState.value.activeGroupId == groupId && merged.size > 400) {
-                            merged = merged.drop(merged.size - 320)
-                            hasMore = true
-                        }
-
-                        messagesByGroup[groupId] = merged
-                        hasMoreOlderByGroup[groupId] = hasMore
-                        latestMerged = merged
-                        if (nextAfter != null) {
-                            lastIdByGroup[groupId] = nextAfter
-                        }
-
-                        val newlyArrivedUnread = resp.items.count { it.id > after && !it.mine && !it.deleted }
-                        val shouldIncrementUnread = newlyArrivedUnread > 0 &&
-                            !(isChatForegroundAtBottom && _uiState.value.activeGroupId == groupId)
-                        val updatedGroups = if (shouldIncrementUnread) {
-                            _uiState.value.groups.map { g ->
-                                if (g.id == groupId) g.copy(unread = (g.unread + newlyArrivedUnread).coerceAtMost(99)) else g
+                        val isAroundJumping = _uiState.value.aroundJumpActiveByGroup[groupId] == true
+                        if (isAroundJumping) {
+                            val tailBase = savedLiveTailByGroup[groupId].orEmpty()
+                            val tailMerged = mergeServerDelta(
+                                current = tailBase,
+                                newItems = resp.items,
+                                changedItems = resp.changed,
+                                isLiveIncremental = true,
+                            )
+                            savedLiveTailByGroup[groupId] = tailMerged
+                            if (nextAfter != null) {
+                                lastIdByGroup[groupId] = nextAfter
+                                savedLiveLastIdByGroup[groupId] = nextAfter
+                            }
+                            val added = resp.items.count { it.id > after && !it.deleted }
+                            if (added > 0) {
+                                _uiState.update { cur ->
+                                    val prevCnt = cur.newMessagesSinceLeaveByGroup[groupId] ?: 0
+                                    cur.copy(
+                                        newMessagesSinceLeaveByGroup = cur.newMessagesSinceLeaveByGroup + (groupId to (prevCnt + added)),
+                                    )
+                                }
                             }
                         } else {
-                            _uiState.value.groups
-                        }
-
-                        if (_uiState.value.activeGroupId == groupId) {
-                            _uiState.value = _uiState.value.copy(
-                                groups = updatedGroups,
-                                messages = merged,
-                                hasMoreOlder = hasMore,
-                                isPollingActive = true,
-                                lastError = null,
+                            val current = messagesByGroup[groupId]
+                                ?: if (_uiState.value.activeGroupId == groupId) _uiState.value.messages else emptyList()
+                            var merged = mergeServerDelta(
+                                current = current,
+                                newItems = resp.items,
+                                changedItems = resp.changed,
+                                isLiveIncremental = true,
                             )
-                        } else if (shouldIncrementUnread) {
-                            _uiState.value = _uiState.value.copy(groups = updatedGroups)
+                            var hasMore = hasMoreOlderByGroup[groupId]
+                                ?: if (_uiState.value.activeGroupId == groupId) _uiState.value.hasMoreOlder else false
+
+                            if (isChatForegroundAtBottom && _uiState.value.activeGroupId == groupId && merged.size > 400) {
+                                merged = merged.drop(merged.size - 320)
+                                hasMore = true
+                            }
+
+                            messagesByGroup[groupId] = merged
+                            hasMoreOlderByGroup[groupId] = hasMore
+                            latestMerged = merged
+                            if (nextAfter != null) {
+                                lastIdByGroup[groupId] = nextAfter
+                            }
+
+                            val newlyArrivedUnread = resp.items.count { it.id > after && !it.mine && !it.deleted }
+                            val shouldIncrementUnread = newlyArrivedUnread > 0 &&
+                                !(isChatForegroundAtBottom && _uiState.value.activeGroupId == groupId)
+                            val updatedGroups = if (shouldIncrementUnread) {
+                                _uiState.value.groups.map { g ->
+                                    if (g.id == groupId) g.copy(unread = (g.unread + newlyArrivedUnread).coerceAtMost(99)) else g
+                                }
+                            } else {
+                                _uiState.value.groups
+                            }
+
+                            if (_uiState.value.activeGroupId == groupId) {
+                                _uiState.value = _uiState.value.copy(
+                                    groups = updatedGroups,
+                                    messages = merged,
+                                    hasMoreOlder = hasMore,
+                                    isPollingActive = true,
+                                    lastError = null,
+                                )
+                            } else if (shouldIncrementUnread) {
+                                _uiState.value = _uiState.value.copy(groups = updatedGroups)
+                            }
                         }
                     }
 
@@ -350,7 +724,11 @@ class ChatSessionController(
         val newestId = stateMutex.withLock {
             messagesByGroup[groupId]?.lastOrNull { it.id > 0L }?.id ?: 0L
         }
-        if (isChatForegroundAtBottom && _uiState.value.activeGroupId == groupId && newestId > 0L) {
+        if (isChatForegroundAtBottom &&
+            _uiState.value.activeGroupId == groupId &&
+            _uiState.value.aroundJumpActiveByGroup[groupId] != true &&
+            newestId > 0L
+        ) {
             acknowledgeGroupRead(groupId, newestId)
         }
         val cycle = (pollCycleByGroup[groupId] ?: 0) + 1
@@ -697,5 +1075,13 @@ class ChatSessionController(
     private fun maxOfId(items: List<ChatMessage>, fallback: Long): Long? {
         val mx = items.maxOfOrNull { it.id } ?: return null
         return maxOf(mx, fallback)
+    }
+
+    companion object {
+        private const val KV_PINNED_SESSIONS = "chat.pinned.v1"
+        private const val KV_MUTED_DMS = "chat.dm_muted.v1"
+        private const val KV_SCROLL_POLICY = "chat.scroll_policy.v1"
+        private const val KV_CLEAN_DECO = "chat.clean_deco.v1"
+        private const val KV_DRAFT_PREFIX = "chat.drafts.v2:"
     }
 }

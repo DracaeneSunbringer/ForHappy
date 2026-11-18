@@ -1,5 +1,6 @@
 package com.jinhuan.forhappy.core.chat
 
+import com.jinhuan.forhappy.core.model.NovelExcerptSpec
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /**
@@ -365,8 +366,46 @@ object ChatRichTextParser {
     fun stripQuotes(raw: String): String = QUOTE_BLOCK_REGEX.replace(raw, "").trim()
 
     private val PREVIEW_STICKER_REGEX = Regex("""\[([a-z][a-z0-9_-]{0,31}):([a-z0-9_-]{1,48})]""")
+    private val NOVEL_EXCERPT_REGEX = Regex(
+        """^\[novel-excerpt:v1:([a-z0-9-]{1,80}):([1-9]\d{0,5}):(paper|white|green|night)]\r?\n([^\r\n]{1,100})\r?\n([^\r\n]{1,120})\r?\n([\s\S]{1,1600})$""",
+    )
+
+    fun parseNovelExcerpt(raw: String): NovelExcerptSpec? {
+        val m = NOVEL_EXCERPT_REGEX.matchEntire(raw.trim()) ?: return null
+        val bookId = m.groupValues[1]
+        val chapter = m.groupValues[2].toIntOrNull() ?: return null
+        val theme = m.groupValues[3]
+        val title = m.groupValues[4].trim()
+        val chapterTitle = m.groupValues[5].trim()
+        val excerpt = m.groupValues[6].trim()
+        if (title.isBlank() || excerpt.isBlank()) return null
+        return NovelExcerptSpec(
+            bookId = bookId,
+            chapter = chapter,
+            theme = theme,
+            title = title,
+            chapterTitle = chapterTitle,
+            excerpt = excerpt,
+        )
+    }
+
+    fun serializeNovelExcerpt(spec: NovelExcerptSpec): String {
+        val safeTheme = when (spec.theme) {
+            "paper", "white", "green", "night" -> spec.theme
+            else -> "paper"
+        }
+        val safeTitle = spec.title.replace("\r", " ").replace("\n", " ").trim().take(100)
+        val safeChapterTitle = spec.chapterTitle.replace("\r", " ").replace("\n", " ").trim().ifBlank {
+            "第 ${spec.chapter.coerceAtLeast(1)} 章"
+        }.take(120)
+        val safeExcerpt = spec.excerpt.replace("\r\n", "\n").trim().take(1600)
+        return "[novel-excerpt:v1:${spec.bookId.lowercase()}:${spec.chapter.coerceAtLeast(1)}:$safeTheme]\n$safeTitle\n$safeChapterTitle\n$safeExcerpt"
+    }
 
     fun previewSummary(raw: String): String {
+        parseNovelExcerpt(raw)?.let { spec ->
+            return "[书房摘录] 《${spec.title}》"
+        }
         val noQuotes = UNCLOSED_LEADING_QUOTE_REGEX.replace(stripQuotes(raw), "")
         return noQuotes
             .replace(PREVIEW_STICKER_REGEX, "[表情]")

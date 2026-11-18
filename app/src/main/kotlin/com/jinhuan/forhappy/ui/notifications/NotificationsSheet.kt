@@ -3,6 +3,7 @@ package com.jinhuan.forhappy.ui.notifications
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,13 +11,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -28,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.CardGiftcard
@@ -38,21 +41,19 @@ import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -72,25 +73,34 @@ import coil3.compose.AsyncImage
 import com.jinhuan.forhappy.core.model.NOTIF_CATEGORY_TABS
 import com.jinhuan.forhappy.core.model.NOTIF_PREF_OPTIONS
 import com.jinhuan.forhappy.core.model.NotifItem
+import com.jinhuan.forhappy.core.model.SiteNotice
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
 import com.jinhuan.forhappy.ui.components.BadgePill
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
 import com.jinhuan.forhappy.ui.components.ReactionEmojiView
+import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
+import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
+val NOTIF_PREF_GROUPS: List<Pair<String, List<String>>> = listOf(
+    "互动" to listOf("like", "emoji", "reply", "comment", "creply", "mention", "post_at"),
+    "群聊" to listOf("chat_at", "chat_reply", "packet", "join_req"),
+    "内容" to listOf("post", "ai_comment"),
+    "系统" to listOf("release", "farm_conflict", "badge"),
+)
+
 /**
- * Interactive notification center drawer matching `52dmeme.com` `notifPanel` semantics:
- * - Category filter tabs + unread-only toggle
- * - Instant single-item and bulk mark-all-read synchronization
- * - One-tap jump to post detail or group chat message, or full announcement modal
- * - Inline 16-item notification preference switches (`PUT /api/notifs/prefs`)
+ * Full-screen 9-tab notification center matching `02e §2`:
+ * - Unconditional 9-category filter tabs (`全部/@我/评论/回应/喜欢/群聊/新帖/农场/系统`) + unread-only toggle
+ * - Pinned unread site announcements with dismiss support
+ * - Instant single-item / bulk read sync + long-press toggle action & detail modal
+ * - Grouped 16-item notification preference switches (`PUT /api/notifs/prefs`)
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NotificationsSheet(
     api: ForHappyApiClient,
@@ -107,14 +117,20 @@ fun NotificationsSheet(
     onNavigateHub: () -> Unit,
     onOpenUrl: (String) -> Unit,
     onDismiss: () -> Unit,
+    siteNotices: List<SiteNotice> = emptyList(),
+    dismissedNoticeIds: Set<Long> = emptySet(),
+    onDismissNotice: (Long) -> Unit = {},
+    onToggleItemReadLocal: ((NotifItem) -> Unit)? = null,
+    onOpenPetsRoute: (() -> Unit)? = null,
+    initialShowSettings: Boolean = false,
 ) {
     val palette = LocalForHappyPalette.current
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var selectedTabId by remember { mutableStateOf("all") }
     var onlyUnread by remember { mutableStateOf(false) }
-    var showSettings by remember { mutableStateOf(false) }
+    var showSettings by remember(initialShowSettings) { mutableStateOf(initialShowSettings) }
     var detailNotif by remember { mutableStateOf<NotifItem?>(null) }
+    var longPressMenuNotif by remember { mutableStateOf<NotifItem?>(null) }
 
     val localUnread = remember(items, unreadCount) {
         maxOf(unreadCount, items.count { it.isUnread })
@@ -123,15 +139,11 @@ fun NotificationsSheet(
         unreadCount > 0 || items.any { it.isUnread }
     }
 
-    val visibleTabs = remember(items, selectedTabId) {
-        NOTIF_CATEGORY_TABS.filter { tab ->
-            tab.kinds == null ||
-                tab.id == selectedTabId ||
-                items.any { it.kind in tab.kinds }
-        }
+    val activeTab = remember(selectedTabId) {
+        NOTIF_CATEGORY_TABS.firstOrNull { it.id == selectedTabId } ?: NOTIF_CATEGORY_TABS.first()
     }
-    val activeTab = remember(visibleTabs, selectedTabId) {
-        visibleTabs.firstOrNull { it.id == selectedTabId } ?: visibleTabs.first()
+    val pinnedNotices = remember(siteNotices, dismissedNoticeIds) {
+        siteNotices.filter { it.id !in dismissedNoticeIds && it.body.isNotBlank() }
     }
     val filteredItems = remember(items, activeTab, onlyUnread) {
         items.filter { item ->
@@ -144,145 +156,194 @@ fun NotificationsSheet(
         )
     }
 
-    ModalBottomSheet(
+    Dialog(
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = palette.surface,
-        contentColor = palette.text,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
+        ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.84f)
-                .navigationBarsPadding()
-                .padding(horizontal = 14.dp),
+                .fillMaxSize()
+                .background(palette.bg)
+                .statusBarsPadding()
+                .navigationBarsPadding(),
         ) {
-            // Header
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            // 48dp Fullscreen Header
+            Surface(color = palette.surface) {
                 Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(ForHappyDimens.topBarHeight)
+                        .padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f),
                 ) {
-                    Text(
-                        text = if (showSettings) "提醒偏好设置" else "互动与系统提醒",
-                        color = palette.text,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    if (!showSettings && localUnread > 0) {
-                        Spacer(Modifier.width(8.dp))
-                        BadgePill(
-                            text = if (localUnread > 99) "99+ 未读" else "$localUnread 未读",
-                            containerColor = palette.primary,
-                            contentColor = palette.onPrimary,
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        IconButton(
+                            onClick = {
+                                if (showSettings && !initialShowSettings) {
+                                    showSettings = false
+                                } else {
+                                    onDismiss()
+                                }
+                            },
+                            modifier = Modifier.size(38.dp),
+                        ) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
+                        }
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = if (showSettings) "提醒偏好设置" else "互动与系统提醒",
+                            color = palette.text,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
                         )
+                        if (!showSettings && localUnread > 0) {
+                            Spacer(Modifier.width(8.dp))
+                            BadgePill(
+                                text = if (localUnread > 99) "99+ 未读" else "$localUnread 未读",
+                                containerColor = palette.primary,
+                                contentColor = palette.onPrimary,
+                            )
+                        }
                     }
-                }
 
-                if (showSettings) {
-                    TextButton(onClick = { showSettings = false }) {
-                        Text("返回提醒", color = palette.primary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                } else {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (hasAnyUnread) {
-                            TextButton(
-                                onClick = onMarkAllRead,
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    if (!showSettings) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (hasAnyUnread) {
+                                TextButton(
+                                    onClick = onMarkAllRead,
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                ) {
+                                    Icon(
+                                        Icons.Rounded.DoneAll,
+                                        contentDescription = null,
+                                        tint = palette.primary,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("全部已读", color = palette.primary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                            IconButton(
+                                onClick = onRefresh,
+                                enabled = !loading,
+                                modifier = Modifier.size(34.dp),
+                            ) {
+                                if (loading) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = palette.primary,
+                                    )
+                                } else {
+                                    Icon(
+                                        Icons.Rounded.Refresh,
+                                        contentDescription = "刷新提醒",
+                                        tint = palette.muted,
+                                        modifier = Modifier.size(19.dp),
+                                    )
+                                }
+                            }
+                            IconButton(
+                                onClick = { showSettings = true },
+                                modifier = Modifier.size(34.dp),
                             ) {
                                 Icon(
-                                    Icons.Rounded.DoneAll,
-                                    contentDescription = null,
-                                    tint = palette.primary,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                                Spacer(Modifier.width(4.dp))
-                                Text("全部已读", color = palette.primary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                            }
-                        }
-                        IconButton(
-                            onClick = onRefresh,
-                            enabled = !loading,
-                            modifier = Modifier.size(34.dp),
-                        ) {
-                            if (loading) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
-                                    color = palette.primary,
-                                )
-                            } else {
-                                Icon(
-                                    Icons.Rounded.Refresh,
-                                    contentDescription = "刷新提醒",
+                                    Icons.Rounded.Settings,
+                                    contentDescription = "提醒设置",
                                     tint = palette.muted,
                                     modifier = Modifier.size(19.dp),
                                 )
                             }
                         }
-                        IconButton(
-                            onClick = { showSettings = true },
-                            modifier = Modifier.size(34.dp),
-                        ) {
-                            Icon(
-                                Icons.Rounded.Settings,
-                                contentDescription = "提醒设置",
-                                tint = palette.muted,
-                                modifier = Modifier.size(19.dp),
-                            )
-                        }
                     }
                 }
             }
+            HorizontalDivider(color = palette.line)
 
             if (showSettings) {
-                HorizontalDivider(color = palette.line)
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    text = "选择需要接收的消息与系统提醒类型（即时同步到账号设置）",
-                    color = palette.muted,
-                    fontSize = 12.sp,
-                )
-                Spacer(Modifier.height(6.dp))
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(bottom = 18.dp),
+                val labelByKey = remember { NOTIF_PREF_OPTIONS.toMap() }
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp),
                 ) {
-                    items(NOTIF_PREF_OPTIONS, key = { it.first }) { (key, label) ->
-                        val checked = notifPrefs[key] != false
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = label,
-                                color = palette.text,
-                                fontSize = 13.sp,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(end = 12.dp),
-                            )
-                            Switch(
-                                checked = checked,
-                                onCheckedChange = { next -> onUpdatePref(key, next) },
-                            )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "选择需要接收的消息与系统提醒类型（即时同步到账号设置）",
+                        color = palette.muted,
+                        fontSize = 12.sp,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(bottom = 20.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        NOTIF_PREF_GROUPS.forEach { (groupTitle, keys) ->
+                            item(key = "hdr_$groupTitle") {
+                                Text(
+                                    text = groupTitle,
+                                    color = palette.primary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
+                            item(key = "grp_$groupTitle") {
+                                Surface(
+                                    color = palette.surface,
+                                    shape = RoundedCornerShape(14.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .border(1.dp, palette.line, RoundedCornerShape(14.dp)),
+                                ) {
+                                    Column(modifier = Modifier.padding(horizontal = 12.dp)) {
+                                        keys.forEachIndexed { idx, key ->
+                                            val label = labelByKey[key] ?: key
+                                            val checked = notifPrefs[key] != false
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 6.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                Text(
+                                                    text = label,
+                                                    color = palette.text,
+                                                    fontSize = 13.sp,
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .padding(end = 12.dp),
+                                                )
+                                                Switch(
+                                                    checked = checked,
+                                                    onCheckedChange = { next -> onUpdatePref(key, next) },
+                                                )
+                                            }
+                                            if (idx < keys.lastIndex) {
+                                                HorizontalDivider(color = palette.line.copy(alpha = 0.55f))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
-                        HorizontalDivider(color = palette.line.copy(alpha = 0.55f))
                     }
                 }
             } else {
-                // Filter bar: unread chip + dynamic category chips
+                // Filter bar: unread chip + all 9 category tabs
                 LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(palette.surface)
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -297,7 +358,7 @@ fun NotificationsSheet(
                             ),
                         )
                     }
-                    items(visibleTabs, key = { it.id }) { tab ->
+                    items(NOTIF_CATEGORY_TABS, key = { it.id }) { tab ->
                         val tabUnread = remember(items, tab) {
                             items.count { it.isUnread && (tab.kinds == null || it.kind in tab.kinds) }
                         }
@@ -317,13 +378,10 @@ fun NotificationsSheet(
                         )
                     }
                 }
-
-                Spacer(Modifier.height(6.dp))
                 HorizontalDivider(color = palette.line)
-                Spacer(Modifier.height(8.dp))
 
                 when {
-                    loading && items.isEmpty() -> {
+                    loading && items.isEmpty() && pinnedNotices.isEmpty() -> {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -334,7 +392,7 @@ fun NotificationsSheet(
                         }
                     }
 
-                    filteredItems.isEmpty() -> {
+                    filteredItems.isEmpty() && pinnedNotices.isEmpty() -> {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -355,10 +413,47 @@ fun NotificationsSheet(
 
                     else -> {
                         LazyColumn(
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(bottom = 18.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            contentPadding = PaddingValues(14.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
+                            if (pinnedNotices.isNotEmpty() && (activeTab.id == "all" || activeTab.id == "system")) {
+                                items(pinnedNotices, key = { "notice_${it.id}" }) { notice ->
+                                    Surface(
+                                        color = palette.highlight.copy(alpha = if (palette.isDark) 0.14f else 0.55f),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .border(1.dp, palette.gold.copy(alpha = 0.45f), RoundedCornerShape(12.dp)),
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        ) {
+                                            BadgePill("全站公告", containerColor = palette.gold.copy(alpha = 0.22f), contentColor = palette.text)
+                                            Text(
+                                                text = notice.body.replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim(),
+                                                color = palette.text,
+                                                fontSize = 12.sp,
+                                                lineHeight = 17.sp,
+                                                modifier = Modifier.weight(1f),
+                                            )
+                                            IconButton(
+                                                onClick = { onDismissNotice(notice.id) },
+                                                modifier = Modifier.size(26.dp),
+                                            ) {
+                                                Icon(Icons.Rounded.Close, contentDescription = "关闭公告", tint = palette.muted, modifier = Modifier.size(16.dp))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             itemsIndexed(
                                 items = filteredItems,
                                 key = { idx, item -> "${idx}_${item.identityKey}" },
@@ -382,14 +477,18 @@ fun NotificationsSheet(
                                                 onOpenMeme(item.memeId!!)
                                             }
 
+                                            item.kind == "farm_conflict" -> {
+                                                onDismiss()
+                                                onOpenPetsRoute?.invoke() ?: onNavigateHub()
+                                            }
+
                                             else -> {
                                                 detailNotif = item
                                             }
                                         }
                                     },
                                     onLongClick = {
-                                        onMarkItemRead(item)
-                                        detailNotif = item
+                                        longPressMenuNotif = item
                                     },
                                 )
                             }
@@ -398,6 +497,57 @@ fun NotificationsSheet(
                 }
             }
         }
+    }
+
+    longPressMenuNotif?.let { target ->
+        AlertDialog(
+            onDismissRequest = { longPressMenuNotif = null },
+            containerColor = palette.surface,
+            titleContentColor = palette.text,
+            textContentColor = palette.text,
+            title = { Text(target.headlineSummary(), fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Surface(
+                        color = palette.surface2,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                longPressMenuNotif = null
+                                onToggleItemReadLocal?.invoke(target) ?: onMarkItemRead(target)
+                            },
+                    ) {
+                        Text(
+                            text = if (target.isUnread) "标为已读" else "标为未读",
+                            color = palette.text,
+                            fontSize = 14.sp,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        )
+                    }
+                    Surface(
+                        color = palette.surface2,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                longPressMenuNotif = null
+                                detailNotif = target
+                            },
+                    ) {
+                        Text(
+                            text = "查看详情",
+                            color = palette.text,
+                            fontSize = 14.sp,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { longPressMenuNotif = null }) { Text("取消") }
+            },
+        )
     }
 
     detailNotif?.let { item ->
@@ -414,10 +564,10 @@ fun NotificationsSheet(
                 onDismiss()
                 onOpenMeme(memeId)
             },
-            onOpenHub = {
+            onOpenPets = {
                 detailNotif = null
                 onDismiss()
-                onNavigateHub()
+                onOpenPetsRoute?.invoke() ?: onNavigateHub()
             },
             onOpenUrl = { url ->
                 detailNotif = null
@@ -597,7 +747,7 @@ private fun NotificationDetailDialog(
     onDismiss: () -> Unit,
     onOpenChat: (groupId: Long, messageId: Long?) -> Unit,
     onOpenMeme: (Long) -> Unit,
-    onOpenHub: () -> Unit,
+    onOpenPets: () -> Unit,
     onOpenUrl: (String) -> Unit,
 ) {
     val palette = LocalForHappyPalette.current
@@ -711,13 +861,13 @@ private fun NotificationDetailDialog(
                         item.kind == "farm_conflict" -> {
                             Spacer(Modifier.width(8.dp))
                             Button(
-                                onClick = onOpenHub,
+                                onClick = onOpenPets,
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = palette.primary,
                                     contentColor = palette.onPrimary,
                                 ),
                             ) {
-                                Text("前往百宝箱")
+                                Text("前往鱼鱼谷")
                             }
                         }
 

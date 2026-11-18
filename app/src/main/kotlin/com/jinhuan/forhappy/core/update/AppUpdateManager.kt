@@ -9,6 +9,7 @@ import androidx.core.content.FileProvider
 import com.jinhuan.forhappy.BuildConfig
 import com.jinhuan.forhappy.core.db.ForHappyDatabase
 import com.jinhuan.forhappy.core.model.ForHappyJson
+import com.jinhuan.forhappy.core.navigation.StealthExemptionGate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -961,6 +962,7 @@ object AppUpdateManager {
                     Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                     Uri.parse("package:${context.packageName}"),
                 ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                StealthExemptionGate.markInternalJump()
                 context.startActivity(permIntent)
                 return@runCatching false
             }
@@ -974,6 +976,7 @@ object AppUpdateManager {
                 setDataAndType(apkUri, "application/vnd.android.package-archive")
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
+            StealthExemptionGate.markInternalJump()
             context.startActivity(installIntent)
             true
         }

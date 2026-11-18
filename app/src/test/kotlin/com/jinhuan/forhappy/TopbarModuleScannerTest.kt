@@ -9,7 +9,7 @@ import org.junit.Test
 class TopbarModuleScannerTest {
 
     @Test
-    fun parsesDynamicTopbarHtmlAndMarksNewServerModules() {
+    fun parsesDynamicTopbarHtmlMarksNewModulesAndFiltersRetiredRoutes() {
         val sampleHtml = """
             <html><body>
               <header class="topbar">
@@ -19,7 +19,14 @@ class TopbarModuleScannerTest {
                   <a href="/road">鞭打</a>
                   <a href="/novels">小说</a>
                   <a href="/pets">鱼鱼谷</a>
-                  <a href="/huancai">焕彩新活动</a>
+                  <a href="/puzzles">旧解谜大厅</a>
+                  <a href="/tools">旧工具</a>
+                  <a href="/farm">旧农场</a>
+                  <a href="/manor">肥鱼庄园</a>
+                  <a href="/huancai">欢彩</a>
+                  <a href="/music">音乐</a>
+                  <a href="/nsfw">RZP</a>
+                  <a href="/event">周年活动</a>
                 </nav>
               </header>
             </body></html>
@@ -27,13 +34,18 @@ class TopbarModuleScannerTest {
 
         val parsed = TopbarModuleScanner.parseTopbarHtml(sampleHtml)
         assertEquals(6, parsed.size)
-        val huancai = parsed.last()
-        assertEquals("/huancai", huancai.route)
-        assertEquals("焕彩新活动", huancai.label)
-        assertFalse(huancai.isBuiltInNative)
-        assertTrue(huancai.isNewFromTopbar)
+        val eventMod = parsed.last()
+        assertEquals("/event", eventMod.route)
+        assertEquals("周年活动", eventMod.label)
+        assertFalse(eventMod.isBuiltInNative)
+        assertTrue(eventMod.isNewFromTopbar)
+
+        val retired = TopbarModuleScanner.RETIRED_ROUTE_PREFIXES
+        assertTrue(parsed.none { mod -> mod.route in retired })
 
         val merged = TopbarModuleScanner.mergeWithDefaults(parsed)
-        assertTrue(merged.any { it.route == "/puzzles" })
+        assertTrue(merged.none { mod -> TopbarModuleScanner.isRetiredRoute(mod.route) })
+        assertTrue(merged.any { it.route == "/moyu" })
+        assertTrue(merged.any { it.route == "/event" })
     }
 }

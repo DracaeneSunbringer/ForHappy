@@ -1,9 +1,15 @@
 package com.jinhuan.forhappy.ui.disguise
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,101 +18,107 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.rounded.Reply
-import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.BookmarkBorder
+import androidx.compose.material.icons.rounded.ChatBubble
+import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.EmojiEmotions
-import androidx.compose.material.icons.rounded.Favorite
-import androidx.compose.material.icons.rounded.FavoriteBorder
-import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.Contacts
+import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.Group
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Tag
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
-import com.jinhuan.forhappy.core.chat.ChatRichTextParser
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.jinhuan.forhappy.core.chat.ChatSessionController
-import com.jinhuan.forhappy.core.clock.ServerClock
+import com.jinhuan.forhappy.core.compose.ComposeTrayItem
+import com.jinhuan.forhappy.core.model.AppDisguiseMode
+import com.jinhuan.forhappy.core.model.AppIconAlias
+import com.jinhuan.forhappy.core.model.AppThemeMode
 import com.jinhuan.forhappy.core.model.ChatGroup
+import com.jinhuan.forhappy.core.model.ChatReaction
+import com.jinhuan.forhappy.core.model.ChatUser
 import com.jinhuan.forhappy.core.model.DayEntry
 import com.jinhuan.forhappy.core.model.DmThread
+import com.jinhuan.forhappy.core.model.ForHappyJson
 import com.jinhuan.forhappy.core.model.MeUser
 import com.jinhuan.forhappy.core.model.MemeItem
-import com.jinhuan.forhappy.core.model.PICKED_REACTIONS
+import com.jinhuan.forhappy.core.model.MemeMediaItem
+import com.jinhuan.forhappy.core.model.PrivacyStealthConfig
 import com.jinhuan.forhappy.core.model.TagStatItem
+import com.jinhuan.forhappy.core.navigation.StealthExemptionGate
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
-import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
-import com.jinhuan.forhappy.core.seen.LocalSeenTracker
-import com.jinhuan.forhappy.core.seen.ObserveMemeSeenDwell
-import com.jinhuan.forhappy.core.seen.SeenTracker
-import com.jinhuan.forhappy.ui.chat.ChatNotificationJump
 import com.jinhuan.forhappy.ui.chat.ChatScreen
-import com.jinhuan.forhappy.ui.components.BoostPillText
-import com.jinhuan.forhappy.ui.components.ForHappyAvatar
 import com.jinhuan.forhappy.ui.components.ReactionChip
-import com.jinhuan.forhappy.ui.components.ReactionEmojiView
-import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
-import com.jinhuan.forhappy.ui.theme.LocalPrivacyStealthConfig
-import com.jinhuan.forhappy.ui.wall.ComposeMemeModal
-import com.jinhuan.forhappy.ui.wall.FullscreenMediaOverlay
-import com.jinhuan.forhappy.ui.wall.MemeDetailModal
-import kotlinx.coroutines.async
+import com.jinhuan.forhappy.ui.components.RichChatBodyView
+import com.jinhuan.forhappy.ui.compose.ComposeMediaStager
+import com.jinhuan.forhappy.ui.compose.ImageMaskEditorScreen
+import com.jinhuan.forhappy.ui.theme.LocalBossKeyActive
+import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
+import com.jinhuan.forhappy.core.clock.ServerClock
+import com.jinhuan.forhappy.core.seen.SeenTracker
+import com.jinhuan.forhappy.ui.wall.ImmersiveMediaStage
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import java.text.SimpleDateFormat
 import java.time.LocalDate
 import java.util.Calendar
@@ -114,6 +126,11 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
+private const val KV_FEISHU_GROUP_ALIASES = "disguise.feishu.group_aliases"
+
+/**
+ * Preserved internal helpers shared with [DisguiseSanitizer], [SeenTrackerAndDisguiseTest] & Phase 6 tests.
+ */
 internal object FeishuDisguiseHelpers {
     val IM_GROUPS = listOf(
         "产品需求评审",
@@ -157,14 +174,6 @@ internal object FeishuDisguiseHelpers {
         val u32 = (seed * 2654435761L) and 0xFFFFFFFFL
         val idx = (u32 % IM_NAMES.size.toLong()).toInt()
         return IM_NAMES[idx]
-    }
-
-    fun imWho(meme: MemeItem): String {
-        return if (!meme.sourceUrl.isNullOrBlank()) {
-            imFake(meme.id)
-        } else {
-            meme.authorDisplay
-        }
     }
 
     fun imColor(seedText: String): Color {
@@ -213,15 +222,17 @@ internal object FeishuDisguiseHelpers {
 
     fun formatClock(ts: Long?): String {
         if (ts == null || ts <= 0L) return ""
+        val ms = if (ts > 10_000_000_000L) ts else ts * 1000L
         val sdf = SimpleDateFormat("HH:mm", Locale.US)
         sdf.timeZone = TimeZone.getTimeZone("GMT+08:00")
-        return sdf.format(Date(ts * 1000L))
+        return sdf.format(Date(ms))
     }
 
     fun formatConvTime(ts: Long): String {
         if (ts <= 0L) return ""
+        val sec = if (ts > 10_000_000_000L) ts / 1000L else ts
         val msgCal = Calendar.getInstance(TimeZone.getTimeZone("GMT+08:00")).apply {
-            timeInMillis = ts * 1000L
+            timeInMillis = sec * 1000L
         }
         val todayCal = Calendar.getInstance(TimeZone.getTimeZone("GMT+08:00")).apply {
             timeInMillis = ServerClock.serverNowSec() * 1000L
@@ -233,7 +244,7 @@ internal object FeishuDisguiseHelpers {
         val msgMs = msgCal.timeInMillis
         val todayStart = todayCal.timeInMillis
         return when {
-            msgMs >= todayStart -> formatClock(ts)
+            msgMs >= todayStart -> formatClock(sec)
             msgMs >= todayStart - 86_400_000L -> "昨天"
             msgMs >= todayStart - 6 * 86_400_000L -> "周${WEEK_CHARS[(msgCal.get(Calendar.DAY_OF_WEEK) - 1).coerceIn(0, 6)]}"
             else -> "${msgCal.get(Calendar.MONTH) + 1}月${msgCal.get(Calendar.DAY_OF_MONTH)}日"
@@ -242,58 +253,36 @@ internal object FeishuDisguiseHelpers {
 }
 
 private sealed interface FeishuConvTarget {
-    val key: String
-    val title: String
-    val unreadCount: Int
+    val sortTs: Long
 
     data class RealGroup(
         val group: ChatGroup,
-    ) : FeishuConvTarget {
-        override val key: String = "grp:${group.id}"
-        override val title: String = group.name
-        override val unreadCount: Int = group.unread
-    }
+        val displayTitle: String,
+        override val sortTs: Long,
+    ) : FeishuConvTarget
 
-    data class DirectMsg(
-        val thread: DmThread,
-    ) : FeishuConvTarget {
-        override val key: String = "dm:${thread.id}"
-        override val title: String = thread.peerName?.takeIf { it.isNotBlank() }
-            ?: thread.peerUsername?.takeIf { it.isNotBlank() }
-            ?: "私信"
-        override val unreadCount: Int = thread.unread
-    }
+    data class RealDm(
+        val dm: DmThread,
+        val displayTitle: String,
+        override val sortTs: Long,
+    ) : FeishuConvTarget
 
     data class DayWorkGroup(
-        val entry: DayEntry,
-        val adjustedUnseen: Int,
-    ) : FeishuConvTarget {
-        override val key: String = "day:${entry.day}"
-        override val title: String = FeishuDisguiseHelpers.imGroupName(entry.day)
-        override val unreadCount: Int = adjustedUnseen
-    }
+        val dayEntry: DayEntry,
+        val title: String,
+        override val sortTs: Long,
+    ) : FeishuConvTarget
 
     data class TagTopic(
-        val stat: TagStatItem,
-    ) : FeishuConvTarget {
-        override val key: String = "tag:${stat.tag}"
-        override val title: String = "#${stat.tag}"
-        override val unreadCount: Int = 0
-    }
-
-    data class SearchResult(
-        val query: String,
-    ) : FeishuConvTarget {
-        override val key: String = "search:$query"
-        override val title: String = "搜索「$query」"
-        override val unreadCount: Int = 0
-    }
+        val tag: String,
+        val count: Int,
+        override val sortTs: Long = 0L,
+    ) : FeishuConvTarget
 }
 
 /**
- * Complete Feishu IM disguise shell matching `52dmeme.com/app.js` `IM`.
- * Hides the 5-tab bottom navigation bar cleanly and merges real group chats, DMs, and daily meme
- * feeds disguised as rotating work groups in one authentic Feishu conversation list.
+ * Full 3-Tab native Feishu IM Disguise Layer (`消息 / 通讯录 / 我的`) matching
+ * `docs/redesign/03-privacy-state-machine.md` §5.1–5.3 & §5.6–5.7.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -301,1240 +290,1996 @@ fun FeishuDisguiseScreen(
     api: ForHappyApiClient,
     chatController: ChatSessionController,
     me: MeUser?,
+    themeMode: AppThemeMode = AppThemeMode.FOLLOW_SYSTEM,
+    privacyConfig: PrivacyStealthConfig = PrivacyStealthConfig(),
+    privacyShieldEnabled: Boolean = false,
+    activeIconAlias: AppIconAlias = AppIconAlias.JINHUAN,
     onRequireLogin: () -> Unit,
-    onToggleBlurAll: (Boolean) -> Unit,
-    onTriggerBossKey: () -> Unit,
-    onOpenPrivacySettings: () -> Unit,
+    @Suppress("UNUSED_PARAMETER") onToggleBlurAll: (Boolean) -> Unit,
+    @Suppress("UNUSED_PARAMETER") onTriggerBossKey: () -> Unit,
+    @Suppress("UNUSED_PARAMETER") onOpenPrivacySettings: () -> Unit = {},
     onExitDisguise: () -> Unit,
-    onOpenUrl: (String) -> Unit,
+    onChangeDisguise: (AppDisguiseMode) -> Unit = {},
+    onChangeTheme: (AppThemeMode) -> Unit = {},
+    onUpdatePrivacyConfig: (PrivacyStealthConfig) -> Unit = {},
+    onTogglePrivacyShield: (Boolean) -> Unit = {},
+    onChangeIconAlias: (AppIconAlias) -> Unit = {},
+    onLoggedOut: () -> Unit = {},
+    onOpenUrl: (String) -> Unit = {},
 ) {
-    val palette = LocalForHappyPalette.current
-    val privacyConfig = LocalPrivacyStealthConfig.current
-    val seenTracker = LocalSeenTracker.current
-    val chatState by chatController.uiState.collectAsState()
-    val newlySeenByDay by (seenTracker?.newlySeenByDay?.collectAsState() ?: remember { mutableStateOf(emptyMap()) })
+    val fc = rememberFeishuColors()
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val bossKeyActive = LocalBossKeyActive.current
+    val chatState by chatController.uiState.collectAsState()
 
-    var activeTab by remember { mutableStateOf("all") } // "all" | "unread" | "tag"
+    var activeTab by remember { mutableStateOf("messages") } // "messages" | "contacts" | "me"
+    var msgFilter by remember { mutableStateOf("all") } // "all" | "unread" | "dm" | "group" | "at" | "topics"
+    var showSearch by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
-    var hideNsfw by remember { mutableStateOf(true) }
-    var activeConv by remember { mutableStateOf<FeishuConvTarget?>(null) }
+    var showPlusMenu by remember { mutableStateOf(false) }
 
-    var dayEntries by remember { mutableStateOf<List<DayEntry>>(emptyList()) }
-    var tagStats by remember { mutableStateOf<List<TagStatItem>>(emptyList()) }
-    var dmThreads by remember { mutableStateOf<List<DmThread>>(emptyList()) }
-    var loadingConvs by remember { mutableStateOf(true) }
+    var dayGroups by remember { mutableStateOf<List<DayEntry>>(emptyList()) }
+    var tagsList by remember { mutableStateOf<List<TagStatItem>>(emptyList()) }
+    var loadingDays by remember { mutableStateOf(true) }
+    var customGroupAliases by remember { mutableStateOf<Map<Long, String>>(emptyMap()) }
 
-    var showCompose by remember { mutableStateOf(false) }
-    var selectedDetailId by remember { mutableStateOf<Long?>(null) }
-    var fullscreenImgUrl by remember { mutableStateOf<String?>(null) }
-    var showConvMenu by remember { mutableStateOf(false) }
+    var activeTarget by remember { mutableStateOf<FeishuConvTarget?>(null) }
+    var settingsPage by remember { mutableStateOf<FeishuSettingsPage?>(null) }
+    var newDmTargetUser by remember { mutableStateOf<ChatUser?>(null) }
+    var newDmFirstText by remember { mutableStateOf("") }
+    var newDmSending by remember { mutableStateOf(false) }
 
-    fun reloadConversations() {
-        scope.launch {
-            loadingConvs = true
-            val daysDef = async { api.fetchDays(limitDays = null, sort = "new", nsfwHide = hideNsfw) }
-            val tagsDef = async { api.fetchTags(hideNsfw = hideNsfw) }
-            val dmDef = async { if (me != null) api.fetchDmThreads() else emptyList() }
-            if (me != null) {
-                chatController.refreshGroups()
-            }
-            dayEntries = daysDef.await().days
-            tagStats = tagsDef.await()
-            dmThreads = dmDef.await()
-            loadingConvs = false
+    var globalBanner by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(globalBanner) {
+        if (globalBanner != null) {
+            delay(2200L)
+            globalBanner = null
         }
     }
 
-    LaunchedEffect(me?.id, hideNsfw) {
-        reloadConversations()
+    LaunchedEffect(Unit) {
+        chatController.refreshGroups()
+        chatController.refreshDmThreads()
+        val rawAliasJson = api.getPref(KV_FEISHU_GROUP_ALIASES)
+        if (!rawAliasJson.isNullOrBlank()) {
+            runCatching {
+                ForHappyJson.decodeFromString(
+                    MapSerializer(String.serializer(), String.serializer()),
+                    rawAliasJson,
+                )
+            }.getOrNull()?.let { parsed ->
+                customGroupAliases = parsed.mapNotNull { (k, v) ->
+                    k.toLongOrNull()?.let { it to v }
+                }.toMap()
+            }
+        }
+        loadingDays = true
+        dayGroups = api.fetchDays(limitDays = 12).days.take(12)
+        tagsList = api.fetchTags()
+        loadingDays = false
     }
 
-    // Active conversation feed state (for Day / Tag / Search work groups)
-    var feedMemes by remember { mutableStateOf<List<MemeItem>>(emptyList()) }
-    var feedLoading by remember { mutableStateOf(false) }
-    var feedLoadingMore by remember { mutableStateOf(false) }
-    var feedHasMore by remember { mutableStateOf(false) }
-    var feedOffset by remember { mutableStateOf(0) }
-    var quotedMeme by remember { mutableStateOf<MemeItem?>(null) }
-    var replyDraft by remember { mutableStateOf("") }
-    var sendingComment by remember { mutableStateOf(false) }
-    var emojiDropdownMeme by remember { mutableStateOf<MemeItem?>(null) }
-
-    fun loadConversationFeed(conv: FeishuConvTarget, reset: Boolean) {
-        val (dayParam, tagParam, queryParam, sortParam) = when (conv) {
-            is FeishuConvTarget.DayWorkGroup -> listOf(conv.entry.day, null, null, "old")
-            is FeishuConvTarget.TagTopic -> listOf(null, conv.stat.tag, null, "new")
-            is FeishuConvTarget.SearchResult -> listOf(null, null, conv.query, "new")
-            else -> return
+    val saveGroupAlias: (Long, String) -> Unit = { gid, newAlias ->
+        val clean = newAlias.trim()
+        val next = customGroupAliases.toMutableMap().apply {
+            if (clean.isEmpty()) remove(gid) else put(gid, clean)
         }
+        customGroupAliases = next
         scope.launch {
-            if (reset) {
-                feedLoading = true
-                feedOffset = 0
-                feedMemes = emptyList()
-            } else {
-                feedLoadingMore = true
-            }
-            val nextOffset = if (reset) 0 else feedOffset
-            val page = api.fetchMemesPage(
-                limit = 20,
-                offset = nextOffset,
-                day = dayParam,
-                tag = tagParam,
-                query = queryParam,
-                sort = sortParam ?: "old",
-                nsfwHide = hideNsfw,
+            val serialized = ForHappyJson.encodeToString(
+                MapSerializer(String.serializer(), String.serializer()),
+                next.mapKeys { it.key.toString() },
             )
-            seenTracker?.ingestFetchedMemes(page.items)
-            val seenIds = if (reset) HashSet<Long>() else feedMemes.asSequence().map { it.id }.toHashSet()
-            val fresh = page.items.filter { seenIds.add(it.id) }
-            feedMemes = if (reset) page.items else feedMemes + fresh
-            feedOffset = page.offset + page.items.size
-            feedHasMore = page.more
-            feedLoading = false
-            feedLoadingMore = false
+            api.putPref(KV_FEISHU_GROUP_ALIASES, serialized)
         }
     }
 
-    LaunchedEffect(activeConv?.key, hideNsfw) {
-        val conv = activeConv ?: return@LaunchedEffect
-        quotedMeme = null
-        replyDraft = ""
-        when (conv) {
-            is FeishuConvTarget.RealGroup -> chatController.setActiveGroup(conv.group.id)
-            is FeishuConvTarget.DirectMsg -> Unit
-            else -> loadConversationFeed(conv, reset = true)
-        }
+    val totalUnreadCount = remember(chatState.groups, chatState.dmThreads) {
+        chatState.groups.sumOf { it.unread } + chatState.dmThreads.sumOf { it.unread }
     }
 
-    val currentConv = activeConv
-    if (currentConv != null) {
-        BackHandler(
-            enabled = !showCompose && selectedDetailId == null && fullscreenImgUrl == null,
-        ) {
-            activeConv = null
-        }
+    // Back handler for open detail / settings overlays
+    BackHandler(enabled = activeTarget != null && settingsPage == null) {
+        activeTarget = null
+    }
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(palette.bg)
-                .navigationBarsPadding(),
-        ) {
-            // Feishu conversation detail header
-            Surface(
-                color = palette.surface,
-                modifier = Modifier.statusBarsPadding(),
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(50.dp)
-                        .padding(horizontal = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    IconButton(onClick = { activeConv = null }) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
-                            contentDescription = "返回",
-                            tint = palette.text,
-                        )
-                    }
-                    when (currentConv) {
-                        is FeishuConvTarget.DirectMsg -> ForHappyAvatar(
-                            username = currentConv.title,
-                            avatarUrl = currentConv.thread.peerAvatar,
-                            imageLoader = api.imageLoader,
-                            size = 32.dp,
-                        )
-                        else -> FeishuGroupAvatar(title = currentConv.title, size = 32.dp)
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = currentConv.title,
-                            color = palette.text,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        val sub = when (currentConv) {
-                            is FeishuConvTarget.DayWorkGroup -> "${currentConv.entry.totalCount} 条消息"
-                            is FeishuConvTarget.TagTopic -> "${currentConv.stat.totalCount} 条消息"
-                            is FeishuConvTarget.RealGroup -> if (currentConv.group.memberCount > 0) "${currentConv.group.memberCount} 位成员" else "内部交流群"
-                            is FeishuConvTarget.DirectMsg -> "同事单聊"
-                            is FeishuConvTarget.SearchResult -> "${feedMemes.size} 条匹配消息"
-                        }
-                        Text(sub, color = palette.muted, fontSize = 11.sp, maxLines = 1)
-                    }
-                    Box {
-                        IconButton(onClick = { showConvMenu = true }) {
-                            Icon(Icons.Rounded.MoreHoriz, contentDescription = "更多设置", tint = palette.text)
-                        }
-                        FeishuSettingsMenu(
-                            expanded = showConvMenu,
-                            onDismiss = { showConvMenu = false },
-                            blurAllEnabled = privacyConfig.blurAllEnabled,
-                            hideNsfw = hideNsfw,
-                            onToggleBlurAll = onToggleBlurAll,
-                            onToggleNsfw = { hideNsfw = !hideNsfw },
-                            onTriggerBossKey = onTriggerBossKey,
-                            onOpenPrivacySettings = onOpenPrivacySettings,
-                            onExitDisguise = onExitDisguise,
-                        )
-                    }
-                }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(fc.bg),
+    ) {
+        when {
+            settingsPage != null -> {
+                FeishuSettingsOverlay(
+                    api = api,
+                    initialPage = settingsPage ?: FeishuSettingsPage.ROOT,
+                    themeMode = themeMode,
+                    privacyConfig = privacyConfig,
+                    privacyShieldEnabled = privacyShieldEnabled,
+                    activeIconAlias = activeIconAlias,
+                    onChangeTheme = onChangeTheme,
+                    onExitDisguise = onExitDisguise,
+                    onChangeDisguise = onChangeDisguise,
+                    onUpdatePrivacyConfig = onUpdatePrivacyConfig,
+                    onTogglePrivacyShield = onTogglePrivacyShield,
+                    onChangeIconAlias = onChangeIconAlias,
+                    onClose = { settingsPage = null },
+                )
             }
-            HorizontalDivider(color = palette.line)
 
-            when (currentConv) {
-                is FeishuConvTarget.RealGroup -> {
-                    Box(modifier = Modifier.weight(1f)) {
-                        ChatScreen(
+            activeTarget != null -> {
+                when (val target = activeTarget!!) {
+                    is FeishuConvTarget.DayWorkGroup -> {
+                        FeishuWorkGroupDetailScreen(
+                            title = target.title,
+                            dayFilter = target.dayEntry.day,
+                            tagFilter = null,
                             api = api,
-                            controller = chatController,
-                            me = me,
-                            initialJump = ChatNotificationJump(groupId = currentConv.group.id),
-                            onNavigateToMeme = { selectedDetailId = it },
-                            onNavigateToTag = { tag ->
-                                activeConv = FeishuConvTarget.TagTopic(TagStatItem(tag = tag))
+                            privacyConfig = privacyConfig,
+                            onNotify = { globalBanner = it },
+                            onOpenTagTopic = { tag ->
+                                activeTarget = FeishuConvTarget.TagTopic(tag = tag, count = 0)
                             },
-                            onOpenUrl = onOpenUrl,
-                            onRequireLogin = onRequireLogin,
-                            hideChannelHeader = true,
-                            forcedChannelMode = "group",
+                            onBack = { activeTarget = null },
                         )
                     }
-                }
 
-                is FeishuConvTarget.DirectMsg -> {
-                    Box(modifier = Modifier.weight(1f)) {
-                        ChatScreen(
+                    is FeishuConvTarget.TagTopic -> {
+                        FeishuWorkGroupDetailScreen(
+                            title = "#${DisguiseSanitizer.sanitizeSummaryForDisguise(target.tag, AppDisguiseMode.FEISHU)}",
+                            dayFilter = null,
+                            tagFilter = target.tag,
                             api = api,
-                            controller = chatController,
-                            me = me,
-                            onNavigateToMeme = { selectedDetailId = it },
-                            onNavigateToTag = { tag ->
-                                activeConv = FeishuConvTarget.TagTopic(TagStatItem(tag = tag))
+                            privacyConfig = privacyConfig,
+                            onNotify = { globalBanner = it },
+                            onOpenTagTopic = { tag ->
+                                activeTarget = FeishuConvTarget.TagTopic(tag = tag, count = 0)
                             },
-                            onOpenUrl = onOpenUrl,
-                            onRequireLogin = onRequireLogin,
-                            hideChannelHeader = true,
-                            forcedChannelMode = "dm",
-                            forcedDmThreadId = currentConv.thread.id,
+                            onBack = { activeTarget = null },
                         )
                     }
-                }
 
-                else -> {
-                    Box(modifier = Modifier.weight(1f)) {
-                        if (feedLoading && feedMemes.isEmpty()) {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(color = palette.primary)
-                            }
-                        } else {
-                            LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                items(feedMemes.size, key = { idx -> feedMemes[idx].id }) { idx ->
-                                    val m = feedMemes[idx]
-                                    val prev = if (idx > 0) feedMemes[idx - 1] else null
-                                    val curDay = m.day ?: SeenTracker.dayOfUtc8(m.createdAt ?: 0L)
-                                    val prevDay = prev?.let { it.day ?: SeenTracker.dayOfUtc8(it.createdAt ?: 0L) }
-                                    if (curDay.isNotBlank() && curDay != prevDay) {
-                                        FeishuDayDivider(FeishuDisguiseHelpers.daySeparatorLabel(curDay))
-                                    }
-                                    val who = FeishuDisguiseHelpers.imWho(m)
-                                    val prevWho = prev?.let { FeishuDisguiseHelpers.imWho(it) }
-                                    val sameWindow = prev != null &&
-                                        curDay == prevDay &&
-                                        who == prevWho &&
-                                        kotlin.math.abs((prev.createdAt ?: 0L) - (m.createdAt ?: 0L)) < 300L
-                                    val isFakeColleague = !m.sourceUrl.isNullOrBlank()
-
-                                    FeishuMemeMessageRow(
-                                        meme = m,
-                                        who = who,
-                                        isFakeColleague = isFakeColleague,
-                                        isContinuation = sameWindow,
-                                        api = api,
-                                        me = me,
-                                        onRequireLogin = onRequireLogin,
-                                        onOpenDetail = { selectedDetailId = m.id },
-                                        onOpenImage = { fullscreenImgUrl = it },
-                                        onQuote = { quotedMeme = m },
-                                        onMemeUpdated = { updated ->
-                                            feedMemes = feedMemes.map { if (it.id == updated.id) updated else it }
-                                        },
-                                        onToggleReactionSheet = { emojiDropdownMeme = m },
-                                    )
-                                }
-
-                                item {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 10.dp),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        when {
-                                            feedLoadingMore -> CircularProgressIndicator(
-                                                modifier = Modifier.size(22.dp),
-                                                strokeWidth = 2.dp,
-                                                color = palette.primary,
-                                            )
-                                            feedHasMore -> OutlinedButton(
-                                                onClick = { loadConversationFeed(currentConv, reset = false) },
-                                            ) {
-                                                Text("加载更多消息", fontSize = 12.sp)
-                                            }
-                                            else -> Text("没有更多消息了", color = palette.muted, fontSize = 11.sp)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Bottom Feishu IM composer bar
-                    Surface(
-                        color = palette.surface,
-                        modifier = Modifier.imePadding(),
-                    ) {
-                        Column {
-                            HorizontalDivider(color = palette.line)
-                            quotedMeme?.let { qm ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(palette.surface2)
-                                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        text = "回复 ${FeishuDisguiseHelpers.imWho(qm)}：${qm.safeLabel}",
-                                        color = palette.muted,
-                                        fontSize = 12.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    Icon(
-                                        imageVector = Icons.Rounded.Close,
-                                        contentDescription = "取消回复",
-                                        tint = palette.muted,
-                                        modifier = Modifier
-                                            .size(16.dp)
-                                            .clickable { quotedMeme = null },
-                                    )
-                                }
-                            }
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                IconButton(
-                                    onClick = {
-                                        if (me == null) onRequireLogin() else showCompose = true
-                                    },
-                                    modifier = Modifier.size(34.dp),
-                                ) {
-                                    Icon(Icons.Rounded.Image, contentDescription = "发送图片", tint = palette.muted)
-                                }
-                                Surface(
-                                    color = palette.surface2,
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .heightIn(min = 38.dp),
-                                ) {
-                                    Box(
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-                                        contentAlignment = Alignment.CenterStart,
-                                    ) {
-                                        if (replyDraft.isEmpty()) {
-                                            Text(
-                                                text = if (quotedMeme != null) {
-                                                    "回复 ${FeishuDisguiseHelpers.imWho(quotedMeme!!)}…"
-                                                } else {
-                                                    "先点消息右上角「回复」再输入评论，或点左侧图片发帖"
-                                                },
-                                                color = palette.muted,
-                                                fontSize = 13.sp,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                        }
-                                        BasicTextField(
-                                            value = replyDraft,
-                                            onValueChange = { replyDraft = it },
-                                            textStyle = TextStyle(color = palette.text, fontSize = 13.sp),
-                                            cursorBrush = SolidColor(palette.primary),
-                                            modifier = Modifier.fillMaxWidth(),
+                    is FeishuConvTarget.RealGroup -> {
+                        val currentTitle = DisguiseSanitizer.resolveFeishuGroupAlias(
+                            groupId = target.group.id,
+                            rawName = target.group.name,
+                            customAliases = customGroupAliases,
+                        )
+                        FeishuRealChatShell(
+                            title = currentTitle,
+                            subtitle = "${maxOf(1, target.group.memberCount)} 名成员 · 企业内部群",
+                            isGroup = true,
+                            groupId = target.group.id,
+                            dmThreadId = null,
+                            currentAlias = customGroupAliases[target.group.id].orEmpty(),
+                            api = api,
+                            chatController = chatController,
+                            me = me,
+                            onSaveAlias = { alias -> saveGroupAlias(target.group.id, alias) },
+                            onOpenMemeThread = { memeId ->
+                                scope.launch {
+                                    api.fetchMemeDetail(memeId)?.resolvedMeme?.let { fetched ->
+                                        activeTarget = FeishuConvTarget.DayWorkGroup(
+                                            dayEntry = DayEntry(day = fetched.day.orEmpty(), items = listOf(fetched)),
+                                            title = currentTitle,
+                                            sortTs = fetched.createdAt ?: 0L,
                                         )
                                     }
                                 }
-                                IconButton(
-                                    enabled = replyDraft.isNotBlank() && quotedMeme != null && !sendingComment,
-                                    onClick = {
-                                        val target = quotedMeme ?: return@IconButton
-                                        val text = replyDraft.trim()
-                                        if (text.isBlank()) return@IconButton
-                                        if (me == null) {
-                                            onRequireLogin()
-                                            return@IconButton
-                                        }
-                                        sendingComment = true
-                                        scope.launch {
-                                            val ok = api.postMemeComment(target.id, text)
-                                            if (ok) {
-                                                replyDraft = ""
-                                                quotedMeme = null
-                                                feedMemes = feedMemes.map { cur ->
-                                                    if (cur.id == target.id) {
-                                                        cur.copy(
-                                                            comments = cur.comments + 1,
-                                                            commentCount = cur.commentCount + 1,
-                                                        )
-                                                    } else {
-                                                        cur
-                                                    }
-                                                }
-                                            }
-                                            sendingComment = false
-                                        }
-                                    },
-                                    modifier = Modifier.size(34.dp),
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Rounded.Send,
-                                        contentDescription = "发送",
-                                        tint = if (replyDraft.isNotBlank() && quotedMeme != null) palette.primary else palette.muted,
-                                    )
-                                }
-                            }
-                        }
+                            },
+                            onOpenUrl = onOpenUrl,
+                            onRequireLogin = onRequireLogin,
+                            onBack = { activeTarget = null },
+                        )
+                    }
+
+                    is FeishuConvTarget.RealDm -> {
+                        FeishuRealChatShell(
+                            title = target.displayTitle,
+                            subtitle = "同事单聊 · 在线",
+                            isGroup = false,
+                            groupId = null,
+                            dmThreadId = target.dm.id,
+                            currentAlias = "",
+                            api = api,
+                            chatController = chatController,
+                            me = me,
+                            onSaveAlias = {},
+                            onOpenMemeThread = {},
+                            onOpenUrl = onOpenUrl,
+                            onRequireLogin = onRequireLogin,
+                            onBack = { activeTarget = null },
+                        )
                     }
                 }
             }
-        }
-    } else {
-        // Conversation List Root
-        DoubleBackBossHandler(
-            enabled = privacyConfig.bossDoubleBack &&
-                !showCompose &&
-                selectedDetailId == null &&
-                fullscreenImgUrl == null,
-            onTriggerBoss = onTriggerBossKey,
-        )
 
-        val allConvs = remember(chatState.groups, dmThreads, dayEntries, newlySeenByDay) {
-            buildList {
-                chatState.groups.forEach { add(FeishuConvTarget.RealGroup(it)) }
-                dmThreads.forEach { add(FeishuConvTarget.DirectMsg(it)) }
-                dayEntries.forEach { d ->
-                    val delta = newlySeenByDay[d.day] ?: 0
-                    add(FeishuConvTarget.DayWorkGroup(d, (d.unseen - delta).coerceAtLeast(0)))
-                }
-            }
-        }
+            else -> {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding(),
+                ) {
+                    when (activeTab) {
+                        "messages" -> {
+                            FeishuMessagesHomeTab(
+                                fc = fc,
+                                me = me,
+                                groups = chatState.groups,
+                                dmThreads = chatState.dmThreads,
+                                dayGroups = dayGroups,
+                                tagsList = tagsList,
+                                loadingDays = loadingDays,
+                                customAliases = customGroupAliases,
+                                aliasEnabled = privacyConfig.feishuMemberAliasEnabled,
+                                msgFilter = msgFilter,
+                                showSearch = showSearch,
+                                searchQuery = searchQuery,
+                                showPlusMenu = showPlusMenu,
+                                onSelectFilter = { msgFilter = it },
+                                onToggleSearch = {
+                                    showSearch = !showSearch
+                                    if (!showSearch) searchQuery = ""
+                                },
+                                onSearchQueryChange = { searchQuery = it },
+                                onTogglePlusMenu = { showPlusMenu = it },
+                                onJumpContacts = {
+                                    showPlusMenu = false
+                                    activeTab = "contacts"
+                                },
+                                onJumpTopicsFilter = {
+                                    showPlusMenu = false
+                                    msgFilter = "topics"
+                                },
+                                onOpenMeTab = { activeTab = "me" },
+                                onSelectTarget = { activeTarget = it },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
 
-        val displayedConvs = remember(activeTab, searchQuery, allConvs, tagStats) {
-            val kw = searchQuery.trim()
-            if (activeTab == "tag") {
-                val base = tagStats.map { FeishuConvTarget.TagTopic(it) }
-                if (kw.isBlank()) base else base.filter { it.title.contains(kw, ignoreCase = true) }
-            } else {
-                var list = allConvs
-                if (activeTab == "unread") {
-                    list = list.filter { it.unreadCount > 0 }
-                }
-                if (kw.isNotBlank()) {
-                    list = list.filter { item ->
-                        item.title.contains(kw, ignoreCase = true) ||
-                            (item is FeishuConvTarget.DayWorkGroup && item.entry.latest?.text?.contains(kw, ignoreCase = true) == true) ||
-                            (item is FeishuConvTarget.RealGroup && item.group.latest?.text?.contains(kw, ignoreCase = true) == true)
-                    }
-                }
-                list
-            }
-        }
+                        "contacts" -> {
+                            FeishuContactsTab(
+                                fc = fc,
+                                api = api,
+                                me = me,
+                                groups = chatState.groups,
+                                dmThreads = chatState.dmThreads,
+                                customAliases = customGroupAliases,
+                                aliasEnabled = privacyConfig.feishuMemberAliasEnabled,
+                                onRequireLogin = onRequireLogin,
+                                onOpenGroup = { grp ->
+                                    val alias = DisguiseSanitizer.resolveFeishuGroupAlias(grp.id, grp.name, customGroupAliases)
+                                    activeTarget = FeishuConvTarget.RealGroup(grp, alias, grp.latest?.at ?: 0L)
+                                },
+                                onOpenDmThread = { dm ->
+                                    val peerName = feishuSafeAuthor(dm.peerId, dm.peerName ?: dm.peerUsername, privacyConfig.feishuMemberAliasEnabled)
+                                    activeTarget = FeishuConvTarget.RealDm(dm, peerName, maxOf(dm.lastAt, dm.updatedAt))
+                                },
+                                onStartNewDmUser = { user ->
+                                    newDmTargetUser = user
+                                    newDmFirstText = ""
+                                },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(palette.bg)
-                .navigationBarsPadding(),
-        ) {
-            // Feishu list top search + create + settings menu
-            Surface(
-                color = palette.surface,
-                modifier = Modifier.statusBarsPadding(),
-            ) {
-                Column {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(palette.primary),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text("飞", color = palette.onPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                        }
-                        Surface(
-                            color = palette.surface2,
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(36.dp),
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(horizontal = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(Icons.Rounded.Search, contentDescription = null, tint = palette.muted, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                                    if (searchQuery.isEmpty()) {
-                                        Text("搜索会话或回车全站搜消息", color = palette.muted, fontSize = 13.sp, maxLines = 1)
-                                    }
-                                    BasicTextField(
-                                        value = searchQuery,
-                                        onValueChange = { searchQuery = it },
-                                        singleLine = true,
-                                        textStyle = TextStyle(color = palette.text, fontSize = 13.sp),
-                                        cursorBrush = SolidColor(palette.primary),
-                                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                                        keyboardActions = KeyboardActions(
-                                            onSearch = {
-                                                val q = searchQuery.trim()
-                                                if (q.isNotBlank()) activeConv = FeishuConvTarget.SearchResult(q)
-                                            },
-                                        ),
-                                        modifier = Modifier.fillMaxWidth(),
-                                    )
-                                }
-                                if (searchQuery.isNotEmpty()) {
-                                    Icon(
-                                        Icons.Rounded.Close,
-                                        contentDescription = "清除",
-                                        tint = palette.muted,
-                                        modifier = Modifier
-                                            .size(16.dp)
-                                            .clickable { searchQuery = "" },
-                                    )
-                                }
-                            }
-                        }
-                        IconButton(
-                            onClick = { if (me == null) onRequireLogin() else showCompose = true },
-                            modifier = Modifier.size(34.dp),
-                        ) {
-                            Icon(Icons.Rounded.Add, contentDescription = "发起", tint = palette.text)
-                        }
-                        Box {
-                            IconButton(
-                                onClick = { showConvMenu = true },
-                                modifier = Modifier.size(34.dp),
-                            ) {
-                                Icon(Icons.Rounded.MoreHoriz, contentDescription = "伪装菜单", tint = palette.text)
-                            }
-                            FeishuSettingsMenu(
-                                expanded = showConvMenu,
-                                onDismiss = { showConvMenu = false },
-                                blurAllEnabled = privacyConfig.blurAllEnabled,
-                                hideNsfw = hideNsfw,
-                                onToggleBlurAll = onToggleBlurAll,
-                                onToggleNsfw = { hideNsfw = !hideNsfw },
-                                onTriggerBossKey = onTriggerBossKey,
-                                onOpenPrivacySettings = onOpenPrivacySettings,
-                                onExitDisguise = onExitDisguise,
+                        else -> {
+                            FeishuMeTab(
+                                fc = fc,
+                                me = me,
+                                scope = scope,
+                                api = api,
+                                aliasEnabled = privacyConfig.feishuMemberAliasEnabled,
+                                onRequireLogin = onRequireLogin,
+                                onOpenSettings = { settingsPage = it },
+                                onFilterFavorites = {
+                                    activeTab = "messages"
+                                    globalBanner = "可在任意工作群消息内管理收藏条目"
+                                },
+                                onLoggedOut = {
+                                    onLoggedOut()
+                                    globalBanner = "已退出工作区账号"
+                                },
+                                modifier = Modifier.weight(1f),
                             )
                         }
                     }
 
-                    // 消息 / 未读 / 话题 tabs
-                    Row(
+                    // Strict 3-Tab Feishu Bottom Bar (消息 / 通讯录 / 我的) — ZERO fake 云文档 tab
+                    HorizontalDivider(color = fc.line)
+                    Surface(
+                        color = fc.card,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(18.dp),
+                            .navigationBarsPadding(),
                     ) {
-                        FeishuTabLabel("消息", selected = activeTab == "all") { activeTab = "all" }
-                        if (me != null) {
-                            FeishuTabLabel("未读", selected = activeTab == "unread") { activeTab = "unread" }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            FeishuBottomTabItem(
+                                selected = activeTab == "messages",
+                                icon = if (activeTab == "messages") Icons.Rounded.ChatBubble else Icons.Rounded.ChatBubbleOutline,
+                                label = "消息",
+                                badgeCount = totalUnreadCount,
+                                fc = fc,
+                                modifier = Modifier.weight(1f),
+                                onClick = { activeTab = "messages" },
+                            )
+                            FeishuBottomTabItem(
+                                selected = activeTab == "contacts",
+                                icon = Icons.Rounded.Contacts,
+                                label = "通讯录",
+                                badgeCount = 0,
+                                fc = fc,
+                                modifier = Modifier.weight(1f),
+                                onClick = { activeTab = "contacts" },
+                            )
+                            FeishuBottomTabItem(
+                                selected = activeTab == "me",
+                                icon = Icons.Rounded.Person,
+                                label = "我的",
+                                badgeCount = 0,
+                                fc = fc,
+                                modifier = Modifier.weight(1f),
+                                onClick = { activeTab = "me" },
+                            )
                         }
-                        FeishuTabLabel("话题", selected = activeTab == "tag") { activeTab = "tag" }
-                    }
-                    HorizontalDivider(color = palette.line)
-                }
-            }
-
-            if (loadingConvs && displayedConvs.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = palette.primary)
-                }
-            } else if (displayedConvs.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = when {
-                                searchQuery.isNotBlank() -> "点击下方搜索全站相关消息"
-                                activeTab == "unread" -> "没有未读会话"
-                                else -> "暂无会话"
-                            },
-                            color = palette.muted,
-                            fontSize = 13.sp,
-                        )
-                        if (searchQuery.isNotBlank()) {
-                            OutlinedButton(onClick = { activeConv = FeishuConvTarget.SearchResult(searchQuery.trim()) }) {
-                                Text("搜索「${searchQuery.trim()}」", fontSize = 12.sp)
-                            }
-                        }
-                    }
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(vertical = 4.dp),
-                ) {
-                    items(displayedConvs, key = { it.key }) { conv ->
-                        FeishuConvRow(
-                            conv = conv,
-                            me = me,
-                            api = api,
-                            onClick = { activeConv = conv },
-                        )
-                        HorizontalDivider(color = palette.line.copy(alpha = 0.5f), modifier = Modifier.padding(start = 68.dp))
                     }
                 }
             }
         }
+
+        if (!globalBanner.isNullOrBlank()) {
+            Surface(
+                color = Color(0xFF1F2329).copy(alpha = 0.88f),
+                shape = RoundedCornerShape(999.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 72.dp),
+            ) {
+                Text(
+                    text = globalBanner.orEmpty(),
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                )
+            }
+        }
     }
 
-    if (showCompose) {
-        ComposeMemeModal(
-            api = api,
-            onDismiss = { showCompose = false },
-            onPublished = {
-                reloadConversations()
-                activeConv?.let { loadConversationFeed(it, reset = true) }
-            },
-        )
-    }
-
-    selectedDetailId?.let { memeId ->
-        MemeDetailModal(
-            memeId = memeId,
-            api = api,
-            me = me,
-            onRequireLogin = onRequireLogin,
-            onDismiss = { selectedDetailId = null },
-            onOpenImageFullscreen = { fullscreenImgUrl = it },
-            onTagClick = { tag ->
-                selectedDetailId = null
-                activeConv = FeishuConvTarget.TagTopic(TagStatItem(tag = tag))
-            },
-            onStateUpdated = { updated ->
-                feedMemes = feedMemes.map { if (it.id == updated.id) updated else it }
-            },
-        )
-    }
-
-    fullscreenImgUrl?.let { url ->
-        FullscreenMediaOverlay(
-            imageUrl = url,
-            api = api,
-            onDismiss = { fullscreenImgUrl = null },
-        )
-    }
-
-    emojiDropdownMeme?.let { target ->
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { emojiDropdownMeme = null },
-            title = { Text("快捷回应表情", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
-            text = {
-                androidx.compose.foundation.layout.FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    PICKED_REACTIONS.forEach { key ->
-                        Surface(
-                            color = palette.surface2,
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.clickable {
-                                emojiDropdownMeme = null
-                                scope.launch {
-                                    api.reactToMeme(target.id, key)?.let { updated ->
-                                        feedMemes = feedMemes.map { if (it.id == updated.id) updated else it }
-                                    }
-                                }
-                            },
-                        ) {
-                            Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
-                                ReactionEmojiView(
-                                    emojiKey = key,
-                                    imageLoader = api.imageLoader,
-                                    size = 24.dp,
+    if (!bossKeyActive) {
+        newDmTargetUser?.let { peer ->
+            val colleagueName = feishuSafeAuthor(peer.id, peer.displayName, privacyConfig.feishuMemberAliasEnabled)
+            AlertDialog(
+                onDismissRequest = { if (!newDmSending) newDmTargetUser = null },
+                containerColor = fc.card,
+                titleContentColor = fc.text,
+                textContentColor = fc.text,
+                title = { Text("发送工作消息给 $colleagueName", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
+                text = {
+                    OutlinedTextField(
+                        value = newDmFirstText,
+                        onValueChange = { newDmFirstText = it },
+                        placeholder = { Text("输入单聊首条消息…", fontSize = 13.sp, color = fc.muted) },
+                        maxLines = 4,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = !newDmSending && newDmFirstText.isNotBlank(),
+                        onClick = {
+                            newDmSending = true
+                            val body = newDmFirstText.trim()
+                            scope.launch {
+                                val res = api.sendDmToThreadOrUser(peerUserId = peer.id, body = body)
+                                newDmSending = false
+                                res.fold(
+                                    onSuccess = { (tid, _) ->
+                                        chatController.refreshDmThreads()
+                                        newDmTargetUser = null
+                                        val syntheticDm = DmThread(
+                                            id = tid,
+                                            peerId = peer.id,
+                                            peerName = peer.displayName,
+                                            lastBody = body,
+                                            lastAt = System.currentTimeMillis() / 1000L,
+                                        )
+                                        activeTarget = FeishuConvTarget.RealDm(
+                                            dm = syntheticDm,
+                                            displayTitle = colleagueName,
+                                            sortTs = syntheticDm.lastAt,
+                                        )
+                                    },
+                                    onFailure = { err ->
+                                        globalBanner = DisguiseSanitizer.sanitizeSummaryForDisguise(
+                                            err.message ?: "发送失败",
+                                            AppDisguiseMode.FEISHU,
+                                        )
+                                    },
                                 )
                             }
-                        }
+                        },
+                    ) {
+                        Text(if (newDmSending) "发送中…" else "发送", color = fc.blue)
                     }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { emojiDropdownMeme = null }) { Text("取消") }
-            },
-        )
+                },
+                dismissButton = {
+                    TextButton(enabled = !newDmSending, onClick = { newDmTargetUser = null }) {
+                        Text("取消", color = fc.muted)
+                    }
+                },
+            )
+        }
     }
 }
 
 @Composable
-private fun FeishuTabLabel(
-    text: String,
+private fun FeishuBottomTabItem(
     selected: Boolean,
+    icon: ImageVector,
+    label: String,
+    badgeCount: Int,
+    fc: FeishuThemePalette,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    val palette = LocalForHappyPalette.current
+    val fg = if (selected) fc.blue else fc.muted
     Column(
+        modifier = modifier
+            .height(56.dp)
+            .clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .clickable { onClick() }
-            .padding(vertical = 4.dp),
+        verticalArrangement = Arrangement.Center,
     ) {
+        Box(contentAlignment = Alignment.TopEnd) {
+            Icon(icon, contentDescription = label, tint = fg, modifier = Modifier.size(22.dp))
+            if (badgeCount > 0) {
+                Box(
+                    modifier = Modifier
+                        .offset(x = 8.dp, y = (-3).dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(fc.unreadRed)
+                        .padding(horizontal = 4.dp, vertical = 0.5.dp),
+                ) {
+                    Text(
+                        text = if (badgeCount > 99) "99+" else "$badgeCount",
+                        color = Color.White,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(2.dp))
         Text(
-            text = text,
-            color = if (selected) palette.primary else palette.muted,
-            fontSize = 14.sp,
+            text = label,
+            color = fg,
+            fontSize = 11.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
         )
-        Spacer(Modifier.height(4.dp))
-        Box(
-            modifier = Modifier
-                .width(20.dp)
-                .height(2.5.dp)
-                .clip(RoundedCornerShape(999.dp))
-                .background(if (selected) palette.primary else Color.Transparent),
-        )
-    }
-}
-
-@Composable
-private fun FeishuSettingsMenu(
-    expanded: Boolean,
-    onDismiss: () -> Unit,
-    blurAllEnabled: Boolean,
-    hideNsfw: Boolean,
-    onToggleBlurAll: (Boolean) -> Unit,
-    onToggleNsfw: () -> Unit,
-    onTriggerBossKey: () -> Unit,
-    onOpenPrivacySettings: () -> Unit,
-    onExitDisguise: () -> Unit,
-) {
-    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
-        DropdownMenuItem(
-            text = { Text(if (blurAllEnabled) "全图模糊：已开启（点击关闭）" else "全图模糊：已关闭（点击开启）") },
-            onClick = {
-                onDismiss()
-                onToggleBlurAll(!blurAllEnabled)
-            },
-        )
-        DropdownMenuItem(
-            text = { Text(if (hideNsfw) "内容过滤：隐藏敏感（点击显示）" else "内容过滤：模糊显示（点击隐藏）") },
-            onClick = {
-                onDismiss()
-                onToggleNsfw()
-            },
-        )
-        DropdownMenuItem(
-            text = { Text("切到云文档（老板键）") },
-            onClick = {
-                onDismiss()
-                onTriggerBossKey()
-            },
-        )
-        DropdownMenuItem(
-            text = { Text("伪装与隐私设置") },
-            onClick = {
-                onDismiss()
-                onOpenPrivacySettings()
-            },
-        )
-        DropdownMenuItem(
-            text = { Text("退出伪装") },
-            onClick = {
-                onDismiss()
-                onExitDisguise()
-            },
-        )
-    }
-}
-
-@Composable
-private fun FeishuGroupAvatar(title: String, size: Dp) {
-    val bg = remember(title) { FeishuDisguiseHelpers.imColor(title) }
-    val chars = remember(title) { FeishuDisguiseHelpers.avatarChars(title) }
-    Box(
-        modifier = Modifier
-            .size(size)
-            .clip(RoundedCornerShape(10.dp))
-            .background(bg),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = chars,
-            color = Color.White,
-            fontSize = (size.value * 0.34f).sp,
-            fontWeight = FontWeight.SemiBold,
-        )
-    }
-}
-
-@Composable
-private fun FeishuConvRow(
-    conv: FeishuConvTarget,
-    me: MeUser?,
-    api: ForHappyApiClient,
-    onClick: () -> Unit,
-) {
-    val palette = LocalForHappyPalette.current
-    val (subtitle, timeStr) = remember(conv, me?.id) {
-        when (conv) {
-            is FeishuConvTarget.RealGroup -> {
-                val lat = conv.group.latest
-                val sub = if (lat != null) {
-                    val sender = lat.by?.takeIf { it.isNotBlank() }?.let { "$it：" }.orEmpty()
-                    val body = ChatRichTextParser.previewSummary(lat.text.orEmpty()).ifBlank { "[图片]" }
-                    "$sender$body"
-                } else {
-                    conv.group.desc?.ifBlank { "群聊" } ?: "群聊"
-                }
-                sub to FeishuDisguiseHelpers.formatConvTime(lat?.at ?: 0L)
-            }
-            is FeishuConvTarget.DirectMsg -> {
-                val t = conv.thread
-                val prefix = if (t.lastSender != null && t.lastSender == me?.id) "我：" else ""
-                val body = ChatRichTextParser.previewSummary(t.lastBody.orEmpty()).ifBlank { "开始聊天" }
-                "$prefix$body" to FeishuDisguiseHelpers.formatConvTime(if (t.lastAt > 0L) t.lastAt else t.updatedAt)
-            }
-            is FeishuConvTarget.DayWorkGroup -> {
-                val lat = conv.entry.latest
-                val sub = if (lat != null) {
-                    val sender = if (lat.src) FeishuDisguiseHelpers.imFake(lat.id) else lat.by.orEmpty()
-                    val head = if (sender.isNotBlank()) "$sender：" else ""
-                    val body = ChatRichTextParser.previewSummary(lat.text.orEmpty()).ifBlank { "[图片]" }
-                    "$head$body"
-                } else {
-                    "${conv.entry.totalCount} 条消息"
-                }
-                sub to FeishuDisguiseHelpers.formatConvTime(lat?.at ?: 0L)
-            }
-            is FeishuConvTarget.TagTopic -> "${conv.stat.totalCount} 条相关记录" to ""
-            is FeishuConvTarget.SearchResult -> conv.title to ""
-        }
-    }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        when (conv) {
-            is FeishuConvTarget.DirectMsg -> ForHappyAvatar(
-                username = conv.title,
-                avatarUrl = conv.thread.peerAvatar,
-                imageLoader = api.imageLoader,
-                size = 42.dp,
-            )
-            else -> FeishuGroupAvatar(title = conv.title, size = 42.dp)
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = conv.title,
-                    color = palette.text,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                if (timeStr.isNotBlank()) {
-                    Spacer(Modifier.width(8.dp))
-                    Text(timeStr, color = palette.muted, fontSize = 11.sp)
-                }
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = subtitle,
-                    color = palette.muted,
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                if (conv.unreadCount > 0) {
-                    Spacer(Modifier.width(8.dp))
-                    Surface(
-                        color = palette.danger,
-                        shape = CircleShape,
-                    ) {
-                        Text(
-                            text = if (conv.unreadCount > 99) "99+" else "${conv.unreadCount}",
-                            color = Color.White,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun FeishuDayDivider(label: String) {
-    val palette = LocalForHappyPalette.current
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        HorizontalDivider(color = palette.line, modifier = Modifier.weight(1f))
-        Text(label, color = palette.muted, fontSize = 11.sp)
-        HorizontalDivider(color = palette.line, modifier = Modifier.weight(1f))
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun FeishuMemeMessageRow(
-    meme: MemeItem,
-    who: String,
-    isFakeColleague: Boolean,
-    isContinuation: Boolean,
-    api: ForHappyApiClient,
+private fun FeishuMessagesHomeTab(
+    fc: FeishuThemePalette,
     me: MeUser?,
-    onRequireLogin: () -> Unit,
-    onOpenDetail: () -> Unit,
-    onOpenImage: (String) -> Unit,
-    onQuote: () -> Unit,
-    onMemeUpdated: (MemeItem) -> Unit,
-    onToggleReactionSheet: () -> Unit,
+    groups: List<ChatGroup>,
+    dmThreads: List<DmThread>,
+    dayGroups: List<DayEntry>,
+    tagsList: List<TagStatItem>,
+    loadingDays: Boolean,
+    customAliases: Map<Long, String>,
+    aliasEnabled: Boolean,
+    msgFilter: String,
+    showSearch: Boolean,
+    searchQuery: String,
+    showPlusMenu: Boolean,
+    onSelectFilter: (String) -> Unit,
+    onToggleSearch: () -> Unit,
+    onSearchQueryChange: (String) -> Unit,
+    onTogglePlusMenu: (Boolean) -> Unit,
+    onJumpContacts: () -> Unit,
+    onJumpTopicsFilter: () -> Unit,
+    onOpenMeTab: () -> Unit,
+    onSelectTarget: (FeishuConvTarget) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val palette = LocalForHappyPalette.current
-    val privacyConfig = LocalPrivacyStealthConfig.current
-    val scope = rememberCoroutineScope()
+    val selfLabel = feishuSafeAuthor(me?.id ?: 0L, me?.displayName ?: "我", aliasEnabled)
 
-    val rawUrl = remember(meme.id, meme.primaryImageUrl, meme.detailImageUrls) {
-        val candidate = meme.detailImageUrls.firstOrNull() ?: meme.primaryImageUrl
-        MediaUrlRewriter.rewriteMediaUrl(candidate)
+    val mergedConvs = remember(groups, dmThreads, dayGroups, customAliases, aliasEnabled) {
+        val list = mutableListOf<FeishuConvTarget>()
+        groups.forEach { g ->
+            list.add(
+                FeishuConvTarget.RealGroup(
+                    group = g,
+                    displayTitle = DisguiseSanitizer.resolveFeishuGroupAlias(g.id, g.name, customAliases),
+                    sortTs = g.latest?.at ?: 0L,
+                ),
+            )
+        }
+        dmThreads.forEach { dm ->
+            val title = feishuSafeAuthor(dm.peerId, dm.peerName ?: dm.peerUsername, aliasEnabled)
+            list.add(
+                FeishuConvTarget.RealDm(
+                    dm = dm,
+                    displayTitle = title,
+                    sortTs = maxOf(dm.lastAt, dm.updatedAt),
+                ),
+            )
+        }
+        dayGroups.forEach { entry ->
+            list.add(
+                FeishuConvTarget.DayWorkGroup(
+                    dayEntry = entry,
+                    title = FeishuDisguiseHelpers.imGroupName(entry.day),
+                    sortTs = entry.latest?.at ?: 0L,
+                ),
+            )
+        }
+        list.sortedByDescending { it.sortTs }
     }
-    var revealed by remember(meme.id, privacyConfig.blurAllEnabled) { mutableStateOf(false) }
-    var imageLoaded by remember(rawUrl) { mutableStateOf(rawUrl.isBlank()) }
 
-    if (privacyConfig.autoReblurOnScrollOff) {
-        DisposableEffect(meme.id) {
-            onDispose { revealed = false }
+    val filteredConvs = remember(mergedConvs, msgFilter, searchQuery) {
+        val q = searchQuery.trim()
+        mergedConvs.filter { conv ->
+            val matchFilter = when (msgFilter) {
+                "unread" -> when (conv) {
+                    is FeishuConvTarget.RealGroup -> conv.group.unread > 0
+                    is FeishuConvTarget.RealDm -> conv.dm.unread > 0
+                    is FeishuConvTarget.DayWorkGroup -> conv.dayEntry.unseen > 0
+                    is FeishuConvTarget.TagTopic -> false
+                }
+                "dm" -> conv is FeishuConvTarget.RealDm
+                "group" -> conv is FeishuConvTarget.RealGroup || conv is FeishuConvTarget.DayWorkGroup
+                "at" -> conv is FeishuConvTarget.RealGroup && conv.group.atMe > 0
+                else -> true
+            }
+            if (!matchFilter) return@filter false
+            if (q.isBlank()) return@filter true
+            val title = when (conv) {
+                is FeishuConvTarget.RealGroup -> conv.displayTitle
+                is FeishuConvTarget.RealDm -> conv.displayTitle
+                is FeishuConvTarget.DayWorkGroup -> conv.title
+                is FeishuConvTarget.TagTopic -> conv.tag
+            }
+            title.contains(q, ignoreCase = true)
         }
     }
 
-    val isBlurred = rawUrl.isNotBlank() && (privacyConfig.blurAllEnabled || meme.isRisky) && !revealed
-    ObserveMemeSeenDwell(
-        memeId = meme.id,
-        seenAt = meme.seenAt,
-        memeDay = meme.day,
-        isMediaReady = imageLoaded,
-        isBlurred = isBlurred,
-    )
+    Column(modifier = modifier.fillMaxWidth()) {
+        // Feishu Top Bar
+        Surface(color = fc.card, modifier = Modifier.fillMaxWidth()) {
+            Column {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(30.dp)
+                            .clip(CircleShape)
+                            .background(fc.blue)
+                            .clickable(onClick = onOpenMeTab),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = FeishuDisguiseHelpers.avatarChars(selfLabel),
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    Text(
+                        text = "消息",
+                        color = fc.text,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = onToggleSearch, modifier = Modifier.size(34.dp)) {
+                        Icon(Icons.Rounded.Search, contentDescription = "搜索", tint = fc.text)
+                    }
+                    Box {
+                        IconButton(onClick = { onTogglePlusMenu(true) }, modifier = Modifier.size(34.dp)) {
+                            Icon(Icons.Rounded.Add, contentDescription = "发起沟通", tint = fc.text)
+                        }
+                        DropdownMenu(
+                            expanded = showPlusMenu,
+                            onDismissRequest = { onTogglePlusMenu(false) },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("发起单聊（选择同事）") },
+                                onClick = onJumpContacts,
+                            )
+                            DropdownMenuItem(
+                                text = { Text("按话题标签浏览") },
+                                onClick = onJumpTopicsFilter,
+                            )
+                        }
+                    }
+                }
+
+                if (showSearch) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = onSearchQueryChange,
+                        placeholder = { Text("搜索联系人、群聊或话题", fontSize = 13.sp, color = fc.muted) },
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = fc.muted) },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { onSearchQueryChange("") }) {
+                                    Icon(Icons.Rounded.Close, contentDescription = "清除", tint = fc.muted)
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                }
+
+                // Underline Sub-tabs
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(18.dp),
+                ) {
+                    val tabs = listOf(
+                        "all" to "全部",
+                        "unread" to "未读",
+                        "dm" to "单聊",
+                        "group" to "群组",
+                        "at" to "@我",
+                        "topics" to "话题",
+                    )
+                    tabs.forEach { (id, label) ->
+                        val active = msgFilter == id
+                        Column(
+                            modifier = Modifier
+                                .clickable { onSelectFilter(id) }
+                                .padding(top = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(
+                                text = label,
+                                color = if (active) fc.blue else fc.muted,
+                                fontSize = 14.sp,
+                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .width(24.dp)
+                                    .height(2.5.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(if (active) fc.blue else Color.Transparent),
+                            )
+                        }
+                    }
+                }
+                HorizontalDivider(color = fc.line)
+            }
+        }
+
+        if (msgFilter == "topics") {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                item {
+                    Text("部门工作话题列表", color = fc.muted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                }
+                if (tagsList.isEmpty()) {
+                    item {
+                        Text("暂无归档话题", color = fc.muted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 12.dp))
+                    }
+                } else {
+                    item {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            tagsList.forEach { tagItem ->
+                                val safeLabel = DisguiseSanitizer.sanitizeSummaryForDisguise(tagItem.tag, AppDisguiseMode.FEISHU)
+                                Surface(
+                                    color = fc.card,
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(0.5.dp, fc.line),
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable {
+                                            onSelectTarget(FeishuConvTarget.TagTopic(tagItem.tag, tagItem.totalCount))
+                                        },
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        Icon(Icons.Rounded.Tag, contentDescription = null, tint = fc.blue, modifier = Modifier.size(15.dp))
+                                        Text(safeLabel, color = fc.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                        Text("${tagItem.totalCount}", color = fc.muted, fontSize = 11.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(fc.card),
+            ) {
+                if (loadingDays && filteredConvs.isEmpty()) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(32.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(color = fc.blue, strokeWidth = 2.dp, modifier = Modifier.size(26.dp))
+                        }
+                    }
+                } else if (filteredConvs.isEmpty()) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(40.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("暂无匹配会话", color = fc.muted, fontSize = 13.sp)
+                        }
+                    }
+                }
+                items(
+                    filteredConvs,
+                    key = { conv ->
+                        when (conv) {
+                            is FeishuConvTarget.RealGroup -> "rg_${conv.group.id}"
+                            is FeishuConvTarget.RealDm -> "dm_${conv.dm.id}"
+                            is FeishuConvTarget.DayWorkGroup -> "dg_${conv.dayEntry.day}"
+                            is FeishuConvTarget.TagTopic -> "tag_${conv.tag}"
+                        }
+                    },
+                ) { conv ->
+                    FeishuConversationRow(
+                        conv = conv,
+                        fc = fc,
+                        aliasEnabled = aliasEnabled,
+                        onClick = { onSelectTarget(conv) },
+                    )
+                    HorizontalDivider(color = fc.line, modifier = Modifier.padding(start = 74.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeishuConversationRow(
+    conv: FeishuConvTarget,
+    fc: FeishuThemePalette,
+    aliasEnabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val (title, preview, timeText, unreadCount, atMeCount, badgeLabel) = when (conv) {
+        is FeishuConvTarget.RealGroup -> {
+            val g = conv.group
+            val latestBy = g.latest?.by?.takeIf { it.isNotBlank() }?.let { raw ->
+                "${feishuSafeAuthor(g.id, raw, aliasEnabled)}: "
+            }.orEmpty()
+            val rawBody = g.latest?.text?.takeIf { it.isNotBlank() } ?: g.desc.orEmpty().ifBlank { "群消息同步" }
+            val safeBody = DisguiseSanitizer.sanitizeSummaryForDisguise(rawBody, AppDisguiseMode.FEISHU)
+            ConvDisplay(
+                title = conv.displayTitle,
+                preview = "$latestBy$safeBody",
+                timeText = FeishuDisguiseHelpers.formatConvTime(conv.sortTs),
+                unread = g.unread,
+                atMe = g.atMe,
+                tagLabel = "群",
+            )
+        }
+        is FeishuConvTarget.RealDm -> {
+            val dm = conv.dm
+            val rawBody = dm.lastBody?.takeIf { it.isNotBlank() } ?: "[消息]"
+            val safeBody = DisguiseSanitizer.sanitizeSummaryForDisguise(rawBody, AppDisguiseMode.FEISHU)
+            ConvDisplay(
+                title = conv.displayTitle,
+                preview = safeBody,
+                timeText = FeishuDisguiseHelpers.formatConvTime(conv.sortTs),
+                unread = dm.unread,
+                atMe = 0,
+                tagLabel = null,
+            )
+        }
+        is FeishuConvTarget.DayWorkGroup -> {
+            val d = conv.dayEntry
+            val latestAuthor = d.latest?.by?.let { feishuSafeAuthor(d.latest.id, it, aliasEnabled) }
+            val rawText = d.latest?.text?.takeIf { it.isNotBlank() } ?: "共 ${d.totalCount} 条项目记录"
+            val safeBody = DisguiseSanitizer.sanitizeSummaryForDisguise(rawText, AppDisguiseMode.FEISHU)
+            val prefix = if (!latestAuthor.isNullOrBlank()) "$latestAuthor: " else ""
+            ConvDisplay(
+                title = conv.title,
+                preview = "$prefix$safeBody",
+                timeText = FeishuDisguiseHelpers.formatConvTime(conv.sortTs),
+                unread = d.unseen,
+                atMe = 0,
+                tagLabel = "部门群",
+            )
+        }
+        is FeishuConvTarget.TagTopic -> {
+            ConvDisplay(
+                title = "#${conv.tag}",
+                preview = "${conv.count} 条话题记录",
+                timeText = "",
+                unread = 0,
+                atMe = 0,
+                tagLabel = "话题",
+            )
+        }
+    }
+
+    val avatarBg = remember(title) { FeishuDisguiseHelpers.imColor(title) }
 
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.Top,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        if (isContinuation) {
+        Box(contentAlignment = Alignment.TopEnd) {
             Box(
                 modifier = Modifier
-                    .width(36.dp)
-                    .padding(top = 4.dp),
+                    .size(46.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(avatarBg),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = FeishuDisguiseHelpers.formatClock(meme.createdAt),
-                    color = palette.muted.copy(alpha = 0.7f),
-                    fontSize = 10.sp,
+                    text = FeishuDisguiseHelpers.avatarChars(title),
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
-        } else {
-            ForHappyAvatar(
-                username = who,
-                avatarUrl = if (isFakeColleague) null else meme.authorAvatar,
-                imageLoader = api.imageLoader,
-                size = 36.dp,
-            )
+            if (unreadCount > 0) {
+                Box(
+                    modifier = Modifier
+                        .offset(x = 5.dp, y = (-4).dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(fc.unreadRed)
+                        .padding(horizontal = 5.dp, vertical = 1.dp),
+                ) {
+                    Text(
+                        text = if (unreadCount > 99) "99+" else "$unreadCount",
+                        color = Color.White,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
         }
 
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(5.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            if (!isContinuation) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(who, color = palette.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = FeishuDisguiseHelpers.formatClock(meme.createdAt),
-                            color = palette.muted,
-                            fontSize = 11.sp,
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(
-                            imageVector = Icons.Rounded.EmojiEmotions,
-                            contentDescription = "表情回应",
-                            tint = palette.muted,
-                            modifier = Modifier
-                                .size(16.dp)
-                                .clickable {
-                                    if (me == null) onRequireLogin() else onToggleReactionSheet()
-                                },
-                        )
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.Reply,
-                            contentDescription = "回复",
-                            tint = palette.muted,
-                            modifier = Modifier
-                                .size(16.dp)
-                                .clickable { onQuote() },
-                        )
-                        Icon(
-                            imageVector = if (meme.liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                            contentDescription = "点赞",
-                            tint = if (meme.liked) palette.danger else palette.muted,
-                            modifier = Modifier
-                                .size(16.dp)
-                                .clickable {
-                                    if (me == null) {
-                                        onRequireLogin()
-                                    } else {
-                                        scope.launch {
-                                            api.toggleLike(meme.id)
-                                            onMemeUpdated(
-                                                meme.copy(
-                                                    liked = !meme.liked,
-                                                    likes = if (meme.liked) maxOf(0, meme.likes - 1) else meme.likes + 1,
-                                                    likeCount = if (meme.liked) maxOf(0, meme.likeCount - 1) else meme.likeCount + 1,
-                                                ),
-                                            )
-                                        }
-                                    }
-                                },
-                        )
-                    }
-                }
-            }
-
-            val messageText = remember(meme.id) {
-                listOfNotNull(meme.title, meme.text, meme.content, meme.caption, meme.body)
-                    .map { it.trim() }
-                    .filter { it.isNotBlank() }
-                    .distinct()
-                    .joinToString("\n")
-            }
-            if (messageText.isNotBlank()) {
-                Surface(
-                    color = palette.surface,
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .widthIn(max = 310.dp)
-                        .border(1.dp, palette.line.copy(alpha = 0.7f), RoundedCornerShape(10.dp))
-                        .clickable { onOpenDetail() },
-                ) {
-                    Text(
-                        text = messageText,
-                        color = palette.text,
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp,
-                        modifier = Modifier.padding(horizontal = 11.dp, vertical = 8.dp),
-                    )
-                }
-            }
-
-            if (rawUrl.isNotBlank()) {
-                val w = meme.effectiveWidth ?: 0
-                val h = meme.effectiveHeight ?: 0
-                val ratio = if (w > 0 && h > 0) (w.toFloat() / h.toFloat()).coerceIn(0.60f, 1.85f) else 4f / 3f
-                Box(
-                    modifier = Modifier
-                        .width(220.dp)
-                        .aspectRatio(ratio)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(palette.surface2)
-                        .border(1.dp, palette.line, RoundedCornerShape(10.dp))
-                        .clickable {
-                            when {
-                                isBlurred -> revealed = true
-                                privacyConfig.blurAllEnabled && revealed -> revealed = false
-                                else -> onOpenImage(rawUrl)
-                            }
-                        },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    AsyncImage(
-                        model = rawUrl,
-                        imageLoader = api.imageLoader,
-                        contentDescription = meme.safeLabel,
-                        contentScale = ContentScale.Crop,
-                        onSuccess = { imageLoaded = true },
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .let { if (isBlurred) it.blur(22.dp) else it },
-                    )
-                    if (isBlurred) {
-                        Surface(
-                            color = Color.Black.copy(alpha = 0.62f),
-                            shape = RoundedCornerShape(999.dp),
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(3.dp),
-                            ) {
-                                Icon(Icons.Rounded.VisibilityOff, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
-                                Text("已模糊 · 轻触查看", color = Color.White, fontSize = 10.sp)
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Reaction chips row
-            val activeReactions = remember(meme.reactions) { meme.reactions.filter { it.count > 0 } }
-            if (meme.totalLikes > 0 || activeReactions.isNotEmpty()) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    if (meme.totalLikes > 0) {
-                        Surface(
-                            color = if (meme.liked) palette.primary.copy(alpha = 0.14f) else palette.surface2,
-                            shape = RoundedCornerShape(999.dp),
-                            modifier = Modifier.clickable {
-                                if (me == null) {
-                                    onRequireLogin()
-                                } else {
-                                    scope.launch {
-                                        api.toggleLike(meme.id)
-                                        onMemeUpdated(
-                                            meme.copy(
-                                                liked = !meme.liked,
-                                                likes = if (meme.liked) maxOf(0, meme.likes - 1) else meme.likes + 1,
-                                                likeCount = if (meme.liked) maxOf(0, meme.likeCount - 1) else meme.likeCount + 1,
-                                            ),
-                                        )
-                                    }
-                                }
-                            },
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(3.dp),
-                            ) {
-                                Icon(
-                                    imageVector = if (meme.liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                                    contentDescription = null,
-                                    tint = if (meme.liked) palette.primary else palette.muted,
-                                    modifier = Modifier.size(12.dp),
-                                )
-                                Text("${meme.totalLikes}", color = palette.text, fontSize = 11.sp)
-                            }
-                        }
-                    }
-                    activeReactions.take(8).forEach { rx ->
-                        ReactionChip(
-                            emojiKey = rx.emoji,
-                            count = rx.count,
-                            mine = rx.mine,
-                            imageLoader = api.imageLoader,
-                            compact = true,
-                            onClick = {
-                                if (me == null) {
-                                    onRequireLogin()
-                                } else {
-                                    scope.launch { api.reactToMeme(meme.id, rx.emoji)?.let(onMemeUpdated) }
-                                }
-                            },
-                        )
-                    }
-                }
-            }
-
-            // Quick replies + N条回复 thread link
-            val replies = remember(meme.replyList, meme.myReply, me?.username) { meme.effectiveQuickReplies(me) }
-            val threadCount = meme.replyCount + meme.totalComments
-            if (replies.isNotEmpty() || threadCount > 0) {
-                Row(
-                    modifier = Modifier.clickable { onOpenDetail() },
+                    modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    if (threadCount > 0) {
+                    Text(
+                        text = title,
+                        color = fc.text,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (!badgeLabel.isNullOrBlank()) {
+                        Surface(color = fc.surfaceMuted, shape = RoundedCornerShape(4.dp)) {
+                            Text(
+                                text = badgeLabel,
+                                color = fc.muted,
+                                fontSize = 10.sp,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                            )
+                        }
+                    }
+                }
+                if (timeText.isNotBlank()) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(timeText, color = fc.muted, fontSize = 11.sp)
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (atMeCount > 0) {
+                    Text("[有人@我]", color = fc.unreadRed, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                }
+                Text(
+                    text = preview,
+                    color = fc.muted,
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+private data class ConvDisplay(
+    val title: String,
+    val preview: String,
+    val timeText: String,
+    val unread: Int,
+    val atMe: Int,
+    val tagLabel: String?,
+)
+
+@Composable
+private fun FeishuContactsTab(
+    fc: FeishuThemePalette,
+    api: ForHappyApiClient,
+    me: MeUser?,
+    groups: List<ChatGroup>,
+    dmThreads: List<DmThread>,
+    customAliases: Map<Long, String>,
+    aliasEnabled: Boolean,
+    onRequireLogin: () -> Unit,
+    onOpenGroup: (ChatGroup) -> Unit,
+    onOpenDmThread: (DmThread) -> Unit,
+    onStartNewDmUser: (ChatUser) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var query by remember { mutableStateOf("") }
+    var searching by remember { mutableStateOf(false) }
+    var searchResults by remember { mutableStateOf<List<ChatUser>>(emptyList()) }
+
+    LaunchedEffect(query, me?.id) {
+        if (me == null) {
+            searchResults = emptyList()
+            return@LaunchedEffect
+        }
+        val clean = query.trim()
+        if (clean.isEmpty()) {
+            searchResults = emptyList()
+            return@LaunchedEffect
+        }
+        searching = true
+        delay(220L)
+        searchResults = api.searchDmUsers(clean)
+        searching = false
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(fc.bg),
+    ) {
+        Surface(color = fc.card, modifier = Modifier.fillMaxWidth()) {
+            Column {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                        .padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("通讯录", color = fc.text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                }
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = { Text("搜索组织内联系人发起单聊", fontSize = 13.sp, color = fc.muted) },
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = fc.muted) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                )
+                HorizontalDivider(color = fc.line)
+            }
+        }
+
+        if (me == null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text("登录后可访问企业通讯录与同事单聊", color = fc.muted, fontSize = 14.sp)
+                    Surface(
+                        color = fc.blue,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(onClick = onRequireLogin),
+                    ) {
+                        Text("立即登录", color = Color.White, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
+                    }
+                }
+            }
+            return
+        }
+
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(fc.card),
+        ) {
+            if (query.isNotBlank()) {
+                item {
+                    Text(
+                        text = if (searching) "正在搜索联系人…" else "搜索结果 (${searchResults.size})",
+                        color = fc.muted,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+                items(searchResults, key = { "u_${it.id}" }) { user ->
+                    val name = feishuSafeAuthor(user.id, user.displayName, aliasEnabled)
+                    val color = FeishuDisguiseHelpers.imColor(name)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                val existingDm = dmThreads.firstOrNull { it.peerId == user.id }
+                                if (existingDm != null) onOpenDmThread(existingDm) else onStartNewDmUser(user)
+                            }
+                            .padding(horizontal = 16.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(color),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(FeishuDisguiseHelpers.avatarChars(name), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(name, color = fc.text, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                            Text("产品研发中心 · 点击发送消息", color = fc.muted, fontSize = 12.sp)
+                        }
+                    }
+                    HorizontalDivider(color = fc.line, modifier = Modifier.padding(start = 68.dp))
+                }
+            } else {
+                item {
+                    Surface(color = fc.bg, modifier = Modifier.fillMaxWidth()) {
                         Text(
-                            text = "${threadCount} 条回复 ›",
-                            color = palette.primary,
+                            text = "常用同事 (${dmThreads.size})",
+                            color = fc.muted,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                         )
                     }
-                    replies.take(2).forEach { qr ->
-                        Surface(
-                            color = palette.surface2,
-                            shape = RoundedCornerShape(999.dp),
+                }
+                items(dmThreads, key = { "peer_${it.id}" }) { dm ->
+                    val name = feishuSafeAuthor(dm.peerId, dm.peerName ?: dm.peerUsername, aliasEnabled)
+                    val color = FeishuDisguiseHelpers.imColor(name)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpenDmThread(dm) }
+                            .padding(horizontal = 16.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(color),
+                            contentAlignment = Alignment.Center,
                         ) {
-                            Box(modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)) {
-                                BoostPillText(text = qr.text, imageLoader = api.imageLoader, fontSize = 10.sp)
+                            Text(FeishuDisguiseHelpers.avatarChars(name), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(name, color = fc.text, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                            Text("内部同事 · 点击打开单聊", color = fc.muted, fontSize = 12.sp)
+                        }
+                    }
+                    HorizontalDivider(color = fc.line, modifier = Modifier.padding(start = 68.dp))
+                }
+
+                item {
+                    Surface(color = fc.bg, modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "部门工作群 (${groups.size})",
+                            color = fc.muted,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        )
+                    }
+                }
+                items(groups, key = { "grp_${it.id}" }) { g ->
+                    val alias = DisguiseSanitizer.resolveFeishuGroupAlias(g.id, g.name, customAliases)
+                    val color = FeishuDisguiseHelpers.imColor(alias)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpenGroup(g) }
+                            .padding(horizontal = 16.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(color),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Rounded.Group, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(alias, color = fc.text, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                            Text("${maxOf(1, g.memberCount)} 名群成员", color = fc.muted, fontSize = 12.sp)
+                        }
+                    }
+                    HorizontalDivider(color = fc.line, modifier = Modifier.padding(start = 68.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeishuMeTab(
+    fc: FeishuThemePalette,
+    me: MeUser?,
+    scope: kotlinx.coroutines.CoroutineScope,
+    api: ForHappyApiClient,
+    aliasEnabled: Boolean,
+    onRequireLogin: () -> Unit,
+    onOpenSettings: (FeishuSettingsPage) -> Unit,
+    onFilterFavorites: () -> Unit,
+    onLoggedOut: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val displayName = if (me == null) {
+        "点击登录企业账号"
+    } else {
+        feishuSafeAuthor(me.id, me.displayName, aliasEnabled)
+    }
+
+    LazyColumn(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(fc.bg),
+        contentPadding = PaddingValues(vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            Surface(
+                color = fc.card,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = me == null) { onRequireLogin() },
+            ) {
+                Row(
+                    modifier = Modifier.padding(18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(fc.blue),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = FeishuDisguiseHelpers.avatarChars(displayName),
+                            color = Color.White,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(displayName, color = fc.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            text = if (me != null) "产品研发中心 · 在线工作区" else "企业协同办公空间",
+                            color = fc.muted,
+                            fontSize = 13.sp,
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+            Surface(color = fc.card, modifier = Modifier.fillMaxWidth()) {
+                Column {
+                    FeishuMeMenuRow(Icons.Rounded.Bookmark, "我的收藏", "工作群与话题中标记的重点信息", fc) {
+                        onFilterFavorites()
+                    }
+                    HorizontalDivider(color = fc.line, modifier = Modifier.padding(start = 52.dp))
+                    FeishuMeMenuRow(Icons.Rounded.Lock, "隐私与安全", "图片遮罩、隐藏切换规则与锁屏文档预览", fc) {
+                        onOpenSettings(FeishuSettingsPage.PRIVACY)
+                    }
+                    HorizontalDivider(color = fc.line, modifier = Modifier.padding(start = 52.dp))
+                    FeishuMeMenuRow(Icons.Rounded.Settings, "设置", "通用界面风格、通知提醒与关于", fc) {
+                        onOpenSettings(FeishuSettingsPage.ROOT)
+                    }
+                }
+            }
+        }
+
+        if (me != null) {
+            item {
+                Surface(
+                    color = fc.card,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            scope.launch {
+                                api.logout()
+                                onLoggedOut()
+                            }
+                        },
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 15.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("退出当前账号", color = fc.unreadRed, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeishuMeMenuRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    fc: FeishuThemePalette,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = fc.blue, modifier = Modifier.size(22.dp))
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, color = fc.text, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            Text(subtitle, color = fc.muted, fontSize = 12.sp)
+        }
+        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = fc.muted)
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
+@Composable
+private fun FeishuWorkGroupDetailScreen(
+    title: String,
+    dayFilter: String?,
+    tagFilter: String?,
+    api: ForHappyApiClient,
+    privacyConfig: PrivacyStealthConfig,
+    onNotify: (String) -> Unit,
+    onOpenTagTopic: (String) -> Unit,
+    onBack: () -> Unit,
+) {
+    val fc = rememberFeishuColors()
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
+    val bossKeyActive = LocalBossKeyActive.current
+
+    var messages by remember(dayFilter, tagFilter) { mutableStateOf<List<MemeItem>>(emptyList()) }
+    var loading by remember(dayFilter, tagFilter) { mutableStateOf(true) }
+    var unblurredIds by remember(dayFilter, tagFilter) { mutableStateOf<Set<Long>>(emptySet()) }
+
+    var inputText by remember(dayFilter, tagFilter) { mutableStateOf("") }
+    var showEmojiDrawer by remember { mutableStateOf(false) }
+    var quotedMeme by remember { mutableStateOf<MemeItem?>(null) }
+    val stagedItems = remember { mutableStateListOf<ComposeTrayItem>() }
+    var mergeAll by remember { mutableStateOf(true) }
+    var spoilerFlag by remember { mutableStateOf(false) }
+    var sending by remember { mutableStateOf(false) }
+
+    var actionSheetMeme by remember { mutableStateOf<MemeItem?>(null) }
+    var threadRootMeme by remember { mutableStateOf<MemeItem?>(null) }
+    var maskEditorIndex by remember { mutableStateOf<Int?>(null) }
+    var viewerState by remember { mutableStateOf<Pair<List<MemeMediaItem>, Int>?>(null) }
+
+    fun reloadMessages() {
+        scope.launch {
+            loading = true
+            val list = api.fetchMemes(
+                limit = 40,
+                day = dayFilter,
+                tag = tagFilter,
+                sort = "new",
+            )
+            messages = list
+            loading = false
+        }
+    }
+
+    LaunchedEffect(dayFilter, tagFilter) {
+        reloadMessages()
+    }
+
+    // Re-blur images whose rows scrolled off screen when configured
+    val visibleKeys by remember {
+        derivedStateOf { listState.layoutInfo.visibleItemsInfo.map { it.key }.toSet() }
+    }
+    LaunchedEffect(visibleKeys, privacyConfig.autoReblurOnScrollOff) {
+        if (privacyConfig.autoReblurOnScrollOff && unblurredIds.isNotEmpty()) {
+            val retained = unblurredIds.filter { id -> id in visibleKeys }.toSet()
+            if (retained.size != unblurredIds.size) {
+                unblurredIds = retained
+            }
+        }
+    }
+
+    val pickVisualMediaLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia(12),
+    ) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        scope.launch {
+            val added = uris.mapNotNull { uri -> ComposeMediaStager.stageUri(context, uri) }
+            stagedItems.addAll(added.take(12 - stagedItems.size))
+        }
+    }
+
+    BackHandler(enabled = threadRootMeme == null && maskEditorIndex == null) {
+        onBack()
+    }
+
+    if (threadRootMeme != null) {
+        FeishuThreadScreen(
+            rootMeme = threadRootMeme!!,
+            api = api,
+            blurAll = privacyConfig.blurAllEnabled,
+            aliasEnabled = privacyConfig.feishuMemberAliasEnabled,
+            unblurredIds = unblurredIds,
+            onRevealMeme = { id -> unblurredIds = unblurredIds + id },
+            onOpenViewer = { mediaList, idx -> viewerState = mediaList to idx },
+            onReactMeme = { targetMeme, emoji ->
+                scope.launch {
+                    val updated = api.reactToMeme(targetMeme.id, emoji)
+                    if (updated != null) {
+                        messages = messages.map { if (it.id == updated.id) updated else it }
+                        if (threadRootMeme?.id == updated.id) threadRootMeme = updated
+                    }
+                }
+            },
+            onMemeCommentAdded = { memeId, newCount ->
+                messages = messages.map { m ->
+                    if (m.id == memeId) m.copy(comments = newCount, commentCount = newCount) else m
+                }
+            },
+            onClose = { threadRootMeme = null },
+        )
+        viewerState?.let { (mediaItems, idx) ->
+            ImmersiveMediaStage(
+                mediaItems = mediaItems,
+                initialIndex = idx,
+                api = api,
+                forceBlurAll = false,
+                onDismiss = { viewerState = null },
+            )
+        }
+        return
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(fc.bg)
+            .statusBarsPadding(),
+    ) {
+        Surface(color = fc.card, modifier = Modifier.fillMaxWidth()) {
+            Column {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                        .padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = fc.text)
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = title,
+                            color = fc.text,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = "${messages.size} 条部门同步消息",
+                            color = fc.muted,
+                            fontSize = 11.sp,
+                        )
+                    }
+                }
+                HorizontalDivider(color = fc.line)
+            }
+        }
+
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentPadding = PaddingValues(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (!dayFilter.isNullOrBlank()) {
+                item(key = "day_sep") {
+                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Surface(color = fc.surfaceMuted, shape = RoundedCornerShape(999.dp)) {
+                            Text(
+                                text = FeishuDisguiseHelpers.daySeparatorLabel(dayFilter),
+                                color = fc.muted,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (loading && messages.isEmpty()) {
+                item(key = "loading") {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(32.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(color = fc.blue, strokeWidth = 2.dp, modifier = Modifier.size(26.dp))
+                    }
+                }
+            } else if (messages.isEmpty()) {
+                item(key = "empty") {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(32.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("暂无群消息，在下方发送第一条消息", color = fc.muted, fontSize = 13.sp)
+                    }
+                }
+            }
+
+            items(messages, key = { it.id }) { meme ->
+                val authorName = feishuSafeAuthor(meme.authorId ?: meme.id, meme.authorName ?: meme.authorUsername, privacyConfig.feishuMemberAliasEnabled)
+                val avatarColor = FeishuDisguiseHelpers.imColor(authorName)
+                val commentTotal = maxOf(meme.comments, meme.commentCount)
+                val boosts = meme.replyList.ifEmpty { meme.replies }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(avatarColor),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = FeishuDisguiseHelpers.avatarChars(authorName),
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text(authorName, color = fc.muted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            Text(FeishuDisguiseHelpers.formatClock(meme.createdAt), color = fc.muted, fontSize = 11.sp)
+                        }
+
+                        Surface(
+                            color = fc.card,
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(0.5.dp, fc.line),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .combinedClickable(
+                                    onClick = {},
+                                    onLongClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        actionSheetMeme = meme
+                                    },
+                                ),
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(11.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                RichChatBodyView(
+                                    rawBody = feishuMemePrimaryText(meme),
+                                    imageLoader = api.imageLoader,
+                                    textColor = fc.text,
+                                    showInlineImages = false,
+                                )
+
+                                DisguiseMediaStrip(
+                                    meme = meme,
+                                    api = api,
+                                    blurAll = privacyConfig.blurAllEnabled,
+                                    accentColor = fc.blue,
+                                    isItemUnblurred = meme.id in unblurredIds,
+                                    onRevealItem = { unblurredIds = unblurredIds + meme.id },
+                                    onOpenViewer = { list, idx -> viewerState = list to idx },
+                                )
+
+                                if (meme.tags.isNotEmpty()) {
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                                    ) {
+                                        meme.tags.take(4).forEach { tag ->
+                                            Surface(
+                                                color = fc.surfaceMuted,
+                                                shape = RoundedCornerShape(4.dp),
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(4.dp))
+                                                    .clickable { onOpenTagTopic(tag) },
+                                            ) {
+                                                Text(
+                                                    text = "#${DisguiseSanitizer.sanitizeSummaryForDisguise(tag, AppDisguiseMode.FEISHU)}",
+                                                    color = fc.blue,
+                                                    fontSize = 11.sp,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (meme.reactions.isNotEmpty() || boosts.isNotEmpty()) {
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        meme.reactions.forEach { reaction ->
+                                            ReactionChip(
+                                                emojiKey = reaction.emoji,
+                                                count = reaction.count,
+                                                mine = reaction.mine,
+                                                imageLoader = api.imageLoader,
+                                                onClick = {
+                                                    scope.launch {
+                                                        val updated = api.reactToMeme(meme.id, reaction.emoji)
+                                                        if (updated != null) {
+                                                            messages = messages.map { if (it.id == updated.id) updated else it }
+                                                        }
+                                                    }
+                                                },
+                                            )
+                                        }
+                                        boosts.forEach { reply ->
+                                            Surface(color = fc.surfaceMuted, shape = RoundedCornerShape(999.dp)) {
+                                                Text(
+                                                    text = DisguiseSanitizer.sanitizeSummaryForDisguise(reply.text, AppDisguiseMode.FEISHU) +
+                                                        if (reply.n > 1) " ×${reply.n}" else "",
+                                                    color = fc.text,
+                                                    fontSize = 11.sp,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                HorizontalDivider(color = fc.line)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = if (commentTotal > 0) "话题 ($commentTotal)" else "话题回复",
+                                            color = fc.blue,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            modifier = Modifier.clickable { threadRootMeme = meme },
+                                        )
+                                        Text(
+                                            text = "引用回复",
+                                            color = fc.muted,
+                                            fontSize = 12.sp,
+                                            modifier = Modifier.clickable { quotedMeme = meme },
+                                        )
+                                        Text(
+                                            text = if (meme.faved) "已收藏" else "收藏",
+                                            color = if (meme.faved) fc.blue else fc.muted,
+                                            fontSize = 12.sp,
+                                            modifier = Modifier.clickable {
+                                                scope.launch {
+                                                    val ok = api.toggleFav(meme.id, meme.faved)
+                                                    if (ok) {
+                                                        messages = messages.map {
+                                                            if (it.id == meme.id) it.copy(faved = !meme.faved) else it
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                        )
+                                    }
+                                    Icon(
+                                        imageVector = Icons.Rounded.MoreHoriz,
+                                        contentDescription = "更多操作",
+                                        tint = fc.muted,
+                                        modifier = Modifier
+                                            .size(18.dp)
+                                            .clickable { actionSheetMeme = meme },
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
         }
+
+        FeishuWorkGroupInputBar(
+            groupTitle = title,
+            api = api,
+            text = inputText,
+            onTextChange = { inputText = it },
+            stagedItems = stagedItems,
+            mergeAll = mergeAll,
+            spoiler = spoilerFlag,
+            quotedMeme = quotedMeme,
+            sending = sending,
+            showEmojiDrawer = showEmojiDrawer,
+            aliasEnabled = privacyConfig.feishuMemberAliasEnabled,
+            onToggleEmojiDrawer = { showEmojiDrawer = !showEmojiDrawer },
+            onPickPhotos = {
+                StealthExemptionGate.markInternalJump()
+                pickVisualMediaLauncher.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo),
+                )
+            },
+            onEditMask = { idx -> maskEditorIndex = idx },
+            onRemoveStaged = { id -> stagedItems.removeAll { it.id == id } },
+            onToggleMerge = { mergeAll = it },
+            onToggleSpoiler = { spoilerFlag = it },
+            onClearQuote = { quotedMeme = null },
+            onInsertPhrase = { phrase ->
+                inputText = if (inputText.isBlank()) phrase else "$inputText $phrase"
+            },
+            onSend = {
+                sending = true
+                val quote = quotedMeme
+                val draft = inputText.trim()
+                val stagedSnapshot = stagedItems.toList()
+                val tags = if (!tagFilter.isNullOrBlank()) listOf(tagFilter) else emptyList()
+                scope.launch {
+                    if (quote != null && stagedSnapshot.isEmpty()) {
+                        val ok = api.postMemeComment(quote.id, draft)
+                        sending = false
+                        if (ok) {
+                            inputText = ""
+                            quotedMeme = null
+                            showEmojiDrawer = false
+                            messages = messages.map { m ->
+                                if (m.id == quote.id) m.copy(comments = m.comments + 1, commentCount = m.commentCount + 1) else m
+                            }
+                            onNotify("已发送话题回复")
+                        } else {
+                            onNotify("发送失败，请确认账号已登录")
+                        }
+                    } else {
+                        val res = disguiseUploadAndPublish(
+                            context = context,
+                            api = api,
+                            text = draft,
+                            stagedItems = stagedSnapshot,
+                            mergeAll = mergeAll,
+                            spoiler = spoilerFlag,
+                            tags = tags,
+                            fallbackTitlePrefix = "工作同步截图",
+                        )
+                        sending = false
+                        res.fold(
+                            onSuccess = {
+                                inputText = ""
+                                stagedItems.clear()
+                                quotedMeme = null
+                                spoilerFlag = false
+                                showEmojiDrawer = false
+                                reloadMessages()
+                                onNotify("已同步到工作群")
+                            },
+                            onFailure = { err ->
+                                onNotify(
+                                    DisguiseSanitizer.sanitizeSummaryForDisguise(
+                                        err.message ?: "发送失败",
+                                        AppDisguiseMode.FEISHU,
+                                    ),
+                                )
+                            },
+                        )
+                    }
+                }
+            },
+        )
+    }
+
+    actionSheetMeme?.let { sheetMeme ->
+        FeishuMemeMessageActionSheet(
+            meme = sheetMeme,
+            api = api,
+            onReactEmoji = { emoji ->
+                scope.launch {
+                    val updated = api.reactToMeme(sheetMeme.id, emoji)
+                    if (updated != null) {
+                        messages = messages.map { if (it.id == updated.id) updated else it }
+                    }
+                }
+            },
+            onQuickBoost = { phrase ->
+                scope.launch {
+                    api.putMemeQuickReply(sheetMeme.id, phrase).onSuccess { updated ->
+                        if (updated != null) {
+                            messages = messages.map { if (it.id == updated.id) updated else it }
+                        } else {
+                            reloadMessages()
+                        }
+                    }
+                }
+            },
+            onReplyQuote = { quotedMeme = sheetMeme },
+            onOpenThread = { threadRootMeme = sheetMeme },
+            onToggleFav = {
+                scope.launch {
+                    if (api.toggleFav(sheetMeme.id, sheetMeme.faved)) {
+                        messages = messages.map {
+                            if (it.id == sheetMeme.id) it.copy(faved = !sheetMeme.faved) else it
+                        }
+                    }
+                }
+            },
+            onNotify = onNotify,
+            onDismiss = { actionSheetMeme = null },
+        )
+    }
+
+    if (!bossKeyActive) {
+        maskEditorIndex?.let { startIdx ->
+            if (stagedItems.isNotEmpty()) {
+                Dialog(
+                    onDismissRequest = { maskEditorIndex = null },
+                    properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+                ) {
+                    ConfigureFullscreenDialogWindow(darkStatusIcons = false)
+                    ImageMaskEditorScreen(
+                        context = context,
+                        imageItems = stagedItems.toList(),
+                        initialIndex = startIdx,
+                        onItemUpdated = { updated ->
+                            val idx = stagedItems.indexOfFirst { it.id == updated.id }
+                            if (idx >= 0) stagedItems[idx] = updated
+                        },
+                        onDismiss = { maskEditorIndex = null },
+                    )
+                }
+            }
+        }
+    }
+
+    viewerState?.let { (mediaItems, idx) ->
+        ImmersiveMediaStage(
+            mediaItems = mediaItems,
+            initialIndex = idx,
+            api = api,
+            forceBlurAll = false,
+            onDismiss = { viewerState = null },
+        )
+    }
+}
+
+@Composable
+private fun FeishuRealChatShell(
+    title: String,
+    subtitle: String,
+    isGroup: Boolean,
+    groupId: Long?,
+    dmThreadId: Long?,
+    currentAlias: String,
+    api: ForHappyApiClient,
+    chatController: ChatSessionController,
+    me: MeUser?,
+    onSaveAlias: (String) -> Unit,
+    onOpenMemeThread: (Long) -> Unit,
+    onOpenUrl: (String) -> Unit,
+    onRequireLogin: () -> Unit,
+    onBack: () -> Unit,
+) {
+    val fc = rememberFeishuColors()
+    val bossKeyActive = LocalBossKeyActive.current
+    var showMenu by remember { mutableStateOf(false) }
+    var showAliasDialog by remember { mutableStateOf(false) }
+    var aliasDraft by remember(currentAlias) { mutableStateOf(currentAlias) }
+
+    LaunchedEffect(groupId) {
+        if (isGroup && groupId != null) {
+            chatController.setActiveGroup(groupId)
+        }
+    }
+
+    BackHandler(onBack = onBack)
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(fc.bg)
+            .statusBarsPadding(),
+    ) {
+        Surface(color = fc.card, modifier = Modifier.fillMaxWidth()) {
+            Column {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                        .padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = fc.text)
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = title,
+                            color = fc.text,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(subtitle, color = fc.muted, fontSize = 11.sp)
+                    }
+                    if (isGroup) {
+                        Box {
+                            IconButton(onClick = { showMenu = true }) {
+                                Icon(Icons.Rounded.MoreHoriz, contentDescription = "群设置", tint = fc.text)
+                            }
+                            DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("修改群名备注") },
+                                    onClick = {
+                                        showMenu = false
+                                        aliasDraft = currentAlias
+                                        showAliasDialog = true
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+                HorizontalDivider(color = fc.line)
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+        ) {
+            ChatScreen(
+                api = api,
+                controller = chatController,
+                me = me,
+                onNavigateToMeme = onOpenMemeThread,
+                onNavigateToTag = {},
+                onOpenUrl = onOpenUrl,
+                onRequireLogin = onRequireLogin,
+                hideChannelHeader = true,
+                forcedChannelMode = if (isGroup) "group" else "dm",
+                forcedDmThreadId = dmThreadId,
+            )
+        }
+    }
+
+    if (showAliasDialog && !bossKeyActive) {
+        AlertDialog(
+            onDismissRequest = { showAliasDialog = false },
+            containerColor = fc.card,
+            titleContentColor = fc.text,
+            textContentColor = fc.text,
+            title = { Text("设置工作群备注名", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
+            text = {
+                OutlinedTextField(
+                    value = aliasDraft,
+                    onValueChange = { aliasDraft = it },
+                    placeholder = { Text("留空恢复系统默认群名", fontSize = 13.sp, color = fc.muted) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onSaveAlias(aliasDraft)
+                        showAliasDialog = false
+                    },
+                ) {
+                    Text("保存", color = fc.blue)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAliasDialog = false }) {
+                    Text("取消", color = fc.muted)
+                }
+            },
+        )
     }
 }

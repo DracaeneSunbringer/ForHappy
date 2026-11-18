@@ -60,6 +60,8 @@ class ForHappyApp : Application() {
             deleteMessageFn = { msgId -> apiClient.deleteChatMessage(msgId) },
             postBoostFn = { msgId, text -> apiClient.postChatBoost(msgId, text) },
             postReactionMsgFn = { msgId, emoji -> apiClient.postChatReaction(msgId, emoji) },
+            fetchDmThreadsFn = { apiClient.fetchDmThreads() },
+            fetchGroupsEnvelopeFn = { apiClient.fetchChatGroupsEnvelope() },
         )
     }
 

@@ -29,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -63,13 +64,17 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
 import com.jinhuan.forhappy.core.chat.ChatRichTextParser
+import com.jinhuan.forhappy.core.model.AppDisguiseMode
 import com.jinhuan.forhappy.core.model.BOOST_PRESETS
 import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
+import com.jinhuan.forhappy.ui.disguise.DisguiseSanitizer
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
+import com.jinhuan.forhappy.ui.theme.LocalPrivacyStealthConfig
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
@@ -86,14 +91,16 @@ fun ForHappyAvatar(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalForHappyPalette.current
+    val stealth = LocalPrivacyStealthConfig.current
+    val hideAvatarForFeishu = stealth.disguiseMode == AppDisguiseMode.FEISHU && stealth.feishuMemberAliasEnabled
     val display = username.ifBlank { "?" }
     val initial = remember(display) { display.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?" }
     val bgTint = remember(display, palette.isDark) {
         val hue = display.fold(7) { acc, ch -> (acc * 31 + ch.code) % 360 }.toFloat()
         Color.hsv(hue, if (palette.isDark) 0.45f else 0.35f, if (palette.isDark) 0.42f else 0.90f)
     }
-    var imageLoaded by remember(avatarUrl) { mutableStateOf(false) }
-    var loadFailed by remember(avatarUrl) { mutableStateOf(false) }
+    var imageLoaded by remember(avatarUrl, hideAvatarForFeishu) { mutableStateOf(false) }
+    var loadFailed by remember(avatarUrl, hideAvatarForFeishu) { mutableStateOf(false) }
 
     Box(
         contentAlignment = Alignment.Center,
@@ -103,7 +110,7 @@ fun ForHappyAvatar(
             .background(bgTint)
             .border(1.dp, palette.line, CircleShape),
     ) {
-        if (!imageLoaded) {
+        if (!imageLoaded || hideAvatarForFeishu) {
             Text(
                 text = initial,
                 color = palette.text,
@@ -111,7 +118,7 @@ fun ForHappyAvatar(
                 fontWeight = FontWeight.Bold,
             )
         }
-        if (!avatarUrl.isNullOrBlank() && !loadFailed) {
+        if (!hideAvatarForFeishu && !avatarUrl.isNullOrBlank() && !loadFailed) {
             AsyncImage(
                 model = remember(avatarUrl) { MediaUrlRewriter.rewriteWithExtProxy(avatarUrl) },
                 imageLoader = imageLoader,
@@ -166,8 +173,17 @@ fun ReactionEmojiView(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalForHappyPalette.current
+    val disguised = LocalPrivacyStealthConfig.current.disguiseMode != AppDisguiseMode.NONE
     val colonIdx = emojiKey.indexOf(':')
     when {
+        disguised && colonIdx > 0 -> {
+            Text(
+                text = DisguiseSanitizer.mapStickerToSafeEmoji(emojiKey),
+                fontSize = fontSize,
+                color = palette.text,
+                modifier = modifier,
+            )
+        }
         emojiKey == "+1" -> {
             Text(
                 text = "+1",
@@ -329,7 +345,11 @@ fun BoostPillText(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalForHappyPalette.current
-    val presetAccent = remember(text, palette.isDark) { boostPresetAccent(text, palette.isDark) }
+    val disguised = LocalPrivacyStealthConfig.current.disguiseMode != AppDisguiseMode.NONE
+    val presetAccent = remember(text, palette.isDark, disguised) {
+        val accent = boostPresetAccent(text, palette.isDark)
+        if (disguised && accent != null) palette.primary else accent
+    }
     if (presetAccent != null) {
         Text(
             text = text,
@@ -344,10 +364,10 @@ fun BoostPillText(
     }
 
     val tokens = remember(text) { ChatRichTextParser.tokenizeInline(text) }
-    val hasRichMedia = remember(tokens) {
-        tokens.any { it is ChatRichTextParser.Token.Sticker || it is ChatRichTextParser.Token.Twemoji }
+    val hasRichMedia = remember(tokens, disguised) {
+        !disguised && tokens.any { it is ChatRichTextParser.Token.Sticker || it is ChatRichTextParser.Token.Twemoji }
     }
-    if (!hasRichMedia) {
+    if (!hasRichMedia && !tokens.any { it is ChatRichTextParser.Token.Sticker || it is ChatRichTextParser.Token.Twemoji }) {
         Text(
             text = text,
             color = textColor ?: palette.text,
@@ -362,37 +382,49 @@ fun BoostPillText(
     val iconDp = if (fontSize.value <= 11f) 15.dp else 18.dp
     val iconSp = if (fontSize.value <= 11f) 16.sp else 19.sp
     var failedInlineKeys by remember(tokens) { mutableStateOf(emptySet<String>()) }
-    val inlineContent = remember(tokens, failedInlineKeys, iconDp, iconSp, palette.muted) {
-        buildInlineMediaMap(
-            tokens = tokens,
-            keyPrefix = "bst",
-            failedKeys = failedInlineKeys,
-            stickerDp = iconDp,
-            stickerSp = iconSp,
-            twemojiDp = iconDp,
-            twemojiSp = iconSp,
-            imageLoader = imageLoader,
-            onPermanentError = { key -> failedInlineKeys = failedInlineKeys + key },
-        )
+    val inlineContent = remember(tokens, failedInlineKeys, iconDp, iconSp, palette.muted, disguised) {
+        if (disguised) {
+            emptyMap()
+        } else {
+            buildInlineMediaMap(
+                tokens = tokens,
+                keyPrefix = "bst",
+                failedKeys = failedInlineKeys,
+                stickerDp = iconDp,
+                stickerSp = iconSp,
+                twemojiDp = iconDp,
+                twemojiSp = iconSp,
+                imageLoader = imageLoader,
+                onPermanentError = { key -> failedInlineKeys = failedInlineKeys + key },
+            )
+        }
     }
-    val annotated = remember(tokens, failedInlineKeys, textColor, palette) {
+    val annotated = remember(tokens, failedInlineKeys, textColor, palette, disguised) {
         buildAnnotatedString {
             tokens.forEachIndexed { idx, tk ->
                 when (tk) {
                     is ChatRichTextParser.Token.Sticker -> {
-                        val key = "bst_stk_$idx"
-                        if (key in failedInlineKeys) {
-                            withStyle(SpanStyle(color = palette.muted)) { append("[${tk.pack}:${tk.name}]") }
+                        if (disguised) {
+                            append(DisguiseSanitizer.mapStickerToSafeEmoji("[${tk.pack}:${tk.name}]"))
                         } else {
-                            appendInlineContent(key, "[${tk.pack}:${tk.name}]")
+                            val key = "bst_stk_$idx"
+                            if (key in failedInlineKeys) {
+                                withStyle(SpanStyle(color = palette.muted)) { append("[${tk.pack}:${tk.name}]") }
+                            } else {
+                                appendInlineContent(key, "[${tk.pack}:${tk.name}]")
+                            }
                         }
                     }
                     is ChatRichTextParser.Token.Twemoji -> {
-                        val key = "bst_twe_$idx"
-                        if (key in failedInlineKeys) {
-                            withStyle(SpanStyle(color = palette.muted)) { append(":${tk.code}:") }
+                        if (disguised) {
+                            append(DisguiseSanitizer.mapStickerToSafeEmoji(":${tk.code}:"))
                         } else {
-                            appendInlineContent(key, ":${tk.code}:")
+                            val key = "bst_twe_$idx"
+                            if (key in failedInlineKeys) {
+                                withStyle(SpanStyle(color = palette.muted)) { append(":${tk.code}:") }
+                            } else {
+                                appendInlineContent(key, ":${tk.code}:")
+                            }
                         }
                     }
                     is ChatRichTextParser.Token.Bold -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(tk.text) }
@@ -742,46 +774,60 @@ private fun InlineTokensText(
     onLongPress: (() -> Unit)? = null,
 ) {
     val palette = LocalForHappyPalette.current
+    val disguiseMode = LocalPrivacyStealthConfig.current.disguiseMode
+    val disguised = disguiseMode != AppDisguiseMode.NONE
     var revealedSpoilers by remember(tokens) { mutableStateOf(emptySet<Int>()) }
     var failedInlineKeys by remember(tokens) { mutableStateOf(emptySet<String>()) }
 
-    val inlineContent = remember(tokens, failedInlineKeys, stickerSize, stickerSp, palette.muted) {
-        buildInlineMediaMap(
-            tokens = tokens,
-            keyPrefix = "msg",
-            failedKeys = failedInlineKeys,
-            stickerDp = stickerSize,
-            stickerSp = stickerSp,
-            twemojiDp = 19.dp,
-            twemojiSp = 20.sp,
-            imageLoader = imageLoader,
-            onPermanentError = { key -> failedInlineKeys = failedInlineKeys + key },
-        )
+    val inlineContent = remember(tokens, failedInlineKeys, stickerSize, stickerSp, palette.muted, disguised) {
+        if (disguised) {
+            emptyMap()
+        } else {
+            buildInlineMediaMap(
+                tokens = tokens,
+                keyPrefix = "msg",
+                failedKeys = failedInlineKeys,
+                stickerDp = stickerSize,
+                stickerSp = stickerSp,
+                twemojiDp = 19.dp,
+                twemojiSp = 20.sp,
+                imageLoader = imageLoader,
+                onPermanentError = { key -> failedInlineKeys = failedInlineKeys + key },
+            )
+        }
     }
 
-    val annotated = remember(tokens, failedInlineKeys, textColor, palette, revealedSpoilers, appendEditedBadge) {
+    val annotated = remember(tokens, failedInlineKeys, textColor, palette, revealedSpoilers, appendEditedBadge, disguiseMode) {
         buildAnnotatedString {
             tokens.forEachIndexed { idx, token ->
                 when (token) {
                     is ChatRichTextParser.Token.PlainText -> append(token.text)
                     is ChatRichTextParser.Token.Sticker -> {
-                        val key = "msg_stk_$idx"
-                        if (key in failedInlineKeys) {
-                            withStyle(SpanStyle(color = palette.muted)) {
-                                append("[${token.pack}:${token.name}]")
-                            }
+                        if (disguised) {
+                            append(DisguiseSanitizer.mapStickerToSafeEmoji("[${token.pack}:${token.name}]"))
                         } else {
-                            appendInlineContent(key, "[${token.pack}:${token.name}]")
+                            val key = "msg_stk_$idx"
+                            if (key in failedInlineKeys) {
+                                withStyle(SpanStyle(color = palette.muted)) {
+                                    append("[${token.pack}:${token.name}]")
+                                }
+                            } else {
+                                appendInlineContent(key, "[${token.pack}:${token.name}]")
+                            }
                         }
                     }
                     is ChatRichTextParser.Token.Twemoji -> {
-                        val key = "msg_twe_$idx"
-                        if (key in failedInlineKeys) {
-                            withStyle(SpanStyle(color = palette.muted)) {
-                                append(":${token.code}:")
-                            }
+                        if (disguised) {
+                            append(DisguiseSanitizer.mapStickerToSafeEmoji(":${token.code}:"))
                         } else {
-                            appendInlineContent(key, ":${token.code}:")
+                            val key = "msg_twe_$idx"
+                            if (key in failedInlineKeys) {
+                                withStyle(SpanStyle(color = palette.muted)) {
+                                    append(":${token.code}:")
+                                }
+                            } else {
+                                appendInlineContent(key, ":${token.code}:")
+                            }
                         }
                     }
                     is ChatRichTextParser.Token.Bold -> {
@@ -826,14 +872,20 @@ private fun InlineTokensText(
                     }
                     is ChatRichTextParser.Token.PostRef -> {
                         pushStringAnnotation("POST_REF", token.memeId.toString())
+                        val refColor = if (disguised) palette.primary else palette.gold
+                        val refLabel = when (disguiseMode) {
+                            AppDisguiseMode.FEISHU -> "[消息链接 #${token.memeId}]"
+                            AppDisguiseMode.LINUX_DO -> "#${token.memeId}"
+                            AppDisguiseMode.NONE -> token.label
+                        }
                         withStyle(
                             SpanStyle(
-                                color = palette.gold,
+                                color = refColor,
                                 fontWeight = FontWeight.SemiBold,
                                 textDecoration = TextDecoration.Underline,
                             ),
                         ) {
-                            append(token.label)
+                            append(refLabel)
                         }
                         pop()
                     }
@@ -865,14 +917,20 @@ private fun InlineTokensText(
                         val internalId = ChatRichTextParser.extractInternalMemeId(token.url)
                         if (internalId != null) {
                             pushStringAnnotation("POST_REF", internalId.toString())
+                            val refColor = if (disguised) palette.primary else palette.gold
+                            val refLabel = when (disguiseMode) {
+                                AppDisguiseMode.FEISHU -> "[消息链接 #$internalId]"
+                                AppDisguiseMode.LINUX_DO -> "#$internalId"
+                                AppDisguiseMode.NONE -> "No.$internalId"
+                            }
                             withStyle(
                                 SpanStyle(
-                                    color = palette.gold,
+                                    color = refColor,
                                     fontWeight = FontWeight.SemiBold,
                                     textDecoration = TextDecoration.Underline,
                                 ),
                             ) {
-                                append("No.$internalId")
+                                append(refLabel)
                             }
                             pop()
                         } else {
@@ -991,40 +1049,80 @@ private fun stickerInlineContent(
     stickerSp: TextUnit,
     imageLoader: ImageLoader,
     onPermanentError: () -> Unit,
-): InlineTextContent = InlineTextContent(
-    Placeholder(
-        width = stickerSp,
-        height = stickerSp,
-        placeholderVerticalAlign = PlaceholderVerticalAlign.Center,
-    ),
-) {
-    var retryAttempt by remember(url) { mutableIntStateOf(0) }
-    var pendingRetry by remember(url) { mutableStateOf(false) }
+): InlineTextContent {
+    val slotSize = if (stickerSp.value > 28f) stickerSp else 1.4.em
+    return InlineTextContent(
+        Placeholder(
+            width = slotSize,
+            height = slotSize,
+            placeholderVerticalAlign = PlaceholderVerticalAlign.Center,
+        ),
+    ) {
+        val palette = LocalForHappyPalette.current
+        var retryAttempt by remember(url) { mutableIntStateOf(0) }
+        var isLoading by remember(url) { mutableStateOf(true) }
+        var failed by remember(url) { mutableStateOf(false) }
 
-    LaunchedEffect(url, pendingRetry) {
-        if (pendingRetry) {
-            delay(1800L)
-            retryAttempt++
-            pendingRetry = false
+        val reqUrl = if (retryAttempt == 0) url else "$url?retry=$retryAttempt"
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(4.dp))
+                .then(
+                    if (failed) {
+                        Modifier
+                            .background(palette.surface2)
+                            .clickable {
+                                failed = false
+                                isLoading = true
+                                retryAttempt++
+                            }
+                    } else {
+                        Modifier
+                    },
+                ),
+        ) {
+            if (isLoading && !failed) {
+                Box(
+                    modifier = Modifier
+                        .size(stickerDp.coerceAtMost(24.dp))
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(palette.surface2.copy(alpha = 0.85f)),
+                )
+            }
+            if (failed) {
+                Icon(
+                    imageVector = Icons.Rounded.Refresh,
+                    contentDescription = "点击重试加载 $fallbackText",
+                    tint = palette.muted,
+                    modifier = Modifier.size((stickerDp * 0.72f).coerceAtLeast(12.dp)),
+                )
+            } else {
+                AsyncImage(
+                    model = reqUrl,
+                    imageLoader = imageLoader,
+                    contentDescription = fallbackText,
+                    contentScale = ContentScale.Fit,
+                    onLoading = { isLoading = true },
+                    onSuccess = {
+                        isLoading = false
+                        failed = false
+                    },
+                    onError = {
+                        isLoading = false
+                        if (retryAttempt < 1) {
+                            retryAttempt++
+                        } else {
+                            // Keep fixed inline slot active so tap-to-retry icon stays in-place without shifting line height.
+                            failed = true
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
     }
-
-    val reqUrl = if (retryAttempt == 0) url else "$url?retry=$retryAttempt"
-    AsyncImage(
-        model = reqUrl,
-        imageLoader = imageLoader,
-        contentDescription = fallbackText,
-        onError = {
-            if (!pendingRetry) {
-                if (retryAttempt < 1) {
-                    pendingRetry = true
-                } else {
-                    onPermanentError()
-                }
-            }
-        },
-        modifier = Modifier.size(stickerDp),
-    )
 }
 
 @Composable

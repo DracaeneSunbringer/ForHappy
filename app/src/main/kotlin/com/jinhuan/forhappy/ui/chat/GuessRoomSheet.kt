@@ -3,6 +3,9 @@ package com.jinhuan.forhappy.ui.chat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,22 +22,33 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.HowToVote
 import androidx.compose.material.icons.rounded.Leaderboard
 import androidx.compose.material.icons.rounded.Lightbulb
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Queue
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.VolunteerActivism
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -64,11 +78,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.jinhuan.forhappy.core.clock.ServerClock
 import com.jinhuan.forhappy.core.model.GuessEntryItem
 import com.jinhuan.forhappy.core.model.GuessHistoryItem
@@ -78,11 +97,17 @@ import com.jinhuan.forhappy.core.model.MeUser
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.ui.components.BadgePill
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
+import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
+import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
@@ -93,6 +118,7 @@ import kotlinx.serialization.json.longOrNull
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 /**
  * Native Compose implementation of `欢欢猜词屋` (`/guess-room.js`):
@@ -113,12 +139,13 @@ fun GuessRoomSheet(
     me: MeUser?,
     onRequireLogin: () -> Unit,
     onDismiss: () -> Unit,
+    onRoundCreatedOrUpdated: (() -> Unit)? = null,
 ) {
     val palette = LocalForHappyPalette.current
     val scope = rememberCoroutineScope()
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val haptic = LocalHapticFeedback.current
 
-    var subTab by remember { mutableStateOf("live") } // "live" | "history" | "stats" | "queue"
+    var subTab by remember { mutableStateOf("live") } // "live" | "queue" | "history" | "stats"
     var boardTab by remember { mutableStateOf("guesses") } // "guesses" | "facts" | "negative" | "extra"
     var selectedMid by remember(initialMessageId) { mutableStateOf(initialMessageId) }
     var receiptId by remember { mutableStateOf<Long?>(null) }
@@ -134,6 +161,10 @@ fun GuessRoomSheet(
     var hintsExpanded by remember { mutableStateOf(true) }
     var hintDraft by remember { mutableStateOf("") }
     var hintBusy by remember { mutableStateOf(false) }
+    var secretRevealed by remember { mutableStateOf(false) }
+    var closeConfirmAction by remember { mutableStateOf<String?>(null) }
+    var showCreateRoundSheet by remember { mutableStateOf(false) }
+    var tipSheetTargetMid by remember { mutableStateOf<Long?>(null) }
 
     var historyItems by remember { mutableStateOf<List<GuessHistoryItem>>(emptyList()) }
     var historyLoading by remember { mutableStateOf(false) }
@@ -208,17 +239,16 @@ fun GuessRoomSheet(
         }
     }
 
-    ModalBottomSheet(
+    Dialog(
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = palette.bg,
-        shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
-        dragHandle = null,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
+        ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.92f)
+                .fillMaxSize()
+                .background(palette.bg)
+                .statusBarsPadding()
                 .navigationBarsPadding(),
         ) {
             // Header
@@ -226,16 +256,20 @@ fun GuessRoomSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(palette.surface)
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .height(ForHappyDimens.topBarHeight)
+                    .padding(horizontal = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = palette.gold, modifier = Modifier.size(20.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
+                    }
+                    Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = palette.gold, modifier = Modifier.size(18.dp))
                     Text("欢欢猜词屋", color = palette.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     if (selectedMid != null && subTab == "live") {
                         BadgePill(
-                            text = "切回最新轮次",
+                            text = "切回最新",
                             containerColor = palette.surface2,
                             contentColor = palette.primary,
                             modifier = Modifier.clickable {
@@ -246,7 +280,23 @@ fun GuessRoomSheet(
                         )
                     }
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Surface(
+                        color = palette.primaryContainer,
+                        shape = RoundedCornerShape(999.dp),
+                        modifier = Modifier.clickable {
+                            if (me == null) onRequireLogin() else showCreateRoundSheet = true
+                        },
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        ) {
+                            Icon(Icons.Rounded.Add, contentDescription = null, tint = palette.primary, modifier = Modifier.size(14.dp))
+                            Text("发起一局", color = palette.primary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                     IconButton(
                         onClick = {
                             when (subTab) {
@@ -260,13 +310,10 @@ fun GuessRoomSheet(
                     ) {
                         Icon(Icons.Rounded.Refresh, contentDescription = "刷新", tint = palette.primary)
                     }
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(34.dp)) {
-                        Icon(Icons.Rounded.Close, contentDescription = "关闭", tint = palette.text)
-                    }
                 }
             }
 
-            // Navigation tabs
+            // Navigation tabs [本局 / 队列 / 历史 / 战绩榜]
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -275,10 +322,10 @@ fun GuessRoomSheet(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 listOf(
-                    Triple("live", "本轮猜词", Icons.Rounded.AutoAwesome),
+                    Triple("live", "本局", Icons.Rounded.AutoAwesome),
+                    Triple("queue", "队列", Icons.Rounded.Queue),
                     Triple("history", "历史", Icons.Rounded.History),
                     Triple("stats", "战绩榜", Icons.Rounded.Leaderboard),
-                    Triple("queue", "队列", Icons.Rounded.Queue),
                 ).forEach { (id, label, icon) ->
                     val sel = subTab == id
                     Surface(
@@ -432,11 +479,99 @@ fun GuessRoomSheet(
                                         }
 
                                         if (round.owner && round.ownerAnswers.isNotEmpty()) {
-                                            Text(
-                                                text = "我的谜底：${round.ownerAnswers.joinToString(" / ")}",
-                                                color = palette.muted,
-                                                fontSize = 11.sp,
-                                            )
+                                            Surface(
+                                                color = palette.surface2,
+                                                shape = RoundedCornerShape(10.dp),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .border(1.dp, palette.gold.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
+                                                    .pointerInput(round.messageId) {
+                                                        awaitEachGesture {
+                                                            awaitFirstDown(requireUnconsumed = false)
+                                                            val holdJob = scope.launch {
+                                                                delay(1000L)
+                                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                secretRevealed = true
+                                                            }
+                                                            waitForUpOrCancellation()
+                                                            holdJob.cancel()
+                                                            secretRevealed = false
+                                                        }
+                                                    },
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                ) {
+                                                    Icon(
+                                                        imageVector = if (secretRevealed) Icons.Rounded.LockOpen else Icons.Rounded.Lock,
+                                                        contentDescription = null,
+                                                        tint = palette.gold,
+                                                        modifier = Modifier.size(16.dp),
+                                                    )
+                                                    Column {
+                                                        Text(
+                                                            text = if (secretRevealed) "答案密匣（松手自动隐藏）" else "🔒 答案密匣 · 长按 1 秒查看谜底",
+                                                            color = palette.gold,
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                        )
+                                                        if (secretRevealed) {
+                                                            Text(
+                                                                text = round.ownerAnswers.joinToString(" / "),
+                                                                color = palette.text,
+                                                                fontSize = 13.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Close vote / Winner tip row
+                                        if (isOpen) {
+                                            val cv = round.closeVote
+                                            val actKey = when {
+                                                round.owner -> "force"
+                                                cv?.active == true && !cv.votedByMe -> "vote"
+                                                else -> "request"
+                                            }
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.End,
+                                            ) {
+                                                OutlinedButton(
+                                                    onClick = { closeConfirmAction = actKey },
+                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 3.dp),
+                                                ) {
+                                                    Icon(Icons.Rounded.HowToVote, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                    Spacer(Modifier.width(4.dp))
+                                                    Text(
+                                                        text = when {
+                                                            round.owner -> "结束本局 / 流局"
+                                                            cv?.active == true -> "流局投票 ${cv.votes}/${cv.threshold}"
+                                                            else -> "发起流局表决"
+                                                        },
+                                                        fontSize = 11.sp,
+                                                    )
+                                                }
+                                            }
+                                        } else if (round.recipients.isNotEmpty() && !round.owner && me != null) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.End,
+                                            ) {
+                                                OutlinedButton(
+                                                    onClick = { tipSheetTargetMid = round.messageId },
+                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 3.dp),
+                                                ) {
+                                                    Icon(Icons.Rounded.VolunteerActivism, contentDescription = null, tint = palette.gold, modifier = Modifier.size(14.dp))
+                                                    Spacer(Modifier.width(4.dp))
+                                                    Text("打赏出题人", color = palette.gold, fontSize = 11.sp)
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -1023,7 +1158,14 @@ fun GuessRoomSheet(
                         }
                     } else if (queueArr.isNullOrEmpty()) {
                         Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                            Text("当前暂无等候开局的猜词队列", color = palette.muted, fontSize = 14.sp)
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Text("当前暂无等候开局的猜词队列", color = palette.muted, fontSize = 14.sp)
+                                Button(onClick = {
+                                    if (me == null) onRequireLogin() else showCreateRoundSheet = true
+                                }) {
+                                    Text("＋ 发起新一局猜词")
+                                }
+                            }
                         }
                     } else {
                         LazyColumn(
@@ -1033,6 +1175,8 @@ fun GuessRoomSheet(
                         ) {
                             items(queueArr.size) { idx ->
                                 val item = queueArr[idx].jsonObject
+                                val qid = item["id"]?.jsonPrimitive?.longOrNull ?: 0L
+                                val isMine = item["mine"]?.jsonPrimitive?.booleanOrNull == true
                                 val owner = item["owner_name"]?.jsonPrimitive?.contentOrNull ?: "群友"
                                 val rewardType = item["reward_type"]?.jsonPrimitive?.contentOrNull ?: "none"
                                 val cents = item["amount_cents"]?.jsonPrimitive?.longOrNull ?: 0L
@@ -1053,13 +1197,418 @@ fun GuessRoomSheet(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
-                                        Text("${idx + 1}. $owner · $rewardStr", color = palette.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                        Text("${idx + 1}. $owner · $rewardStr", color = palette.text, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
                                         BadgePill(text = stateStr)
+                                        if ((isMine || me?.isAdmin == true) && qid > 0L) {
+                                            IconButton(
+                                                onClick = {
+                                                    scope.launch {
+                                                        if (api.deleteGuessQueueItem(groupId, qid)) {
+                                                            loadQueue()
+                                                        }
+                                                    }
+                                                },
+                                                modifier = Modifier.size(28.dp),
+                                            ) {
+                                                Icon(Icons.Rounded.Delete, contentDescription = "移除", tint = palette.danger, modifier = Modifier.size(16.dp))
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+
+    closeConfirmAction?.let { act ->
+        val mid = overview?.round?.messageId ?: 0L
+        AlertDialog(
+            onDismissRequest = { closeConfirmAction = null },
+            title = { Text("确认流局 / 结束本局") },
+            text = { Text(if (act == "force") "将提前结束当前猜词局，确认吗？" else "确认投票赞成流局当前猜词局吗？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    closeConfirmAction = null
+                    if (mid > 0L) {
+                        scope.launch {
+                            val res = api.postGuessCloseAction(mid, act)
+                            res.onSuccess {
+                                statusText = "已提交表决"
+                                loadOverview(showSpinner = false)
+                                onRoundCreatedOrUpdated?.invoke()
+                            }.onFailure { err ->
+                                statusText = err.message ?: "操作失败"
+                            }
+                        }
+                    }
+                }) { Text("确认", color = palette.danger) }
+            },
+            dismissButton = {
+                TextButton(onClick = { closeConfirmAction = null }) { Text("取消") }
+            },
+        )
+    }
+
+    tipSheetTargetMid?.let { mid ->
+        GuessWinnerTipSheet(
+            messageId = mid,
+            api = api,
+            onDismiss = { tipSheetTargetMid = null },
+            onSuccess = { msg ->
+                tipSheetTargetMid = null
+                statusText = msg
+                loadOverview(showSpinner = false)
+            },
+        )
+    }
+
+    if (showCreateRoundSheet) {
+        GuessCreateRoundSheet(
+            groupId = groupId,
+            api = api,
+            onDismiss = { showCreateRoundSheet = false },
+            onCreated = { queued ->
+                showCreateRoundSheet = false
+                statusText = if (queued) "已加入猜词队列" else "已发起新一局猜词"
+                subTab = if (queued) "queue" else "live"
+                if (queued) loadQueue() else loadOverview()
+                onRoundCreatedOrUpdated?.invoke()
+            },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GuessWinnerTipSheet(
+    messageId: Long,
+    api: ForHappyApiClient,
+    onDismiss: () -> Unit,
+    onSuccess: (String) -> Unit,
+) {
+    val palette = LocalForHappyPalette.current
+    val scope = rememberCoroutineScope()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var amount by remember { mutableStateOf("10") }
+    var busy by remember { mutableStateOf(false) }
+    var infoText by remember { mutableStateOf<String?>(null) }
+    var errText by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(messageId) {
+        val info = api.fetchGuessTipInfo(messageId)
+        infoText = info?.get("hint")?.jsonPrimitive?.contentOrNull
+            ?: info?.get("label")?.jsonPrimitive?.contentOrNull
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = palette.bg,
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        dragHandle = null,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("打赏出题人", color = palette.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            infoText?.let { Text(it, color = palette.muted, fontSize = 12.sp) }
+            OutlinedTextField(
+                value = amount,
+                onValueChange = { amount = it },
+                label = { Text("打赏金额（如 10）") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            errText?.let { Text(it, color = palette.danger, fontSize = 12.sp) }
+            Button(
+                enabled = amount.isNotBlank() && !busy,
+                onClick = {
+                    busy = true
+                    errText = null
+                    scope.launch {
+                        val res = api.submitGuessTip(messageId, amount)
+                        busy = false
+                        res.onSuccess { onSuccess("感谢打赏出题人！") }
+                            .onFailure { errText = it.message ?: "打赏失败" }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(if (busy) "提交中…" else "确认打赏")
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GuessCreateRoundSheet(
+    groupId: Long,
+    api: ForHappyApiClient,
+    onDismiss: () -> Unit,
+    onCreated: (queued: Boolean) -> Unit,
+) {
+    val palette = LocalForHappyPalette.current
+    val scope = rememberCoroutineScope()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    var useAiWord by remember { mutableStateOf(true) }
+    var rewardMode by remember { mutableStateOf("free") } // "free" | "coin52" | "ldc"
+    var amount by remember { mutableStateOf("10") }
+    var count by remember { mutableStateOf("1") }
+    var answerLength by remember { mutableStateOf("2") }
+    var responseMode by remember { mutableStateOf("strict") } // "strict" | "homophone"
+    var manualWord by remember { mutableStateOf("") }
+    var manualHint by remember { mutableStateOf("") }
+    var manualExplain by remember { mutableStateOf("") }
+    var generatedToken by remember { mutableStateOf<String?>(null) }
+    var generatedPreview by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var errText by remember { mutableStateOf<String?>(null) }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = palette.bg,
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        dragHandle = null,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("发起一局欢欢猜词", color = palette.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Rounded.Close, contentDescription = "关闭", tint = palette.text)
+                }
+            }
+
+            // AI vs Manual
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                listOf(true to "🤖 AI 出题", false to "✍️ 手动出题").forEach { (flag, lbl) ->
+                    val sel = useAiWord == flag
+                    Surface(
+                        color = if (sel) palette.primary else palette.surface2,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f).clickable { useAiWord = flag },
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(vertical = 8.dp)) {
+                            Text(lbl, color = if (sel) palette.onPrimary else palette.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
+
+            // Reward selector
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                listOf("free" to "免费局", "coin52" to "D币悬赏", "ldc" to "LDC 悬赏").forEach { (key, lbl) ->
+                    val sel = rewardMode == key
+                    Surface(
+                        color = if (sel) palette.gold.copy(alpha = 0.22f) else palette.surface2,
+                        shape = RoundedCornerShape(999.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .border(1.dp, if (sel) palette.gold else palette.line, RoundedCornerShape(999.dp))
+                            .clickable { rewardMode = key },
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(vertical = 6.dp)) {
+                            Text(lbl, color = if (sel) palette.gold else palette.text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
+            }
+
+            if (rewardMode != "free") {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = amount,
+                        onValueChange = { amount = it },
+                        label = { Text(if (rewardMode == "coin52") "D币数量" else "LDC 金额") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedTextField(
+                        value = count,
+                        onValueChange = { count = it },
+                        label = { Text("名额") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                listOf("strict" to "严谨模式", "homophone" to "谐音娱乐").forEach { (key, lbl) ->
+                    val sel = responseMode == key
+                    Surface(
+                        color = if (sel) palette.primaryContainer else palette.surface2,
+                        shape = RoundedCornerShape(999.dp),
+                        modifier = Modifier.clickable { responseMode = key },
+                    ) {
+                        Text(lbl, color = if (sel) palette.primary else palette.text, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
+                    }
+                }
+                Spacer(Modifier.weight(1f))
+                Text("字数", color = palette.muted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterVertically))
+                listOf("2", "3", "4", "5").forEach { len ->
+                    val sel = answerLength == len
+                    Surface(
+                        color = if (sel) palette.primary else palette.surface2,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.clickable { answerLength = len },
+                    ) {
+                        Text(len, color = if (sel) palette.onPrimary else palette.text, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                    }
+                }
+            }
+
+            if (useAiWord) {
+                OutlinedButton(
+                    enabled = !busy,
+                    onClick = {
+                        busy = true
+                        errText = null
+                        scope.launch {
+                            val req = buildJsonObject {
+                                put("nonce", JsonPrimitive(UUID.randomUUID().toString()))
+                                put("payment_provider", JsonPrimitive(if (rewardMode == "coin52") "coin52" else "ldc"))
+                                put("reward_type", JsonPrimitive(if (rewardMode == "free") "none" else "random"))
+                                if (rewardMode != "free") put("amount", JsonPrimitive(amount.trim()))
+                                put("response_mode", JsonPrimitive(responseMode))
+                                put("answer_length", JsonPrimitive(answerLength.toIntOrNull() ?: 2))
+                            }
+                            val res = api.generateGuessAutoWord(groupId, req)
+                            busy = false
+                            res.onSuccess { obj ->
+                                generatedToken = obj["token"]?.jsonPrimitive?.contentOrNull
+                                    ?: obj["auto_word_token"]?.jsonPrimitive?.contentOrNull
+                                val ans = obj["answer"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                                val clue = obj["hint"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                                generatedPreview = listOfNotNull(ans.takeIf { it.isNotBlank() }?.let { "词条：$it" }, clue.takeIf { it.isNotBlank() }?.let { "首条线索：$it" }).joinToString("\n").ifBlank { "AI 已生成词条" }
+                            }.onFailure { err ->
+                                errText = err.message ?: "AI 生成词条失败"
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (busy) "AI 生成中…" else "先让欢欢生成预览词条")
+                }
+                generatedPreview?.let { prev ->
+                    Surface(color = palette.primaryContainer, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+                        Text(prev, color = palette.primary, fontSize = 12.sp, modifier = Modifier.padding(10.dp))
+                    }
+                }
+            } else {
+                OutlinedTextField(
+                    value = manualWord,
+                    onValueChange = { manualWord = it },
+                    label = { Text("谜底词条") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = manualHint,
+                    onValueChange = { manualHint = it },
+                    label = { Text("开局公开线索（可选）") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = manualExplain,
+                    onValueChange = { manualExplain = it },
+                    label = { Text("答案释义（结束后显示，可选）") },
+                    maxLines = 2,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
+            errText?.let { Text(it, color = palette.danger, fontSize = 12.sp) }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    enabled = !busy && (useAiWord || manualWord.isNotBlank()),
+                    onClick = {
+                        busy = true
+                        errText = null
+                        scope.launch {
+                            val cfg = buildJsonObject {
+                                put("provider", JsonPrimitive(if (rewardMode == "free") "free_guess" else "ldc"))
+                                put("mode", JsonPrimitive("guess"))
+                                put("ldc_mode", JsonPrimitive("guess"))
+                                if (rewardMode != "free") {
+                                    put("payment_provider", JsonPrimitive(if (rewardMode == "coin52") "coin52" else "ldc"))
+                                    put("amount", JsonPrimitive(amount.trim()))
+                                    put("count", JsonPrimitive(count.toIntOrNull() ?: 1))
+                                }
+                                put("response_mode", JsonPrimitive(responseMode))
+                                put("answer_length", JsonPrimitive(answerLength.toIntOrNull() ?: 2))
+                                if (!useAiWord) {
+                                    put("secret", JsonPrimitive(manualWord.trim()))
+                                    if (manualHint.isNotBlank()) put("hint", JsonPrimitive(manualHint.trim()))
+                                    if (manualExplain.isNotBlank()) put("explanation", JsonPrimitive(manualExplain.trim()))
+                                } else {
+                                    put("auto_word", JsonPrimitive(true))
+                                    generatedToken?.let { put("auto_word_token", JsonPrimitive(it)) }
+                                }
+                            }
+                            val res = api.postGuessQueueAction(groupId, "queue", cfg)
+                            busy = false
+                            res.onSuccess { onCreated(true) }
+                                .onFailure { errText = it.message ?: "加入队列失败" }
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("加入队列", fontSize = 13.sp)
+                }
+                Button(
+                    enabled = !busy && (useAiWord || manualWord.isNotBlank()),
+                    onClick = {
+                        busy = true
+                        errText = null
+                        scope.launch {
+                            val payload = buildJsonObject {
+                                put("provider", JsonPrimitive(if (rewardMode == "free") "free_guess" else "ldc"))
+                                put("mode", JsonPrimitive("guess"))
+                                put("ldc_mode", JsonPrimitive("guess"))
+                                if (rewardMode != "free") {
+                                    put("payment_provider", JsonPrimitive(if (rewardMode == "coin52") "coin52" else "ldc"))
+                                    put("amount", JsonPrimitive(amount.trim()))
+                                    put("count", JsonPrimitive(count.toIntOrNull() ?: 1))
+                                }
+                                put("response_mode", JsonPrimitive(responseMode))
+                                put("answer_length", JsonPrimitive(answerLength.toIntOrNull() ?: 2))
+                                if (!useAiWord) {
+                                    put("secret", JsonPrimitive(manualWord.trim()))
+                                    if (manualHint.isNotBlank()) put("hint", JsonPrimitive(manualHint.trim()))
+                                    if (manualExplain.isNotBlank()) put("explanation", JsonPrimitive(manualExplain.trim()))
+                                } else {
+                                    put("auto_word", JsonPrimitive(true))
+                                    generatedToken?.let { put("auto_word_token", JsonPrimitive(it)) }
+                                }
+                            }
+                            val res = api.createGroupRedpack(groupId, payload)
+                            busy = false
+                            res.onSuccess { onCreated(false) }
+                                .onFailure { errText = it.message ?: "发起猜词失败" }
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(if (busy) "提交中…" else "立即开局", fontSize = 13.sp)
                 }
             }
         }

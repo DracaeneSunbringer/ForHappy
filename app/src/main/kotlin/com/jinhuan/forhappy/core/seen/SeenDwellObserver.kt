@@ -8,9 +8,49 @@ import kotlinx.coroutines.delay
 val LocalSeenTracker = staticCompositionLocalOf<SeenTracker?> { null }
 
 /**
- * Observes a composed meme item while it stays visible in viewport with its media ready and
- * unblurred, automatically marking it as seen after [SeenTracker.DWELL_THRESHOLD_MS] (1s).
- * No badge or visual indicator is rendered on cards.
+ * Computes what fraction `[0f..1f]` of a card's vertical extent is inside the visible viewport.
+ */
+fun computeVisibleAreaRatio(
+    itemTopPx: Float,
+    itemBottomPx: Float,
+    viewportTopPx: Float,
+    viewportBottomPx: Float,
+): Float {
+    val itemHeight = itemBottomPx - itemTopPx
+    if (itemHeight <= 0f || viewportBottomPx <= viewportTopPx) return 0f
+    val inter = (minOf(itemBottomPx, viewportBottomPx) - maxOf(itemTopPx, viewportTopPx)).coerceAtLeast(0f)
+    return (inter / itemHeight).coerceIn(0f, 1f)
+}
+
+/**
+ * Dual-gated seen eligibility rule (`02a §6`):
+ * requires loaded media, unblurred state, visible fraction >= 60%, and scroll speed <= 1500 dp/s.
+ */
+fun shouldCountSeenDwell(
+    memeId: Long,
+    isMediaReady: Boolean,
+    isBlurred: Boolean,
+    visibleRatio: Float,
+    scrollSpeedDpPerSec: Float,
+): Boolean = memeId > 0L &&
+    isMediaReady &&
+    !isBlurred &&
+    visibleRatio >= 0.60f &&
+    scrollSpeedDpPerSec <= 1500f
+
+/**
+ * Auto-reblur trigger (`02a §7`): once a blurred card has been revealed in-memory,
+ * scrolling it below 50% viewport visibility immediately snaps the mask back on.
+ */
+fun shouldAutoReblurRevealed(
+    wasRevealed: Boolean,
+    visibleRatio: Float,
+): Boolean = wasRevealed && visibleRatio < 0.50f
+
+/**
+ * Observes a composed meme item while it stays >= 60% visible in viewport with its media ready,
+ * unblurred, and scroll velocity slow enough, automatically marking it as seen after
+ * [SeenTracker.DWELL_THRESHOLD_MS] (1s). No badge or visual indicator is rendered on cards.
  */
 @Composable
 fun ObserveMemeSeenDwell(
@@ -19,10 +59,19 @@ fun ObserveMemeSeenDwell(
     memeDay: String?,
     isMediaReady: Boolean,
     isBlurred: Boolean,
+    visibleRatio: Float = 1f,
+    scrollSpeedDpPerSec: Float = 0f,
 ) {
     val tracker = LocalSeenTracker.current ?: return
-    LaunchedEffect(memeId, isMediaReady, isBlurred) {
-        if (memeId > 0L && isMediaReady && !isBlurred) {
+    val eligible = shouldCountSeenDwell(
+        memeId = memeId,
+        isMediaReady = isMediaReady,
+        isBlurred = isBlurred,
+        visibleRatio = visibleRatio,
+        scrollSpeedDpPerSec = scrollSpeedDpPerSec,
+    )
+    LaunchedEffect(memeId, eligible) {
+        if (eligible) {
             delay(SeenTracker.DWELL_THRESHOLD_MS)
             tracker.markSeen(
                 memeId = memeId,

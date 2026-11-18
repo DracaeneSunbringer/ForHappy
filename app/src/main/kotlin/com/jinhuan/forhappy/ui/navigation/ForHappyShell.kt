@@ -1,7 +1,11 @@
 package com.jinhuan.forhappy.ui.navigation
 
+import android.content.Intent
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,34 +20,35 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Chat
-import androidx.compose.material.icons.rounded.Apps
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Collections
-import androidx.compose.material.icons.rounded.NotificationsNone
+import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.SystemUpdate
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -55,52 +60,94 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.jinhuan.forhappy.ForHappyApp
+import com.jinhuan.forhappy.core.clock.ServerClock
+import com.jinhuan.forhappy.core.compose.ComposeGenre
+import com.jinhuan.forhappy.core.compose.ComposeLaunchRequest
+import com.jinhuan.forhappy.core.dynamic.TopbarModuleScanner
 import com.jinhuan.forhappy.core.model.AppDisguiseMode
 import com.jinhuan.forhappy.core.model.AppIconAlias
 import com.jinhuan.forhappy.core.model.AppThemeMode
+import com.jinhuan.forhappy.core.model.ChatOpenSessionRequest
 import com.jinhuan.forhappy.core.model.DynamicModule
+import com.jinhuan.forhappy.core.model.ForHappyJson
 import com.jinhuan.forhappy.core.model.MeUser
+import com.jinhuan.forhappy.core.model.MoyuConfig
 import com.jinhuan.forhappy.core.model.NotifItem
 import com.jinhuan.forhappy.core.model.PrivacyStealthConfig
+import com.jinhuan.forhappy.core.model.SiteNotice
+import com.jinhuan.forhappy.core.model.TodayStats
+import com.jinhuan.forhappy.core.moyu.MoyuCalculator
+import com.jinhuan.forhappy.core.navigation.DeepLinkRouter
+import com.jinhuan.forhappy.core.navigation.DeepLinkTarget
+import com.jinhuan.forhappy.core.navigation.SharedIncomingPayload
 import com.jinhuan.forhappy.core.update.UpdateStatus
 import com.jinhuan.forhappy.ui.chat.ChatNotificationJump
 import com.jinhuan.forhappy.ui.chat.ChatScreen
 import com.jinhuan.forhappy.ui.components.BadgePill
+import com.jinhuan.forhappy.ui.compose.ComposeWorkbench
+import com.jinhuan.forhappy.ui.compose.SystemShareTargetSheet
 import com.jinhuan.forhappy.ui.disguise.BossDocScreen
 import com.jinhuan.forhappy.ui.disguise.DoubleBackBossHandler
 import com.jinhuan.forhappy.ui.disguise.FeishuDisguiseScreen
 import com.jinhuan.forhappy.ui.disguise.LinuxDoDisguiseScreen
 import com.jinhuan.forhappy.ui.hub.HubScreen
+import com.jinhuan.forhappy.ui.hub.KV_MOYU_FG_DAY
+import com.jinhuan.forhappy.ui.hub.KV_MOYU_FG_SEC
+import com.jinhuan.forhappy.ui.hub.loadMoyuConfig
+import com.jinhuan.forhappy.ui.hub.loadPinnedHubIds
+import com.jinhuan.forhappy.ui.hub.resolveHubCatalog
 import com.jinhuan.forhappy.ui.me.MeScreen
 import com.jinhuan.forhappy.ui.me.PrivacyStealthSettingsContent
 import com.jinhuan.forhappy.ui.notifications.NotificationsSheet
-import com.jinhuan.forhappy.ui.pets.PetsScreen
+import com.jinhuan.forhappy.ui.theme.ForHappyDimens
+import com.jinhuan.forhappy.ui.theme.ForHappyPalette
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
+import com.jinhuan.forhappy.ui.theme.TABULAR_FONT_FEATURE
+import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
 import com.jinhuan.forhappy.ui.wall.FullscreenMediaOverlay
 import com.jinhuan.forhappy.ui.wall.MemeDetailModal
 import com.jinhuan.forhappy.ui.wall.WallScreen
 import com.jinhuan.forhappy.ui.web.LoginWebSheet
 import com.jinhuan.forhappy.ui.web.ShelllessWebScreen
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
+import java.time.Instant
+import java.time.ZoneId
 
 /**
- * Main thumb-zone 4+1 bottom navigation shell for ForHappy:
- * 1. `图廊` (Wall)
- * 2. `群聊` (Chat + DM)
- * 3. `Pinned Dynamic Slot` (Defaults to `鱼鱼谷`, swappable in Hub)
- * 4. `百宝箱` (Dynamic Topbar Hub + Tools)
- * 5. `我的` (Me + Wallet + Disguise + Rust Diagnostics)
+ * 4-Tab main navigation shell for ForHappy v0.2.0 (`docs/redesign/01-information-architecture.md`):
+ * 1. `图廊` ("wall")
+ * 2. `消息` ("messages") — unified group chat + 1:1 DMs
+ * 3. `发现` ("discover") — Pets, Road, Moyu, Novels & dynamic topbar extensions
+ * 4. `我的` ("me") — Profile, Wallet, Disguise & Settings
  */
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -111,6 +158,7 @@ fun ForHappyShell(
     bossKeyActive: Boolean,
     privacyShieldEnabled: Boolean,
     activeIconAlias: AppIconAlias,
+    incomingIntents: Flow<Intent> = emptyFlow(),
     onChangeTheme: (AppThemeMode) -> Unit,
     onChangeDisguise: (AppDisguiseMode) -> Unit,
     onUpdatePrivacyConfig: (PrivacyStealthConfig) -> Unit,
@@ -119,27 +167,42 @@ fun ForHappyShell(
     onChangeIconAlias: (AppIconAlias) -> Unit,
 ) {
     val palette = LocalForHappyPalette.current
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     val api = app.apiClient
     val chatController = app.chatController
 
-    var activeTab by remember { mutableStateOf("wall") } // "wall" | "chat" | "slot3" | "hub" | "me"
+    var activeTab by remember { mutableStateOf("wall") } // "wall" | "messages" | "discover" | "me"
     var me by remember { mutableStateOf<MeUser?>(null) }
-    var modules by remember { mutableStateOf(listOf<DynamicModule>()) }
-    var pinnedModuleId by remember { mutableStateOf("pets") }
+    var modules by remember { mutableStateOf(TopbarModuleScanner.DEFAULT_BUILT_IN_MODULES) }
     var showLoginModal by remember { mutableStateOf(false) }
     var showPrivacySettingsSheet by remember { mutableStateOf(false) }
 
-    // Cross-tab jump parameters (`No.1234` / `#tag` / notification routing)
+    // Cross-tab & deep-link jump parameters
     var wallTagArg by remember { mutableStateOf<String?>(null) }
+    var wallAuthorArg by remember { mutableStateOf<String?>(null) }
+    var wallSeriesArg by remember { mutableStateOf<String?>(null) }
     var wallMemeArg by remember { mutableStateOf<Long?>(null) }
+    var openBrowseSettingsSignal by remember { mutableIntStateOf(0) }
+    var openSeriesIndexSignal by remember { mutableIntStateOf(0) }
+    var wallScrollToTopSignal by remember { mutableIntStateOf(0) }
     var webLinkModalUrl by remember { mutableStateOf<String?>(null) }
     var shellDetailMemeId by remember { mutableStateOf<Long?>(null) }
     var shellFullscreenImgUrl by remember { mutableStateOf<String?>(null) }
     var pendingChatJump by remember { mutableStateOf<ChatNotificationJump?>(null) }
     var chatJumpSeq by remember { mutableLongStateOf(0L) }
+    var chatOpenRequest by remember { mutableStateOf<ChatOpenSessionRequest?>(null) }
+    var unreadCycleCursor by remember { mutableIntStateOf(0) }
+    var discoverInitialRoute by remember { mutableStateOf<String?>(null) }
+    var deferredDeepLink by remember { mutableStateOf<DeepLinkTarget?>(null) }
+    var deferredSharePayload by remember { mutableStateOf<SharedIncomingPayload?>(null) }
+    var activeSharePayload by remember { mutableStateOf<SharedIncomingPayload?>(null) }
+    var activeComposeRequest by remember { mutableStateOf<ComposeLaunchRequest?>(null) }
+    var wallRefreshSignal by remember { mutableIntStateOf(0) }
 
-    // Notification center shared state
+    // Notification center & Phase 5 Moyu / Hub / Settings shared state
     var notifs by remember { mutableStateOf<List<NotifItem>>(emptyList()) }
     var notifUnreadCount by remember { mutableIntStateOf(0) }
     var notifsLoading by remember { mutableStateOf(false) }
@@ -147,12 +210,35 @@ fun ForHappyShell(
     var notifReloadQueued by remember { mutableStateOf(false) }
     var notifRequestSeq by remember { mutableLongStateOf(0L) }
     var showNotifsSheet by remember { mutableStateOf(false) }
+    var openNotifPrefsDirectly by remember { mutableStateOf(false) }
+    var siteNotices by remember { mutableStateOf<List<SiteNotice>>(emptyList()) }
+    var dismissedNoticeIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+
+    var moyuConfig by remember { mutableStateOf(MoyuConfig()) }
+    var todayStats by remember { mutableStateOf<TodayStats?>(null) }
+    var moyuForegroundSec by remember { mutableLongStateOf(0L) }
+    var nowTickSec by remember { mutableLongStateOf(ServerClock.serverNowMs() / 1000L) }
+    var pinnedHubIds by remember { mutableStateOf<List<String>>(emptyList()) }
+    var showDiscoverQuickRing by remember { mutableStateOf(false) }
+    var forceWallUnseenSignal by remember { mutableIntStateOf(0) }
+    var pendingSettingsSubpage by remember { mutableStateOf<String?>(null) }
 
     val netStatus by api.rustNetManager.status.collectAsState()
     val chatState by chatController.uiState.collectAsState()
     val updateState by app.updateController.state.collectAsState()
-    var dismissedUpdateTag by remember { mutableStateOf<String?>(null) }
-    val totalChatUnread = remember(chatState.groups) { chatState.groups.sumOf { it.unread } }
+    val snackbarHostState = remember { SnackbarHostState() }
+    var shownUpdateTag by remember { mutableStateOf<String?>(null) }
+    var startupGraceElapsed by remember { mutableStateOf(false) }
+
+    val effectiveDisguise = when {
+        privacyConfig.disguiseMode != AppDisguiseMode.NONE -> privacyConfig.disguiseMode
+        themeMode == AppThemeMode.FEISHU_WORK -> AppDisguiseMode.FEISHU
+        themeMode == AppThemeMode.LINUX_DO -> AppDisguiseMode.LINUX_DO
+        else -> AppDisguiseMode.NONE
+    }
+
+    val currentBossActive by rememberUpdatedState(bossKeyActive)
+    val currentDisguise by rememberUpdatedState(effectiveDisguise)
 
     fun refreshNotifs(targetUserId: Long? = me?.id) {
         val uid = targetUserId ?: return
@@ -228,25 +314,182 @@ fun ForHappyShell(
 
     fun bootstrapSession() {
         scope.launch {
-            val savedPin = app.db.getKv("ui.pinned_slot3_id")
-            if (!savedPin.isNullOrBlank()) pinnedModuleId = savedPin
             val currentUser = api.fetchMe()
             me = currentUser
-            modules = api.scanDynamicTopbarModules()
+            val scanned = api.scanDynamicTopbarModules()
+            modules = scanned
+            pinnedHubIds = loadPinnedHubIds(api, resolveHubCatalog(scanned))
+            siteNotices = api.fetchNotices()
             if (currentUser != null) {
                 api.recordSiteVisit()
                 chatController.refreshGroups()
                 refreshNotifs(currentUser.id)
+                todayStats = api.fetchTodayStats()
             } else {
                 notifs = emptyList()
                 notifUnreadCount = 0
+                todayStats = null
+            }
+        }
+    }
+
+    fun applyDeepLinkTarget(target: DeepLinkTarget) {
+        if (currentDisguise != AppDisguiseMode.NONE) {
+            when (target) {
+                is DeepLinkTarget.DiscoverSubApp,
+                DeepLinkTarget.Road,
+                DeepLinkTarget.SeriesIndex,
+                is DeepLinkTarget.SeriesFeed,
+                -> return
+                is DeepLinkTarget.MemeDetail -> {
+                    shellDetailMemeId = target.memeId
+                    return
+                }
+                is DeepLinkTarget.GroupChat -> {
+                    chatController.setActiveGroup(target.groupId)
+                    return
+                }
+                else -> return
+            }
+        }
+
+        when (target) {
+            DeepLinkTarget.WallRoot -> {
+                wallTagArg = null
+                wallAuthorArg = null
+                wallSeriesArg = null
+                wallMemeArg = null
+                activeTab = "wall"
+            }
+            is DeepLinkTarget.MemeDetail -> {
+                wallMemeArg = target.memeId
+                activeTab = "wall"
+            }
+            is DeepLinkTarget.TagFeed -> {
+                wallAuthorArg = null
+                wallSeriesArg = null
+                wallTagArg = target.tag
+                activeTab = "wall"
+            }
+            is DeepLinkTarget.AuthorFeed -> {
+                wallTagArg = null
+                wallSeriesArg = null
+                wallAuthorArg = target.author
+                activeTab = "wall"
+            }
+            DeepLinkTarget.SeriesIndex -> {
+                openSeriesIndexSignal++
+                activeTab = "wall"
+            }
+            is DeepLinkTarget.SeriesFeed -> {
+                wallTagArg = null
+                wallAuthorArg = null
+                wallSeriesArg = target.series
+                activeTab = "wall"
+            }
+            is DeepLinkTarget.MessagesRoot -> {
+                chatOpenRequest = ChatOpenSessionRequest(
+                    mode = "list",
+                    filter = target.filter,
+                )
+                activeTab = "messages"
+            }
+            is DeepLinkTarget.GroupChat -> {
+                if (target.aroundMessageId != null) {
+                    pendingChatJump = ChatNotificationJump(
+                        groupId = target.groupId,
+                        messageId = target.aroundMessageId,
+                        triggerSeq = ++chatJumpSeq,
+                    )
+                } else {
+                    chatOpenRequest = ChatOpenSessionRequest(
+                        mode = "group",
+                        groupId = target.groupId,
+                    )
+                }
+                activeTab = "messages"
+            }
+            is DeepLinkTarget.DirectMessage -> {
+                chatOpenRequest = ChatOpenSessionRequest(
+                    mode = "dm",
+                    dmThreadId = if (!target.isNewPeer) target.threadOrUserId else null,
+                )
+                activeTab = "messages"
+            }
+            is DeepLinkTarget.DiscoverSubApp -> {
+                discoverInitialRoute = target.route
+                activeTab = "discover"
+            }
+            DeepLinkTarget.Road -> {
+                discoverInitialRoute = "/road"
+                activeTab = "discover"
+            }
+            DeepLinkTarget.Me -> {
+                activeTab = "me"
             }
         }
     }
 
     LaunchedEffect(Unit) {
+        moyuConfig = loadMoyuConfig(api)
+        val rawDismissed = api.getPref("ui.dismissed_notice_ids")
+        if (!rawDismissed.isNullOrBlank()) {
+            dismissedNoticeIds = runCatching {
+                ForHappyJson.decodeFromString(ListSerializer(Long.serializer()), rawDismissed).toSet()
+            }.getOrDefault(emptySet())
+        }
+        val todayIso = Instant.ofEpochSecond(ServerClock.serverNowMs() / 1000L)
+            .atZone(ZoneId.of("Asia/Shanghai")).toLocalDate().toString()
+        val savedDay = api.getPref(KV_MOYU_FG_DAY)
+        moyuForegroundSec = if (savedDay == todayIso) {
+            api.getPref(KV_MOYU_FG_SEC)?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
+        } else {
+            api.putPref(KV_MOYU_FG_DAY, todayIso)
+            api.putPref(KV_MOYU_FG_SEC, "0")
+            0L
+        }
         bootstrapSession()
         app.updateController.ensureStartupCheck()
+        delay(3_000L)
+        startupGraceElapsed = true
+    }
+
+    val shellLifecycleOwner = LocalLifecycleOwner.current
+    var isShellResumed by remember { mutableStateOf(true) }
+    DisposableEffect(shellLifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> isShellResumed = true
+                Lifecycle.Event.ON_PAUSE -> isShellResumed = false
+                else -> Unit
+            }
+        }
+        shellLifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { shellLifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(isShellResumed, currentBossActive) {
+        var trackedDay = Instant.ofEpochSecond(ServerClock.serverNowMs() / 1000L)
+            .atZone(ZoneId.of("Asia/Shanghai")).toLocalDate().toString()
+        while (isShellResumed && !currentBossActive) {
+            delay(1000L)
+            val nowSec = ServerClock.serverNowMs() / 1000L
+            nowTickSec = nowSec
+            val curDay = Instant.ofEpochSecond(nowSec)
+                .atZone(ZoneId.of("Asia/Shanghai")).toLocalDate().toString()
+            if (curDay != trackedDay) {
+                trackedDay = curDay
+                moyuForegroundSec = 0L
+                api.putPref(KV_MOYU_FG_DAY, curDay)
+                api.putPref(KV_MOYU_FG_SEC, "0")
+            } else {
+                moyuForegroundSec++
+                if (moyuForegroundSec % 10L == 0L) {
+                    api.putPref(KV_MOYU_FG_DAY, curDay)
+                    api.putPref(KV_MOYU_FG_SEC, moyuForegroundSec.toString())
+                }
+            }
+        }
     }
 
     LaunchedEffect(netStatus.running, netStatus.winnerIp) {
@@ -268,6 +511,75 @@ fun ForHappyShell(
     LaunchedEffect(showNotifsSheet) {
         if (showNotifsSheet && me != null) {
             refreshNotifs()
+        }
+    }
+
+    LaunchedEffect(bossKeyActive) {
+        if (bossKeyActive) {
+            focusManager.clearFocus(force = true)
+            keyboardController?.hide()
+            showPrivacySettingsSheet = false
+            showNotifsSheet = false
+            showDiscoverQuickRing = false
+        }
+    }
+
+    LaunchedEffect(incomingIntents) {
+        incomingIntents.collect { intent ->
+            val sharePayload = DeepLinkRouter.parseShareIntent(intent)
+            if (sharePayload != null) {
+                if (currentBossActive) {
+                    deferredSharePayload = sharePayload
+                } else {
+                    activeSharePayload = sharePayload
+                }
+                return@collect
+            }
+            val target = DeepLinkRouter.parseDeepLinkUri(intent.dataString) ?: return@collect
+            if (currentBossActive) {
+                deferredDeepLink = target
+            } else {
+                applyDeepLinkTarget(target)
+            }
+        }
+    }
+
+    LaunchedEffect(bossKeyActive, deferredDeepLink, deferredSharePayload) {
+        val pending = deferredDeepLink
+        val pendingShare = deferredSharePayload
+        if (!bossKeyActive) {
+            if (pendingShare != null) {
+                deferredSharePayload = null
+                activeSharePayload = pendingShare
+            } else if (pending != null) {
+                deferredDeepLink = null
+                applyDeepLinkTarget(pending)
+            }
+        }
+    }
+
+    LaunchedEffect(updateState.status, updateState.latestRelease?.tagName, effectiveDisguise, bossKeyActive) {
+        if (effectiveDisguise != AppDisguiseMode.NONE || bossKeyActive) return@LaunchedEffect
+        val rel = updateState.latestRelease ?: return@LaunchedEffect
+        val shouldPrompt = updateState.status == UpdateStatus.AVAILABLE ||
+            updateState.status == UpdateStatus.READY_TO_INSTALL
+        if (!shouldPrompt || rel.tagName == shownUpdateTag) return@LaunchedEffect
+        shownUpdateTag = rel.tagName
+        val message = if (updateState.status == UpdateStatus.READY_TO_INSTALL) {
+            "新版本 v${rel.versionName} 已就绪"
+        } else {
+            "发现新版本 v${rel.versionName}"
+        }
+        val result = withTimeoutOrNull(4_000L) {
+            snackbarHostState.showSnackbar(
+                message = message,
+                actionLabel = "查看",
+                duration = SnackbarDuration.Short,
+            )
+        }
+        if (result == SnackbarResult.ActionPerformed) {
+            pendingSettingsSubpage = "about"
+            activeTab = "me"
         }
     }
 
@@ -294,294 +606,259 @@ fun ForHappyShell(
         }
     }
 
-    val pinnedModule = remember(modules, pinnedModuleId) {
-        modules.firstOrNull { it.id == pinnedModuleId }
-            ?: DynamicModule("pets", "鱼鱼谷", "/pets", iconKey = "pets", isBuiltInNative = true)
+    val clearLoggedOutState: () -> Unit = {
+        me = null
+        notifs = emptyList()
+        notifUnreadCount = 0
+        showNotifsSheet = false
+        todayStats = null
     }
 
-    if (bossKeyActive) {
-        BossDocScreen(onExit = { onSetBossKeyActive(false) })
-        return
-    }
+    Box(modifier = Modifier.fillMaxSize()) {
+        DoubleBackBossHandler(
+            enabled = !bossKeyActive &&
+                privacyConfig.bossDoubleBack &&
+                !showNotifsSheet &&
+                shellDetailMemeId == null &&
+                shellFullscreenImgUrl == null &&
+                !showLoginModal &&
+                webLinkModalUrl == null &&
+                !showPrivacySettingsSheet &&
+                !showDiscoverQuickRing &&
+                activeComposeRequest == null &&
+                activeSharePayload == null,
+            onTriggerBoss = { onSetBossKeyActive(true) },
+        )
 
-    val effectiveDisguise = when {
-        privacyConfig.disguiseMode != AppDisguiseMode.NONE -> privacyConfig.disguiseMode
-        themeMode == AppThemeMode.FEISHU_WORK -> AppDisguiseMode.FEISHU
-        themeMode == AppThemeMode.LINUX_DO -> AppDisguiseMode.LINUX_DO
-        else -> AppDisguiseMode.NONE
-    }
+        when (effectiveDisguise) {
+            AppDisguiseMode.FEISHU -> {
+                FeishuDisguiseScreen(
+                    api = api,
+                    chatController = chatController,
+                    me = me,
+                    themeMode = themeMode,
+                    privacyConfig = privacyConfig,
+                    privacyShieldEnabled = privacyShieldEnabled,
+                    activeIconAlias = activeIconAlias,
+                    onRequireLogin = { showLoginModal = true },
+                    onToggleBlurAll = { enabled ->
+                        onUpdatePrivacyConfig(privacyConfig.copy(blurAllEnabled = enabled))
+                    },
+                    onTriggerBossKey = { onSetBossKeyActive(true) },
+                    onOpenPrivacySettings = { showPrivacySettingsSheet = true },
+                    onExitDisguise = { onChangeDisguise(AppDisguiseMode.NONE) },
+                    onChangeDisguise = onChangeDisguise,
+                    onChangeTheme = onChangeTheme,
+                    onUpdatePrivacyConfig = onUpdatePrivacyConfig,
+                    onTogglePrivacyShield = onTogglePrivacyShield,
+                    onChangeIconAlias = onChangeIconAlias,
+                    onLoggedOut = clearLoggedOutState,
+                    onOpenUrl = { url -> webLinkModalUrl = url },
+                )
+            }
 
-    when (effectiveDisguise) {
-        AppDisguiseMode.FEISHU -> {
-            FeishuDisguiseScreen(
-                api = api,
-                chatController = chatController,
-                me = me,
-                onRequireLogin = { showLoginModal = true },
-                onToggleBlurAll = { enabled ->
-                    onUpdatePrivacyConfig(privacyConfig.copy(blurAllEnabled = enabled))
-                },
-                onTriggerBossKey = { onSetBossKeyActive(true) },
-                onOpenPrivacySettings = { showPrivacySettingsSheet = true },
-                onExitDisguise = { onChangeDisguise(AppDisguiseMode.NONE) },
-                onOpenUrl = { url -> webLinkModalUrl = url },
-            )
-        }
+            AppDisguiseMode.LINUX_DO -> {
+                LinuxDoDisguiseScreen(
+                    api = api,
+                    chatController = chatController,
+                    me = me,
+                    themeMode = themeMode,
+                    privacyConfig = privacyConfig,
+                    privacyShieldEnabled = privacyShieldEnabled,
+                    activeIconAlias = activeIconAlias,
+                    onRequireLogin = { showLoginModal = true },
+                    onToggleBlurAll = { enabled ->
+                        onUpdatePrivacyConfig(privacyConfig.copy(blurAllEnabled = enabled))
+                    },
+                    onTriggerBossKey = { onSetBossKeyActive(true) },
+                    onOpenPrivacySettings = { showPrivacySettingsSheet = true },
+                    onExitDisguise = { onChangeDisguise(AppDisguiseMode.NONE) },
+                    onChangeDisguise = onChangeDisguise,
+                    onChangeTheme = onChangeTheme,
+                    onUpdatePrivacyConfig = onUpdatePrivacyConfig,
+                    onTogglePrivacyShield = onTogglePrivacyShield,
+                    onChangeIconAlias = onChangeIconAlias,
+                    onLoggedOut = clearLoggedOutState,
+                    onOpenUrl = { url -> webLinkModalUrl = url },
+                )
+            }
 
-        AppDisguiseMode.LINUX_DO -> {
-            LinuxDoDisguiseScreen(
-                api = api,
-                chatController = chatController,
-                me = me,
-                onRequireLogin = { showLoginModal = true },
-                onToggleBlurAll = { enabled ->
-                    onUpdatePrivacyConfig(privacyConfig.copy(blurAllEnabled = enabled))
-                },
-                onTriggerBossKey = { onSetBossKeyActive(true) },
-                onOpenPrivacySettings = { showPrivacySettingsSheet = true },
-                onExitDisguise = { onChangeDisguise(AppDisguiseMode.NONE) },
-                onOpenUrl = { url -> webLinkModalUrl = url },
-            )
-        }
-
-        AppDisguiseMode.NONE -> {
-            DoubleBackBossHandler(
-                enabled = privacyConfig.bossDoubleBack &&
-                    !showNotifsSheet &&
-                    shellDetailMemeId == null &&
-                    shellFullscreenImgUrl == null &&
-                    !showLoginModal &&
-                    webLinkModalUrl == null &&
-                    !showPrivacySettingsSheet,
-                onTriggerBoss = { onSetBossKeyActive(true) },
-            )
+            AppDisguiseMode.NONE -> {
 
             LaunchedEffect(activeTab) {
-                if (activeTab != "chat") {
+                if (activeTab != "messages") {
                     chatController.isChatForegroundAtBottom = false
                 }
             }
 
             val isImeVisible = WindowInsets.isImeVisible
+            val showNetworkStrip = (!netStatus.running && startupGraceElapsed) || !netStatus.lastError.isNullOrBlank()
+            val hasNewDiscoverModule = remember(modules) {
+                modules.any { it.isNewFromTopbar && !TopbarModuleScanner.isRetiredRoute(it.route) }
+            }
+            val hasUpdateDot = effectiveDisguise == AppDisguiseMode.NONE &&
+                !bossKeyActive &&
+                (updateState.status == UpdateStatus.AVAILABLE ||
+                    updateState.status == UpdateStatus.READY_TO_INSTALL)
 
-            val showUpdateBanner = (
-                updateState.status == UpdateStatus.AVAILABLE ||
-                    updateState.status == UpdateStatus.DOWNLOADING ||
-                    updateState.status == UpdateStatus.READY_TO_INSTALL
-                ) && updateState.latestRelease?.tagName != dismissedUpdateTag
+            val wallMoyuPill = remember(moyuConfig, effectiveDisguise, bossKeyActive, nowTickSec) {
+                if (moyuConfig.showInWallHeader &&
+                    effectiveDisguise == AppDisguiseMode.NONE &&
+                    !bossKeyActive &&
+                    moyuConfig.monthlySalary > 0.0
+                ) {
+                    MoyuCalculator.compute(nowTickSec, moyuConfig).formattedEarnedToday
+                } else {
+                    null
+                }
+            }
 
             Scaffold(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(palette.bg),
+                snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
                 topBar = {
                     Surface(
                         color = palette.surface,
                         modifier = Modifier.statusBarsPadding(),
                     ) {
                         Column(modifier = Modifier.fillMaxWidth()) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 5.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        text = palette.appDisplayName,
-                                        color = palette.primary,
-                                        fontSize = 18.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                    )
-                                    Spacer(Modifier.width(8.dp))
-                                    BadgePill(
-                                        text = when {
-                                            !netStatus.running -> "CF优化初始化"
-                                            netStatus.latencyMs != null -> "${netStatus.latencyMs}ms${if (netStatus.echAccepted) " ECH" else ""}"
-                                            netStatus.phase == "racing" -> "优选测速…"
-                                            else -> "CF :${netStatus.port}"
-                                        },
-                                        containerColor = palette.surface2,
-                                        contentColor = palette.muted,
-                                    )
-                                }
-
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    if (me == null) {
-                                        BadgePill(
-                                            text = "点此登录",
-                                            containerColor = palette.primary,
-                                            contentColor = palette.onPrimary,
-                                            modifier = Modifier.clickable { showLoginModal = true },
-                                        )
-                                    } else {
-                                        Text(
-                                            text = me!!.displayName,
-                                            color = palette.muted,
-                                            fontSize = 12.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                        Spacer(Modifier.width(4.dp))
-                                        IconButton(
-                                            onClick = { showNotifsSheet = true },
-                                            modifier = Modifier
-                                                .width(42.dp)
-                                                .height(34.dp),
-                                        ) {
-                                            BadgedBox(
-                                                badge = {
-                                                    if (notifUnreadCount > 0) {
-                                                        Badge {
-                                                            Text(
-                                                                text = if (notifUnreadCount > 99) "99+" else "$notifUnreadCount",
-                                                                fontSize = 9.sp,
-                                                            )
-                                                        }
-                                                    }
-                                                },
-                                            ) {
-                                                Box(modifier = Modifier.padding(top = 3.dp, end = 6.dp)) {
-                                                    Icon(
-                                                        imageVector = Icons.Rounded.NotificationsNone,
-                                                        contentDescription = if (notifUnreadCount > 0) {
-                                                            "互动与系统提醒（$notifUnreadCount 条未读）"
-                                                        } else {
-                                                            "互动与系统提醒"
-                                                        },
-                                                        tint = if (notifUnreadCount > 0) palette.text else palette.muted,
-                                                        modifier = Modifier.size(20.dp),
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (showUpdateBanner) {
-                                val rel = updateState.latestRelease
+                            if (showNetworkStrip) {
+                                val netFail = !netStatus.running && !netStatus.lastError.isNullOrBlank()
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .background(palette.primary.copy(alpha = 0.08f))
-                                        .clickable { activeTab = "me" }
-                                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                                        .height(ForHappyDimens.inlineBannerHeight)
+                                        .background(palette.surface2)
+                                        .clickable {
+                                            pendingSettingsSubpage = "network"
+                                            activeTab = "me"
+                                        }
+                                        .padding(horizontal = 14.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
+                                    Text(
+                                        text = if (netFail) "网络连接失败 · 点按查看" else "网络连接中…",
+                                        color = if (netFail) palette.danger else palette.muted,
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.weight(1f),
-                                    ) {
-                                        Icon(
-                                            Icons.Rounded.SystemUpdate,
-                                            contentDescription = null,
-                                            tint = palette.primary,
-                                            modifier = Modifier.size(16.dp),
-                                        )
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(
-                                            text = when (updateState.status) {
-                                                UpdateStatus.DOWNLOADING -> "正在下载 v${rel?.versionName.orEmpty()} (${updateState.downloadProgressPercent}%)"
-                                                UpdateStatus.READY_TO_INSTALL -> "新版本 v${rel?.versionName.orEmpty()} 已下载，点此安装"
-                                                else -> "发现新版本 v${rel?.versionName.orEmpty()}（点击查看说明）"
-                                            },
-                                            color = palette.text,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                    }
+                                    )
                                     Spacer(Modifier.width(8.dp))
-                                    when (updateState.status) {
-                                        UpdateStatus.AVAILABLE -> BadgePill(
-                                            text = "立即更新",
-                                            containerColor = palette.primary,
-                                            contentColor = palette.onPrimary,
-                                            modifier = Modifier.clickable { app.updateController.downloadAndInstall() },
-                                        )
-                                        UpdateStatus.READY_TO_INSTALL -> BadgePill(
-                                            text = "安装",
-                                            containerColor = palette.primary,
-                                            contentColor = palette.onPrimary,
-                                            modifier = Modifier.clickable { app.updateController.installReadyApk() },
-                                        )
-                                        else -> BadgePill(
-                                            text = "${updateState.downloadProgressPercent}%",
-                                            containerColor = palette.surface2,
-                                            contentColor = palette.primary,
-                                        )
-                                    }
-                                    IconButton(
-                                        onClick = { dismissedUpdateTag = rel?.tagName },
-                                        modifier = Modifier.size(24.dp),
-                                    ) {
-                                        Icon(
-                                            Icons.Rounded.Close,
-                                            contentDescription = "忽略更新提示",
-                                            tint = palette.muted,
-                                            modifier = Modifier.size(14.dp),
-                                        )
-                                    }
+                                    Text(
+                                        text = "重试",
+                                        color = palette.primary,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .clickable {
+                                                if (netStatus.running) {
+                                                    api.rustNetManager.triggerReselect()
+                                                } else {
+                                                    api.rustNetManager.start()
+                                                }
+                                            }
+                                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    )
                                 }
+                                HorizontalDivider(color = palette.line)
                             }
                         }
                     }
                 },
                 bottomBar = {
                     if (!isImeVisible) {
-                        NavigationBar(
-                            containerColor = palette.surface,
-                            modifier = Modifier.navigationBarsPadding(),
+                        Surface(
+                            color = palette.surface,
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
-                            NavigationBarItem(
-                                selected = activeTab == "wall",
-                                onClick = { activeTab = "wall" },
-                                icon = { Icon(Icons.Rounded.Collections, contentDescription = "图廊") },
-                                label = { Text("图廊", fontSize = 11.sp) },
-                                colors = navItemColors(palette),
-                            )
-                            NavigationBarItem(
-                                selected = activeTab == "chat",
-                                onClick = { activeTab = "chat" },
-                                icon = {
-                                    BadgedBox(badge = {
-                                        if (totalChatUnread > 0) {
-                                            Badge { Text(if (totalChatUnread > 99) "99+" else "$totalChatUnread") }
-                                        }
-                                    }) {
-                                        Icon(Icons.AutoMirrored.Rounded.Chat, contentDescription = "群聊")
-                                    }
-                                },
-                                label = { Text("群聊", fontSize = 11.sp) },
-                                colors = navItemColors(palette),
-                            )
-                            NavigationBarItem(
-                                selected = activeTab == "slot3",
-                                onClick = { activeTab = "slot3" },
-                                icon = { Icon(Icons.Rounded.AutoAwesome, contentDescription = pinnedModule.label) },
-                                label = { Text(pinnedModule.label.take(4), fontSize = 11.sp) },
-                                colors = navItemColors(palette),
-                            )
-                            NavigationBarItem(
-                                selected = activeTab == "hub",
-                                onClick = { activeTab = "hub" },
-                                icon = { Icon(Icons.Rounded.Apps, contentDescription = "百宝箱") },
-                                label = { Text("百宝箱", fontSize = 11.sp) },
-                                colors = navItemColors(palette),
-                            )
-                            NavigationBarItem(
-                                selected = activeTab == "me",
-                                onClick = { activeTab = "me" },
-                                icon = { Icon(Icons.Rounded.Person, contentDescription = "我的") },
-                                label = { Text("我的", fontSize = 11.sp) },
-                                colors = navItemColors(palette),
-                            )
+                            Column(modifier = Modifier.navigationBarsPadding()) {
+                                HorizontalDivider(color = palette.line)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(ForHappyDimens.bottomBarHeight),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    CompactBottomBarItem(
+                                        modifier = Modifier.weight(1f),
+                                        selected = activeTab == "wall",
+                                        icon = Icons.Rounded.Collections,
+                                        label = "图廊",
+                                        palette = palette,
+                                        onClick = {
+                                            if (activeTab == "wall") {
+                                                wallScrollToTopSignal++
+                                            } else {
+                                                activeTab = "wall"
+                                            }
+                                        },
+                                        onLongClick = {
+                                            activeTab = "wall"
+                                            openBrowseSettingsSignal++
+                                        },
+                                    )
+                                    CompactBottomBarItem(
+                                        modifier = Modifier.weight(1f),
+                                        selected = activeTab == "messages",
+                                        icon = Icons.AutoMirrored.Rounded.Chat,
+                                        label = "消息",
+                                        badgeCount = chatState.totalUnreadCount,
+                                        badgeIsMention = chatState.hasUnreadMention,
+                                        palette = palette,
+                                        onClick = {
+                                            if (activeTab == "messages") {
+                                                val unreadTargets = buildList {
+                                                    chatState.groups.filter { g ->
+                                                        (if (g.muted) g.atMe else g.unread) > 0
+                                                    }.forEach { g ->
+                                                        add(ChatOpenSessionRequest(mode = "group", groupId = g.id))
+                                                    }
+                                                    chatState.dmThreads.filter { t ->
+                                                        !t.muted && t.id !in chatState.mutedDmIds && t.unread > 0
+                                                    }.forEach { t ->
+                                                        add(ChatOpenSessionRequest(mode = "dm", dmThreadId = t.id))
+                                                    }
+                                                }
+                                                if (unreadTargets.isNotEmpty()) {
+                                                    val idx = unreadCycleCursor % unreadTargets.size
+                                                    unreadCycleCursor++
+                                                    chatOpenRequest = unreadTargets[idx].copy(requestId = System.nanoTime())
+                                                } else {
+                                                    chatOpenRequest = ChatOpenSessionRequest(mode = "list")
+                                                }
+                                            } else {
+                                                activeTab = "messages"
+                                            }
+                                        },
+                                    )
+                                    CompactBottomBarItem(
+                                        modifier = Modifier.weight(1f),
+                                        selected = activeTab == "discover",
+                                        icon = Icons.Rounded.Explore,
+                                        label = "发现",
+                                        showDot = hasNewDiscoverModule,
+                                        dotColor = palette.badge,
+                                        palette = palette,
+                                        onLongClick = { showDiscoverQuickRing = true },
+                                        onClick = { activeTab = "discover" },
+                                    )
+                                    CompactBottomBarItem(
+                                        modifier = Modifier.weight(1f),
+                                        selected = activeTab == "me",
+                                        icon = Icons.Rounded.Person,
+                                        label = "我的",
+                                        showDot = hasUpdateDot,
+                                        dotColor = palette.primary,
+                                        palette = palette,
+                                        onClick = { activeTab = "me" },
+                                    )
+                                }
+                            }
                         }
                     }
                 },
@@ -597,18 +874,36 @@ fun ForHappyShell(
                             api = api,
                             me = me,
                             initialTag = wallTagArg,
+                            initialAuthor = wallAuthorArg,
+                            initialSeries = wallSeriesArg,
                             initialDetailMemeId = wallMemeArg,
+                            notifUnreadCount = notifUnreadCount,
+                            openBrowseSettingsSignal = openBrowseSettingsSignal,
+                            openSeriesIndexSignal = openSeriesIndexSignal,
+                            scrollToTopSignal = wallScrollToTopSignal,
+                            externalRefreshSignal = wallRefreshSignal,
                             onConsumeInitialArgs = {
                                 wallTagArg = null
+                                wallAuthorArg = null
+                                wallSeriesArg = null
                                 wallMemeArg = null
                             },
+                            onOpenNotifications = { showNotifsSheet = true },
+                            onOpenUrl = { url -> webLinkModalUrl = url },
+                            onOpenCompose = { req -> activeComposeRequest = req },
                             onRequireLogin = { showLoginModal = true },
                             onToggleBlurAll = { enabled ->
                                 onUpdatePrivacyConfig(privacyConfig.copy(blurAllEnabled = enabled))
                             },
+                            moyuHeaderPillText = wallMoyuPill,
+                            onClickMoyuPill = {
+                                discoverInitialRoute = "/moyu"
+                                activeTab = "discover"
+                            },
+                            forceUnseenSignal = forceWallUnseenSignal,
                         )
 
-                        "chat" -> ChatScreen(
+                        "messages" -> ChatScreen(
                             api = api,
                             controller = chatController,
                             me = me,
@@ -624,39 +919,79 @@ fun ForHappyShell(
                             },
                             onOpenUrl = { url -> webLinkModalUrl = url },
                             onRequireLogin = { showLoginModal = true },
+                            notifUnreadCount = notifUnreadCount,
+                            onOpenNotifications = { showNotifsSheet = true },
+                            openSessionRequest = chatOpenRequest,
+                            onConsumeOpenSessionRequest = { chatOpenRequest = null },
+                            onNavigateToAuthor = { uname ->
+                                wallTagArg = null
+                                wallSeriesArg = null
+                                wallAuthorArg = uname
+                                activeTab = "wall"
+                            },
+                            onOpenDiscoverRoute = { route ->
+                                webLinkModalUrl = if (route.startsWith("http")) route else "https://52dmeme.com$route"
+                            },
+                            onConvertMessageToPost = { msg ->
+                                if (me == null) {
+                                    showLoginModal = true
+                                } else {
+                                    scope.launch {
+                                        val files = withContext(Dispatchers.IO) {
+                                            msg.allMedia.mapNotNull { media ->
+                                                val u = media.resolvedUrl
+                                                if (u.isNotBlank()) api.fetchCachedMediaFile(u)?.absolutePath else null
+                                            }
+                                        }
+                                        val srcBody = msg.body.trim()
+                                        val initContent = buildString {
+                                            append("来源：群聊 @${msg.displayAuthor}")
+                                            if (srcBody.isNotBlank()) append("\n$srcBody")
+                                        }
+                                        activeComposeRequest = ComposeLaunchRequest(
+                                            triggerSeq = System.currentTimeMillis(),
+                                            initialGenre = ComposeGenre.IMAGE,
+                                            preStagedPaths = files,
+                                            initialContent = initContent,
+                                        )
+                                    }
+                                }
+                            },
                         )
 
-                        "slot3" -> {
-                            if (pinnedModule.id == "pets") {
-                                PetsScreen(
-                                    api = api,
-                                    me = me,
-                                    onRequireLogin = { showLoginModal = true },
-                                )
-                            } else {
-                                ShelllessWebScreen(
-                                    route = pinnedModule.route,
-                                    title = pinnedModule.label,
-                                    cookieJar = api.cookieJar,
-                                    assetCache = api.webAssetCache,
-                                )
-                            }
-                        }
-
-                        "hub" -> HubScreen(
+                        "discover" -> HubScreen(
                             api = api,
                             db = app.db,
                             me = me,
                             modules = modules,
-                            pinnedModuleId = pinnedModule.id,
-                            onPinModule = { mod ->
-                                pinnedModuleId = mod.id
-                                scope.launch { app.db.putKv("ui.pinned_slot3_id", mod.id) }
-                            },
+                            initialModuleRoute = discoverInitialRoute,
+                            onConsumeInitialRoute = { discoverInitialRoute = null },
                             onRefreshModules = {
                                 scope.launch { modules = api.scanDynamicTopbarModules() }
                             },
-                            onNavigateRootTab = { tab -> activeTab = tab },
+                            onRequireLogin = { showLoginModal = true },
+                            notifUnreadCount = notifUnreadCount,
+                            onOpenNotifications = { showNotifsSheet = true },
+                            onJumpUnseenWall = {
+                                forceWallUnseenSignal++
+                                activeTab = "wall"
+                            },
+                            chatController = chatController,
+                            effectiveDisguise = effectiveDisguise,
+                            bossKeyActive = bossKeyActive,
+                            todayStats = todayStats,
+                            moyuConfig = moyuConfig,
+                            onMoyuConfigUpdated = { moyuConfig = it },
+                            moyuForegroundSec = moyuForegroundSec,
+                            onResetMoyuForeground = {
+                                moyuForegroundSec = 0L
+                                scope.launch { api.putPref(KV_MOYU_FG_SEC, "0") }
+                            },
+                            onPinnedIdsChanged = { pinnedHubIds = it },
+                            onJumpToGroupChat = { gid ->
+                                chatOpenRequest = ChatOpenSessionRequest(mode = "group", groupId = gid)
+                                activeTab = "messages"
+                            },
                         )
 
                         "me" -> MeScreen(
@@ -681,15 +1016,71 @@ fun ForHappyShell(
                                 notifs = emptyList()
                                 notifUnreadCount = 0
                                 showNotifsSheet = false
+                                todayStats = null
                             },
+                            onOpenMeme = { id -> shellDetailMemeId = id },
+                            onOpenComposeEdit = { meme ->
+                                activeComposeRequest = ComposeLaunchRequest(
+                                    triggerSeq = System.currentTimeMillis(),
+                                    editingMeme = meme,
+                                )
+                            },
+                            onOpenWebRoute = { route, _ ->
+                                val clean = route.trim()
+                                if (clean.startsWith("/pets") ||
+                                    clean.startsWith("/cards") ||
+                                    clean.startsWith("/novels") ||
+                                    clean.startsWith("/raffle") ||
+                                    clean.startsWith("/road") ||
+                                    clean.startsWith("/moyu") ||
+                                    clean.startsWith("/arcade")
+                                ) {
+                                    discoverInitialRoute = clean
+                                    activeTab = "discover"
+                                } else {
+                                    webLinkModalUrl = clean
+                                }
+                            },
+                            onOpenNotifSettings = {
+                                openNotifPrefsDirectly = true
+                                showNotifsSheet = true
+                            },
+                            initialSettingsSubpage = pendingSettingsSubpage,
+                            onConsumeSettingsSubpage = { pendingSettingsSubpage = null },
+                            onRefreshMe = { bootstrapSession() },
+                            effectiveDisguise = effectiveDisguise,
+                            bossKeyActive = bossKeyActive,
                         )
                     }
                 }
             }
         }
+        }
+
+        // Non-destructive Z5 Boss Cloud Doc cover (preserves underlying scroll/input state)
+        if (bossKeyActive) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {},
+                    ),
+            ) {
+                BossDocScreen(
+                    longPressTitleEnabled = privacyConfig.bossExitLongPressTitle,
+                    tapCollabFiveEnabled = privacyConfig.bossExitTapCollabFive,
+                    doubleBackExitEnabled = privacyConfig.bossDoubleBack,
+                    hapticEnabled = privacyConfig.stealthHapticFeedback,
+                    api = api,
+                    onExit = { onSetBossKeyActive(false) },
+                )
+            }
+        }
     }
 
-    if (showPrivacySettingsSheet) {
+    if (!bossKeyActive && showPrivacySettingsSheet) {
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ModalBottomSheet(
             onDismissRequest = { showPrivacySettingsSheet = false },
@@ -742,7 +1133,7 @@ fun ForHappyShell(
         }
     }
 
-    if (showNotifsSheet && me != null) {
+    if (!bossKeyActive && showNotifsSheet && me != null) {
         NotificationsSheet(
             api = api,
             items = notifs,
@@ -772,15 +1163,44 @@ fun ForHappyShell(
                     messageId = msgId,
                     triggerSeq = ++chatJumpSeq,
                 )
-                activeTab = "chat"
+                activeTab = "messages"
             },
-            onNavigateHub = { activeTab = "hub" },
+            onNavigateHub = { activeTab = "discover" },
             onOpenUrl = { url -> webLinkModalUrl = url },
-            onDismiss = { showNotifsSheet = false },
+            onDismiss = {
+                showNotifsSheet = false
+                openNotifPrefsDirectly = false
+            },
+            siteNotices = siteNotices,
+            dismissedNoticeIds = dismissedNoticeIds,
+            onDismissNotice = { nid ->
+                val next = dismissedNoticeIds + nid
+                dismissedNoticeIds = next
+                scope.launch {
+                    api.putPref(
+                        "ui.dismissed_notice_ids",
+                        ForHappyJson.encodeToString(ListSerializer(Long.serializer()), next.toList().takeLast(50)),
+                    )
+                }
+            },
+            onToggleItemReadLocal = { target ->
+                if (target.isUnread) {
+                    markSingleNotificationRead(target)
+                } else {
+                    notifs = notifs.map { if (it.matchesSameItem(target)) it.copy(unread = true) else it }
+                    notifUnreadCount = (notifUnreadCount + 1).coerceAtLeast(1)
+                }
+            },
+            onOpenPetsRoute = {
+                discoverInitialRoute = "/pets"
+                activeTab = "discover"
+            },
+            initialShowSettings = openNotifPrefsDirectly,
         )
     }
 
-    shellDetailMemeId?.let { memeId ->
+    if (!bossKeyActive) {
+        shellDetailMemeId?.let { memeId ->
         MemeDetailModal(
             memeId = memeId,
             api = api,
@@ -790,10 +1210,91 @@ fun ForHappyShell(
             onOpenImageFullscreen = { url -> shellFullscreenImgUrl = url },
             onTagClick = { tag ->
                 shellDetailMemeId = null
+                wallAuthorArg = null
+                wallSeriesArg = null
                 wallTagArg = tag
                 activeTab = "wall"
             },
+            onAuthorClick = { uname ->
+                shellDetailMemeId = null
+                wallTagArg = null
+                wallSeriesArg = null
+                wallAuthorArg = uname
+                activeTab = "wall"
+            },
+            onOpenUrl = { url -> webLinkModalUrl = url },
+            onOpenEditWorkbench = { targetMeme ->
+                shellDetailMemeId = null
+                activeComposeRequest = ComposeLaunchRequest(
+                    triggerSeq = System.currentTimeMillis(),
+                    editingMeme = targetMeme,
+                )
+            },
             onStateUpdated = {},
+        )
+    }
+
+    activeSharePayload?.let { sharePayload ->
+        SystemShareTargetSheet(
+            context = context,
+            api = api,
+            me = me,
+            payload = sharePayload,
+            disguiseMode = effectiveDisguise,
+            groups = chatState.groups,
+            onRequireLogin = { showLoginModal = true },
+            onOpenComposeForShare = { req ->
+                activeComposeRequest = req
+            },
+            onSentToGroup = { gid ->
+                chatOpenRequest = ChatOpenSessionRequest(
+                    mode = "group",
+                    groupId = gid,
+                )
+                activeTab = "messages"
+            },
+            onSentToDm = { tid ->
+                chatOpenRequest = ChatOpenSessionRequest(
+                    mode = "dm",
+                    dmThreadId = tid,
+                )
+                activeTab = "messages"
+            },
+            onDismiss = { activeSharePayload = null },
+        )
+    }
+
+    activeComposeRequest?.let { req ->
+        ComposeWorkbench(
+            db = app.db,
+            api = api,
+            me = me,
+            launchRequest = req,
+            onPublished = { publishedIds ->
+                wallRefreshSignal++
+                val firstId = publishedIds.firstOrNull()
+                if (firstId != null && effectiveDisguise == AppDisguiseMode.NONE) {
+                    scope.launch {
+                        val msg = if (publishedIds.size > 1) {
+                            "已发布 ${publishedIds.size} 帖（No.$firstId 等）"
+                        } else {
+                            "已发布 No.$firstId"
+                        }
+                        val res = snackbarHostState.showSnackbar(
+                            message = msg,
+                            actionLabel = "查看",
+                            duration = SnackbarDuration.Short,
+                        )
+                        if (res == SnackbarResult.ActionPerformed) {
+                            shellDetailMemeId = firstId
+                        }
+                    }
+                }
+            },
+            onEdited = {
+                wallRefreshSignal++
+            },
+            onDismiss = { activeComposeRequest = null },
         )
     }
 
@@ -821,27 +1322,164 @@ fun ForHappyShell(
         }
     }
 
+    if (showDiscoverQuickRing) {
+        val catalog = remember(modules) { resolveHubCatalog(modules) }
+        val quickItems = remember(catalog, pinnedHubIds) {
+            val map = catalog.associateBy { it.id }
+            val resolved = pinnedHubIds.mapNotNull { map[it] }
+            (resolved.ifEmpty { catalog }).take(4)
+        }
+        AlertDialog(
+            onDismissRequest = { showDiscoverQuickRing = false },
+            containerColor = palette.surface,
+            titleContentColor = palette.text,
+            textContentColor = palette.text,
+            title = { Text("快捷入口 · 前4个常用", fontSize = 15.sp, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    quickItems.forEach { entry ->
+                        Surface(
+                            color = palette.surface2,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showDiscoverQuickRing = false
+                                    discoverInitialRoute = entry.route
+                                    activeTab = "discover"
+                                },
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Text(entry.emoji, fontSize = 18.sp)
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(entry.label, color = palette.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(entry.subtitle, color = palette.muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                Text("打开 ›", color = palette.primary, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showDiscoverQuickRing = false }) { Text("关闭") }
+            },
+        )
+    }
+
     webLinkModalUrl?.let { url ->
         Dialog(
             onDismissRequest = { webLinkModalUrl = null },
             properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
         ) {
-            ShelllessWebScreen(
-                route = url,
-                title = "网页浏览",
-                cookieJar = api.cookieJar,
-                assetCache = api.webAssetCache,
-            )
+            ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+            Box(modifier = Modifier.fillMaxSize().background(palette.bg)) {
+                ShelllessWebScreen(
+                    route = url,
+                    title = url.removePrefix("https://").removePrefix("http://"),
+                    cookieJar = api.cookieJar,
+                    assetCache = api.webAssetCache,
+                    showCompactBar = false,
+                    floatingCapsule = true,
+                    pausedOverlay = currentBossActive,
+                    onExit = { webLinkModalUrl = null },
+                    api = api,
+                    chatController = chatController,
+                    me = me,
+                    onRequireLogin = { showLoginModal = true },
+                    onJumpToGroupChat = { gid ->
+                        webLinkModalUrl = null
+                        chatOpenRequest = ChatOpenSessionRequest(mode = "group", groupId = gid)
+                        activeTab = "messages"
+                    },
+                )
+            }
         }
+    }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun navItemColors(palette: com.jinhuan.forhappy.ui.theme.ForHappyPalette) =
-    NavigationBarItemDefaults.colors(
-        selectedIconColor = palette.primary,
-        selectedTextColor = palette.primary,
-        indicatorColor = palette.primary.copy(alpha = 0.14f),
-        unselectedIconColor = palette.muted,
-        unselectedTextColor = palette.muted,
-    )
+private fun CompactBottomBarItem(
+    selected: Boolean,
+    icon: ImageVector,
+    label: String,
+    palette: ForHappyPalette,
+    modifier: Modifier = Modifier,
+    badgeCount: Int = 0,
+    badgeIsMention: Boolean = false,
+    showDot: Boolean = false,
+    dotColor: Color = palette.badge,
+    onLongClick: (() -> Unit)? = null,
+    onClick: () -> Unit,
+) {
+    val fg = if (selected) palette.primary else palette.muted
+    val interaction = remember { MutableInteractionSource() }
+    Column(
+        modifier = modifier
+            .fillMaxHeight()
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
+                onLongClick = onLongClick,
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Box(contentAlignment = Alignment.TopEnd) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = fg,
+                modifier = Modifier.size(22.dp),
+            )
+            if (badgeCount > 0 || badgeIsMention) {
+                val badgeBg = if (badgeIsMention) palette.danger else palette.badge
+                val countLabel = if (badgeCount > 99) "99+" else "$badgeCount"
+                val text = when {
+                    badgeIsMention && badgeCount > 0 -> "@$countLabel"
+                    badgeIsMention -> "@我"
+                    else -> countLabel
+                }
+                Box(
+                    modifier = Modifier
+                        .offset(x = 8.dp, y = (-4).dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(badgeBg)
+                        .padding(horizontal = 4.dp, vertical = 1.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = text,
+                        color = Color.White,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        style = TextStyle(fontFeatureSettings = TABULAR_FONT_FEATURE),
+                    )
+                }
+            } else if (showDot) {
+                Box(
+                    modifier = Modifier
+                        .offset(x = 3.dp, y = (-2).dp)
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(dotColor),
+                )
+            }
+        }
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = label,
+            color = fg,
+            fontSize = 11.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1,
+        )
+    }
+}

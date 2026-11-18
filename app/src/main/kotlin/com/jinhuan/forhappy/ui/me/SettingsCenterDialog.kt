@@ -1,0 +1,1139 @@
+package com.jinhuan.forhappy.ui.me
+
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.rounded.AdminPanelSettings
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Security
+import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material.icons.rounded.SystemUpdate
+import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.jinhuan.forhappy.BuildConfig
+import com.jinhuan.forhappy.ForHappyApp
+import com.jinhuan.forhappy.core.model.AppDisguiseMode
+import com.jinhuan.forhappy.core.model.AppIconAlias
+import com.jinhuan.forhappy.core.model.AppThemeMode
+import com.jinhuan.forhappy.core.model.CustomEdgeNode
+import com.jinhuan.forhappy.core.model.MeUser
+import com.jinhuan.forhappy.core.model.PrivacyStealthConfig
+import com.jinhuan.forhappy.core.navigation.StealthExemptionGate
+import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
+import com.jinhuan.forhappy.core.update.AppUpdateController
+import com.jinhuan.forhappy.core.update.AppUpdateManager
+import com.jinhuan.forhappy.core.update.UpdateStatus
+import com.jinhuan.forhappy.ui.components.BadgePill
+import com.jinhuan.forhappy.ui.theme.ForHappyDimens
+import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
+import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
+import java.io.File
+
+@Composable
+fun SettingsCenterDialog(
+    api: ForHappyApiClient,
+    updateController: AppUpdateController,
+    me: MeUser?,
+    themeMode: AppThemeMode,
+    privacyConfig: PrivacyStealthConfig,
+    privacyShieldEnabled: Boolean,
+    activeIconAlias: AppIconAlias,
+    initialSubpage: String? = null,
+    onChangeTheme: (AppThemeMode) -> Unit,
+    onChangeDisguise: (AppDisguiseMode) -> Unit,
+    onUpdatePrivacyConfig: (PrivacyStealthConfig) -> Unit,
+    onTogglePrivacyShield: (Boolean) -> Unit,
+    onChangeIconAlias: (AppIconAlias) -> Unit,
+    onOpenNotifSettings: () -> Unit,
+    onOpenInvites: () -> Unit,
+    onOpenWebRoute: (route: String, title: String) -> Unit,
+    onRequireLogin: () -> Unit,
+    onLoggedOut: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val palette = LocalForHappyPalette.current
+    var currentSubpage by remember(initialSubpage) { mutableStateOf(initialSubpage) }
+
+    val subpageTitle = when (currentSubpage) {
+        "stealth" -> "防窥与摸鱼"
+        "browse" -> "浏览默认偏好"
+        "chat" -> "群聊与私信"
+        "appearance" -> "外观与背景"
+        "account" -> "账号与安全"
+        "ai" -> "AI 小伙伴"
+        "network" -> "网络加速与诊断"
+        "storage" -> "存储与缓存"
+        "about" -> "关于与更新"
+        else -> "设置"
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(palette.bg)
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .imePadding(),
+        ) {
+            Surface(color = palette.surface) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(ForHappyDimens.topBarHeight)
+                        .padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(
+                        onClick = {
+                            if (currentSubpage != null) {
+                                currentSubpage = null
+                            } else {
+                                onDismiss()
+                            }
+                        },
+                    ) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
+                    }
+                    Text(subpageTitle, color = palette.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+            HorizontalDivider(color = palette.line)
+
+            if (currentSubpage == null) {
+                val netStatus by api.rustNetManager.status.collectAsState()
+                val updateState by updateController.state.collectAsState()
+                val isAdminCapable = me?.isAdmin == true || me?.owner == true || me?.canManageAi == true
+
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    item {
+                        SettingsGroupHeader("常用")
+                        SettingsGroupCard {
+                            SettingsNavRow(
+                                icon = Icons.Rounded.Security,
+                                title = "防窥与摸鱼",
+                                subtitle = "${privacyConfig.disguiseMode.label} · 支持 10 秒演练",
+                                badgeText = "10秒演练",
+                                onClick = { currentSubpage = "stealth" },
+                            )
+                            HorizontalDivider(color = palette.line.copy(alpha = 0.6f))
+                            SettingsNavRow(
+                                icon = Icons.Rounded.Tune,
+                                title = "浏览默认偏好",
+                                subtitle = "默认排序、双列/单列视图与按日分组",
+                                onClick = { currentSubpage = "browse" },
+                            )
+                            HorizontalDivider(color = palette.line.copy(alpha = 0.6f))
+                            SettingsNavRow(
+                                icon = Icons.Rounded.Tune,
+                                title = "群聊与私信",
+                                subtitle = "消息滚动策略与干净铭牌模式",
+                                onClick = { currentSubpage = "chat" },
+                            )
+                            HorizontalDivider(color = palette.line.copy(alpha = 0.6f))
+                            SettingsNavRow(
+                                icon = Icons.Rounded.Notifications,
+                                title = "提醒偏好",
+                                subtitle = "互动、群聊、新帖与系统通知开关",
+                                onClick = {
+                                    onDismiss()
+                                    onOpenNotifSettings()
+                                },
+                            )
+                            HorizontalDivider(color = palette.line.copy(alpha = 0.6f))
+                            SettingsNavRow(
+                                icon = Icons.Rounded.Palette,
+                                title = "外观",
+                                subtitle = themeMode.label,
+                                onClick = { currentSubpage = "appearance" },
+                            )
+                        }
+                    }
+
+                    item {
+                        SettingsGroupHeader("账号")
+                        SettingsGroupCard {
+                            SettingsNavRow(
+                                icon = Icons.Rounded.Person,
+                                title = "账号与安全",
+                                subtitle = me?.let { "@${it.username} · TL${it.trustLevel}" } ?: "未登录 · 点击登录或查看账号",
+                                onClick = { currentSubpage = "account" },
+                            )
+                        }
+                    }
+
+                    item {
+                        SettingsGroupHeader("应用")
+                        SettingsGroupCard {
+                            SettingsNavRow(
+                                icon = Icons.Rounded.AutoAwesome,
+                                title = "AI 小伙伴",
+                                subtitle = "自有模型接入、书房续写与评论偏好",
+                                onClick = { currentSubpage = "ai" },
+                            )
+                            HorizontalDivider(color = palette.line.copy(alpha = 0.6f))
+                            SettingsNavRow(
+                                icon = Icons.Rounded.Speed,
+                                title = "网络加速与诊断",
+                                subtitle = if (netStatus.running) "已就绪 · ${netStatus.latencyMs ?: "--"}ms" else "连接中 · 点此诊断与复制日志",
+                                onClick = { currentSubpage = "network" },
+                            )
+                            HorizontalDivider(color = palette.line.copy(alpha = 0.6f))
+                            SettingsNavRow(
+                                icon = Icons.Rounded.Storage,
+                                title = "存储与缓存",
+                                subtitle = "静态网页、媒体缓存与本地草稿清理",
+                                onClick = { currentSubpage = "storage" },
+                            )
+                            HorizontalDivider(color = palette.line.copy(alpha = 0.6f))
+                            SettingsNavRow(
+                                icon = Icons.Rounded.SystemUpdate,
+                                title = "关于与更新",
+                                subtitle = "v${BuildConfig.VERSION_NAME}",
+                                badgeText = if (updateState.status == UpdateStatus.AVAILABLE || updateState.status == UpdateStatus.READY_TO_INSTALL) "新版本" else null,
+                                onClick = { currentSubpage = "about" },
+                            )
+                        }
+                    }
+
+                    if (isAdminCapable) {
+                        item {
+                            SettingsGroupHeader("管理")
+                            SettingsGroupCard {
+                                SettingsNavRow(
+                                    icon = Icons.Rounded.AdminPanelSettings,
+                                    title = "管理后台",
+                                    subtitle = "站务、审计与 AI 管理控制台",
+                                    onClick = {
+                                        onDismiss()
+                                        onOpenWebRoute("/admin", "管理后台")
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    when (currentSubpage) {
+                        "stealth" -> StealthAndPracticeSubpage(
+                            themeMode = themeMode,
+                            privacyConfig = privacyConfig,
+                            privacyShieldEnabled = privacyShieldEnabled,
+                            activeIconAlias = activeIconAlias,
+                            onChangeTheme = onChangeTheme,
+                            onChangeDisguise = onChangeDisguise,
+                            onUpdatePrivacyConfig = onUpdatePrivacyConfig,
+                            onTogglePrivacyShield = onTogglePrivacyShield,
+                            onChangeIconAlias = onChangeIconAlias,
+                        )
+                        "browse" -> BrowseDefaultsSubpage(api = api)
+                        "chat" -> ChatPrefsSubpage(api = api)
+                        "appearance" -> AppearanceSubpage(
+                            api = api,
+                            themeMode = themeMode,
+                            onChangeTheme = onChangeTheme,
+                        )
+                        "account" -> AccountSecuritySubpage(
+                            api = api,
+                            me = me,
+                            onOpenInvites = {
+                                onDismiss()
+                                onOpenInvites()
+                            },
+                            onRequireLogin = {
+                                onDismiss()
+                                onRequireLogin()
+                            },
+                            onLoggedOut = {
+                                onLoggedOut()
+                                onDismiss()
+                            },
+                        )
+                        "ai" -> AiPrefsSubpage(api = api, me = me, onRequireLogin = onRequireLogin)
+                        "network" -> NetworkDiagnosticsSubpage(api = api)
+                        "storage" -> StorageCacheSubpage(api = api)
+                        "about" -> AboutUpdateSubpage(updateController = updateController)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StealthAndPracticeSubpage(
+    themeMode: AppThemeMode,
+    privacyConfig: PrivacyStealthConfig,
+    privacyShieldEnabled: Boolean,
+    activeIconAlias: AppIconAlias,
+    onChangeTheme: (AppThemeMode) -> Unit,
+    onChangeDisguise: (AppDisguiseMode) -> Unit,
+    onUpdatePrivacyConfig: (PrivacyStealthConfig) -> Unit,
+    onTogglePrivacyShield: (Boolean) -> Unit,
+    onChangeIconAlias: (AppIconAlias) -> Unit,
+) {
+    val palette = LocalForHappyPalette.current
+    var practiceActive by remember { mutableStateOf(false) }
+    var practiceSec by remember { mutableIntStateOf(0) }
+    var practiceBlur by remember { mutableStateOf(true) }
+    var practiceBossCover by remember { mutableStateOf(false) }
+
+    LaunchedEffect(practiceActive) {
+        if (practiceActive) {
+            practiceSec = 10
+            while (practiceSec > 0) {
+                delay(1000L)
+                practiceSec--
+            }
+            practiceActive = false
+            practiceBossCover = false
+        }
+    }
+
+    // 10-Second Interactive Stealth Practice Sandbox
+    Surface(
+        color = palette.surface,
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, palette.primary.copy(alpha = 0.45f), RoundedCornerShape(16.dp)),
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("10 秒防窥演练", color = palette.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text("安全沙盒内试用糊图与老板键遮罩，退出不修改真实状态", color = palette.muted, fontSize = 11.sp)
+                }
+                if (practiceActive) {
+                    BadgePill("${practiceSec}s", containerColor = palette.primary, contentColor = palette.onPrimary)
+                }
+            }
+
+            if (!practiceActive) {
+                Button(
+                    onClick = {
+                        practiceBlur = true
+                        practiceBossCover = false
+                        practiceActive = true
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = palette.primary, contentColor = palette.onPrimary),
+                ) {
+                    Text("开始 10 秒防窥演练")
+                }
+            } else {
+                Surface(
+                    color = if (practiceBossCover) Color(0xFFFFFFFF) else palette.surface2,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, palette.line, RoundedCornerShape(12.dp)),
+                ) {
+                    if (practiceBossCover) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { practiceBossCover = false }
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text("飞书云文档 · Q4 项目复盘（演练遮罩）", color = Color(0xFF1F2329), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text("1. 核心指标达成情况综述\n2. 跨团队协同节奏与风险项跟踪…", color = Color(0xFF646A73), fontSize = 12.sp)
+                            Text("点按此处解除演练遮罩", color = Color(0xFF3370FF), fontSize = 11.sp)
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(64.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(palette.primary.copy(alpha = 0.25f))
+                                    .then(if (practiceBlur) Modifier.blur(12.dp) else Modifier)
+                                    .clickable { practiceBlur = !practiceBlur },
+                            ) {
+                                Text("🖼️", fontSize = 26.sp)
+                            }
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = if (practiceBlur) "已全图模糊 · 点左侧图片看清" else "清晰态 · 再点重新模糊",
+                                    color = palette.text,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedButton(onClick = { practiceBlur = !practiceBlur }, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)) {
+                                        Text(if (practiceBlur) "点清" else "糊回", fontSize = 11.sp)
+                                    }
+                                    OutlinedButton(onClick = { practiceBossCover = true }, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)) {
+                                        Text("模拟老板键", fontSize = 11.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                TextButton(
+                    onClick = {
+                        practiceActive = false
+                        practiceBossCover = false
+                    },
+                    modifier = Modifier.align(Alignment.End),
+                ) {
+                    Text("结束演练", fontSize = 12.sp)
+                }
+            }
+        }
+    }
+
+    SettingsGroupCard {
+        Box(modifier = Modifier.padding(14.dp)) {
+            PrivacyStealthSettingsContent(
+                themeMode = themeMode,
+                privacyConfig = privacyConfig,
+                privacyShieldEnabled = privacyShieldEnabled,
+                activeIconAlias = activeIconAlias,
+                onChangeTheme = onChangeTheme,
+                onChangeDisguise = onChangeDisguise,
+                onUpdatePrivacyConfig = onUpdatePrivacyConfig,
+                onTogglePrivacyShield = onTogglePrivacyShield,
+                onChangeIconAlias = onChangeIconAlias,
+            )
+        }
+    }
+}
+
+@Composable
+private fun BrowseDefaultsSubpage(api: ForHappyApiClient) {
+    val palette = LocalForHappyPalette.current
+    val scope = rememberCoroutineScope()
+    var defaultSort by remember { mutableStateOf("new") }
+    var defaultView by remember { mutableStateOf("dual") }
+    var byDayDefault by remember { mutableStateOf(true) }
+    var savedBanner by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        defaultSort = api.getPref("ui.default_sort") ?: "new"
+        defaultView = api.getPref("ui.default_view") ?: "dual"
+        byDayDefault = api.getPref("ui.default_by_day") != "false"
+    }
+
+    SettingsGroupCard {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("默认排序", color = palette.muted, fontSize = 12.sp)
+            Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("new" to "最新", "hot" to "最热", "top" to "最多喜欢", "old" to "最早").forEach { (id, label) ->
+                    FilterChip(
+                        selected = defaultSort == id,
+                        onClick = {
+                            defaultSort = id
+                            scope.launch { api.putPref("ui.default_sort", id); savedBanner = "已保存默认排序" }
+                        },
+                        label = { Text(label, fontSize = 12.sp) },
+                    )
+                }
+            }
+            Text("默认布局", color = palette.muted, fontSize = 12.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("dual" to "双列瀑布流", "single" to "单列大图", "pager" to "上下沉浸刷").forEach { (id, label) ->
+                    FilterChip(
+                        selected = defaultView == id,
+                        onClick = {
+                            defaultView = id
+                            scope.launch { api.putPref("ui.default_view", id); savedBanner = "已保存默认布局" }
+                        },
+                        label = { Text(label, fontSize = 12.sp) },
+                    )
+                }
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("默认按自然日分段", color = palette.text, fontSize = 13.sp)
+                Switch(
+                    checked = byDayDefault,
+                    onCheckedChange = {
+                        byDayDefault = it
+                        scope.launch { api.putPref("ui.default_by_day", it.toString()); savedBanner = "已更新分段设置" }
+                    },
+                )
+            }
+            savedBanner?.let { Text(it, color = palette.primary, fontSize = 12.sp) }
+        }
+    }
+}
+
+@Composable
+private fun ChatPrefsSubpage(api: ForHappyApiClient) {
+    val palette = LocalForHappyPalette.current
+    val scope = rememberCoroutineScope()
+    var scrollPolicy by remember { mutableStateOf("SMART") }
+    var cleanMode by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        scrollPolicy = api.getPref("ui.chat.scroll_policy") ?: "SMART"
+        cleanMode = api.getPref("ui.chat.clean_mode") == "true"
+    }
+
+    SettingsGroupCard {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("新消息到来时的自动滚动行为", color = palette.muted, fontSize = 12.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("SMART" to "智能定位", "ALWAYS" to "始终回底", "NEVER" to "保持当前位置").forEach { (id, label) ->
+                    FilterChip(
+                        selected = scrollPolicy == id,
+                        onClick = {
+                            scrollPolicy = id
+                            scope.launch { api.putPref("ui.chat.scroll_policy", id) }
+                        },
+                        label = { Text(label, fontSize = 12.sp) },
+                    )
+                }
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("群聊极简干净模式", color = palette.text, fontSize = 13.sp)
+                    Text("隐藏花哨称号与装扮气泡背景", color = palette.muted, fontSize = 11.sp)
+                }
+                Switch(
+                    checked = cleanMode,
+                    onCheckedChange = {
+                        cleanMode = it
+                        scope.launch { api.putPref("ui.chat.clean_mode", it.toString()) }
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppearanceSubpage(
+    api: ForHappyApiClient,
+    themeMode: AppThemeMode,
+    onChangeTheme: (AppThemeMode) -> Unit,
+) {
+    val palette = LocalForHappyPalette.current
+    val scope = rememberCoroutineScope()
+    var wallpaperMode by remember { mutableStateOf("solid") }
+    var vignetteStrength by remember { mutableFloatStateOf(0.25f) }
+
+    LaunchedEffect(Unit) {
+        wallpaperMode = api.getPref("ui.appearance.bg_mode") ?: "solid"
+        vignetteStrength = api.getPref("ui.appearance.vignette")?.toFloatOrNull() ?: 0.25f
+    }
+
+    SettingsGroupCard {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("日夜主题", color = palette.muted, fontSize = 12.sp)
+            Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                AppThemeMode.dayNightEntries.forEach { mode ->
+                    FilterChip(selected = themeMode == mode, onClick = { onChangeTheme(mode) }, label = { Text(mode.label, fontSize = 12.sp) })
+                }
+            }
+            HorizontalDivider(color = palette.line)
+            Text("背景风格", color = palette.muted, fontSize = 12.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("solid" to "纯色宣纸/松夜", "wallpaper" to "柔光质感壁纸").forEach { (id, label) ->
+                    FilterChip(
+                        selected = wallpaperMode == id,
+                        onClick = {
+                            wallpaperMode = id
+                            scope.launch { api.putPref("ui.appearance.bg_mode", id) }
+                        },
+                        label = { Text(label, fontSize = 12.sp) },
+                    )
+                }
+            }
+            Text("暗角 / 遮罩强度 (${(vignetteStrength * 100).toInt()}%)", color = palette.muted, fontSize = 12.sp)
+            Slider(
+                value = vignetteStrength,
+                onValueChange = { vignetteStrength = it },
+                onValueChangeFinished = {
+                    scope.launch { api.putPref("ui.appearance.vignette", vignetteStrength.toString()) }
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun AccountSecuritySubpage(
+    api: ForHappyApiClient,
+    me: MeUser?,
+    onOpenInvites: () -> Unit,
+    onRequireLogin: () -> Unit,
+    onLoggedOut: () -> Unit,
+) {
+    val palette = LocalForHappyPalette.current
+    val scope = rememberCoroutineScope()
+    var confirmLogout by remember { mutableStateOf(false) }
+
+    SettingsGroupCard {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (me == null) {
+                Text("当前为访客浏览模式", color = palette.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Button(onClick = onRequireLogin, modifier = Modifier.fillMaxWidth()) { Text("登录 52dmeme.com") }
+            } else {
+                Text("用户名：@${me.username}", color = palette.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text("信任等级：TL${me.trustLevel} · LINUX DO ${if ((me.linuxdoId ?: 0L) > 0L) "已绑定" else "未绑定"}", color = palette.muted, fontSize = 12.sp)
+                OutlinedButton(onClick = onOpenInvites, modifier = Modifier.fillMaxWidth()) { Text("管理我的邀请码") }
+                OutlinedButton(
+                    onClick = { confirmLogout = true },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.AutoMirrored.Rounded.Logout, contentDescription = null, tint = palette.danger, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("退出登录", color = palette.danger)
+                }
+            }
+        }
+    }
+
+    if (confirmLogout) {
+        AlertDialog(
+            onDismissRequest = { confirmLogout = false },
+            containerColor = palette.surface,
+            titleContentColor = palette.text,
+            textContentColor = palette.text,
+            title = { Text("确认退出登录？") },
+            text = { Text("退出后仅清除本机 Cookie，不影响云端收藏与账本数据。") },
+            confirmButton = {
+                Button(
+                    colors = ButtonDefaults.buttonColors(containerColor = palette.danger, contentColor = Color.White),
+                    onClick = {
+                        confirmLogout = false
+                        scope.launch {
+                            api.logout()
+                            onLoggedOut()
+                        }
+                    },
+                ) { Text("退出") }
+            },
+            dismissButton = { TextButton(onClick = { confirmLogout = false }) { Text("取消") } },
+        )
+    }
+}
+
+@Composable
+private fun AiPrefsSubpage(
+    api: ForHappyApiClient,
+    me: MeUser?,
+    onRequireLogin: () -> Unit,
+) {
+    val palette = LocalForHappyPalette.current
+    val scope = rememberCoroutineScope()
+    var baseUrl by remember { mutableStateOf("") }
+    var apiKey by remember { mutableStateOf("") }
+    var modelName by remember { mutableStateOf("") }
+    var enableComment by remember { mutableStateOf(false) }
+    var enableNovel by remember { mutableStateOf(false) }
+    var stylePrompt by remember { mutableStateOf("") }
+    var saving by remember { mutableStateOf(false) }
+    var statusBanner by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(me?.id) {
+        if (me == null) return@LaunchedEffect
+        val obj = api.fetchMeAiPrefs() ?: return@LaunchedEffect
+        baseUrl = obj["api_base"]?.jsonPrimitive?.contentOrNull ?: obj["base_url"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        apiKey = obj["api_key"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        modelName = obj["model"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        enableComment = obj["comment_enabled"]?.jsonPrimitive?.booleanOrNull == true
+        enableNovel = obj["novel_enabled"]?.jsonPrimitive?.booleanOrNull == true
+        stylePrompt = obj["style"]?.jsonPrimitive?.contentOrNull.orEmpty()
+    }
+
+    SettingsGroupCard {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (me == null) {
+                Text("请登录后配置个人自有模型 AI 小伙伴参数", color = palette.muted, fontSize = 13.sp)
+                Button(onClick = onRequireLogin) { Text("去登录") }
+            } else {
+                Text("仅使用您本人填写的 API 额度（按量自费，站方不代扣）。", color = palette.muted, fontSize = 12.sp)
+                OutlinedTextField(value = baseUrl, onValueChange = { baseUrl = it }, label = { Text("API 地址 (OpenAI Compatible)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = apiKey, onValueChange = { apiKey = it }, label = { Text("API Key (保存后遮罩)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = modelName, onValueChange = { modelName = it }, label = { Text("模型名 (如 gpt-4o-mini)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = stylePrompt, onValueChange = { stylePrompt = it }, label = { Text("互动性格 / 续写风格") }, maxLines = 3, modifier = Modifier.fillMaxWidth())
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("允许参与评论互动", color = palette.text, fontSize = 13.sp)
+                    Switch(checked = enableComment, onCheckedChange = { enableComment = it })
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("允许辅助书房接龙", color = palette.text, fontSize = 13.sp)
+                    Switch(checked = enableNovel, onCheckedChange = { enableNovel = it })
+                }
+                Button(
+                    enabled = !saving,
+                    onClick = {
+                        saving = true
+                        scope.launch {
+                            val payload = buildJsonObject {
+                                put("api_base", JsonPrimitive(baseUrl.trim()))
+                                if (apiKey.isNotBlank()) put("api_key", JsonPrimitive(apiKey.trim()))
+                                put("model", JsonPrimitive(modelName.trim()))
+                                put("style", JsonPrimitive(stylePrompt.trim()))
+                                put("comment_enabled", JsonPrimitive(enableComment))
+                                put("novel_enabled", JsonPrimitive(enableNovel))
+                            }
+                            val res = api.patchMeAiPrefs(payload)
+                            saving = false
+                            statusBanner = res.fold(onSuccess = { "AI 小伙伴配置已保存" }, onFailure = { it.message ?: "保存失败" })
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (saving) "保存中…" else "保存配置")
+                }
+                statusBanner?.let { Text(it, color = palette.primary, fontSize = 12.sp) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NetworkDiagnosticsSubpage(api: ForHappyApiClient) {
+    val palette = LocalForHappyPalette.current
+    val clipboard = LocalClipboardManager.current
+    val netStatus by api.rustNetManager.status.collectAsState()
+    val netConfig by api.rustNetManager.config.collectAsState()
+
+    var customIpInput by remember { mutableStateOf("") }
+    var diagMsg by remember { mutableStateOf<String?>(null) }
+
+    SettingsGroupCard {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Cloudflare Rust 加速内核", color = palette.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                BadgePill(
+                    text = if (netStatus.running) "已就绪 :${netStatus.port}" else netStatus.phase,
+                    containerColor = if (netStatus.running) palette.primary.copy(alpha = 0.16f) else palette.danger.copy(alpha = 0.16f),
+                    contentColor = if (netStatus.running) palette.primary else palette.danger,
+                )
+            }
+            Text("优选 Edge IP：${netStatus.winnerIp ?: "测速中…"} (${netStatus.latencyMs?.let { "${it} ms" } ?: "--"})", color = palette.text, fontSize = 13.sp)
+            Text("ECH：${if (netStatus.echAccepted) "服务端已接受 (${netStatus.echKeyCount} 钥匙)" else "待协商 (${netStatus.echKeyCount} keys)"} · 来源：${netStatus.winnerSource ?: "--"}", color = palette.muted, fontSize = 12.sp)
+            netStatus.lastError?.let { err -> Text("最近诊断：$err", color = palette.danger, fontSize = 11.sp) }
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("启用 ECH (Encrypted ClientHello)", color = palette.text, fontSize = 13.sp)
+                Switch(checked = netConfig.echEnabled, onCheckedChange = { api.rustNetManager.updateSettings(echEnabled = it) })
+            }
+
+            Text("IPv6 策略", color = palette.muted, fontSize = 12.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("auto" to "双栈自动", "prefer_v6" to "优先 IPv6", "prefer_v4" to "仅/优先 IPv4").forEach { (id, label) ->
+                    FilterChip(selected = netConfig.ipv6Mode == id, onClick = { api.rustNetManager.updateSettings(ipv6Mode = id) }, label = { Text(label, fontSize = 11.sp) })
+                }
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedTextField(
+                    value = customIpInput,
+                    onValueChange = { customIpInput = it },
+                    placeholder = { Text("添加自定义优选 CF IP", fontSize = 12.sp) },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+                Button(
+                    enabled = customIpInput.isNotBlank(),
+                    onClick = {
+                        val next = netConfig.customNodes + CustomEdgeNode(ip = customIpInput.trim(), note = "手动添加")
+                        api.rustNetManager.updateSettings(customNodes = next)
+                        customIpInput = ""
+                    },
+                ) { Text("添加", fontSize = 12.sp) }
+            }
+
+            if (netConfig.customNodes.isNotEmpty()) {
+                netConfig.customNodes.forEachIndexed { idx, node ->
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("${node.ip} (${node.note})", color = palette.muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                        IconButton(
+                            onClick = {
+                                val next = netConfig.customNodes.toMutableList().apply { removeAt(idx) }
+                                api.rustNetManager.updateSettings(customNodes = next)
+                            },
+                            modifier = Modifier.size(28.dp),
+                        ) {
+                            Icon(Icons.Rounded.DeleteOutline, contentDescription = "移除", tint = palette.muted, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
+
+            Button(
+                onClick = {
+                    api.rustNetManager.triggerReselect()
+                    diagMsg = "已触发 Rust 并发赛马重选…"
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = palette.primary, contentColor = palette.onPrimary),
+            ) {
+                Icon(Icons.Rounded.Refresh, contentDescription = null)
+                Spacer(Modifier.width(4.dp))
+                Text("重新优选节点", fontSize = 13.sp)
+            }
+
+            diagMsg?.let { Text(it, color = palette.primary, fontSize = 12.sp) }
+
+            if (netStatus.logs.isNotEmpty()) {
+                Surface(color = palette.surface2, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("Rust 内核日志 (${netStatus.logs.size} 条)", color = palette.muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            TextButton(
+                                onClick = {
+                                    clipboard.setText(AnnotatedString(netStatus.logs.joinToString("\n")))
+                                    diagMsg = "内核诊断日志已全部复制到剪贴板"
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            ) {
+                                Icon(Icons.Rounded.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("复制全部", fontSize = 11.sp)
+                            }
+                        }
+                        netStatus.logs.takeLast(12).reversed().forEach { line ->
+                            Text(line, color = palette.text, fontSize = 10.sp, lineHeight = 14.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StorageCacheSubpage(api: ForHappyApiClient) {
+    val palette = LocalForHappyPalette.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var webBytes by remember { mutableLongStateOf(api.webAssetCache.cacheSizeBytes()) }
+    var imageCacheBytes by remember { mutableLongStateOf(0L) }
+    var dbBytes by remember { mutableLongStateOf(0L) }
+    var statusText by remember { mutableStateOf<String?>(null) }
+
+    suspend fun refreshSizes() {
+        webBytes = api.webAssetCache.cacheSizeBytes()
+        withContext(Dispatchers.IO) {
+            imageCacheBytes = dirSizeBytes(context.cacheDir)
+            dbBytes = context.getDatabasePath("forhappy.db").takeIf { it.exists() }?.length() ?: 0L
+        }
+    }
+
+    LaunchedEffect(Unit) { refreshSizes() }
+
+    SettingsGroupCard {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            StorageRow("网页静态资源缓存", "${webBytes / 1024} KB") {
+                scope.launch {
+                    api.webAssetCache.clearAll()
+                    refreshSizes()
+                    statusText = "已清理网页静态缓存"
+                }
+            }
+            HorizontalDivider(color = palette.line.copy(alpha = 0.6f))
+            StorageRow("图片 / 临时媒体缓存", "${imageCacheBytes / 1024} KB") {
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        context.cacheDir.listFiles()?.forEach { it.deleteRecursively() }
+                    }
+                    refreshSizes()
+                    statusText = "已清理图片与媒体临时缓存"
+                }
+            }
+            HorizontalDivider(color = palette.line.copy(alpha = 0.6f))
+            StorageRow("本地消息数据库 (forhappy.db)", "${dbBytes / 1024} KB", actionLabel = "清理群聊缓存") {
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        val db = (context.applicationContext as? ForHappyApp)?.db
+                        db?.writableDatabase?.delete("chat_messages", null, null)
+                    }
+                    refreshSizes()
+                    statusText = "已清理本地聊天消息窗口缓存（不影响云端）"
+                }
+            }
+            HorizontalDivider(color = palette.line.copy(alpha = 0.6f))
+            StorageRow("发帖草稿缓存", "本地 KV", actionLabel = "清空草稿") {
+                scope.launch {
+                    api.putPref("compose.draft.v1", "")
+                    statusText = "已清空发帖草稿"
+                }
+            }
+            statusText?.let { Text(it, color = palette.primary, fontSize = 12.sp) }
+        }
+    }
+}
+
+@Composable
+private fun StorageRow(title: String, sizeLabel: String, actionLabel: String = "清理", onClear: () -> Unit) {
+    val palette = LocalForHappyPalette.current
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = palette.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            Text(sizeLabel, color = palette.muted, fontSize = 11.sp)
+        }
+        OutlinedButton(onClick = onClear, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+            Text(actionLabel, fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+private fun AboutUpdateSubpage(updateController: AppUpdateController) {
+    val palette = LocalForHappyPalette.current
+    val context = LocalContext.current
+    val updateState by updateController.state.collectAsState()
+    var customMirrorInput by remember(updateState.customMirrorPrefix) { mutableStateOf(updateState.customMirrorPrefix) }
+
+    SettingsGroupCard {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("当前版本", color = palette.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                BadgePill("v${BuildConfig.VERSION_NAME}", containerColor = palette.surface2, contentColor = palette.primary)
+            }
+            Text(
+                text = updateState.statusMessage,
+                color = if (updateState.status == UpdateStatus.ERROR) palette.danger else palette.muted,
+                fontSize = 12.sp,
+            )
+            Text(
+                text = "加速通道：${if (updateState.customMirrorPrefix.isNotBlank()) "自定义源优先 + " else ""}${updateState.activeMirrorCount} 个公益镜像并发竞速",
+                color = palette.muted,
+                fontSize = 11.sp,
+            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedTextField(
+                    value = customMirrorInput,
+                    onValueChange = { customMirrorInput = it },
+                    label = { Text("自定义加速前缀 (留空自动)") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+                Button(onClick = { updateController.saveCustomMirrorPrefix(customMirrorInput) }) {
+                    Text("保存", fontSize = 12.sp)
+                }
+            }
+
+            if (updateState.status == UpdateStatus.DOWNLOADING) {
+                LinearProgressIndicator(
+                    progress = { (updateState.downloadProgressPercent / 100f).coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth(),
+                    color = palette.primary,
+                    trackColor = palette.surface2,
+                )
+            }
+
+            val rel = updateState.latestRelease
+            if (rel != null && rel.releaseNotes.isNotBlank() && updateState.status != UpdateStatus.UP_TO_DATE) {
+                Surface(color = palette.surface2, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text(rel.releaseTitle, color = palette.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(2.dp))
+                        Text(rel.releaseNotes, color = palette.muted, fontSize = 11.sp, lineHeight = 15.sp, maxLines = 8, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    enabled = updateState.status != UpdateStatus.CHECKING && updateState.status != UpdateStatus.DOWNLOADING,
+                    onClick = { updateController.checkForUpdates(silent = false) },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(if (updateState.status == UpdateStatus.CHECKING) "检查中…" else "检查更新", fontSize = 12.sp)
+                }
+
+                if (updateState.status == UpdateStatus.AVAILABLE || (updateState.status == UpdateStatus.ERROR && rel != null)) {
+                    Button(
+                        onClick = { updateController.downloadAndInstall() },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = palette.primary, contentColor = palette.onPrimary),
+                    ) { Text("下载并更新", fontSize = 12.sp) }
+                } else if (updateState.status == UpdateStatus.READY_TO_INSTALL) {
+                    Button(
+                        onClick = {
+                            StealthExemptionGate.markInternalJump()
+                            updateController.installReadyApk()
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = palette.primary, contentColor = palette.onPrimary),
+                    ) { Text("立即安装", fontSize = 12.sp) }
+                } else {
+                    OutlinedButton(
+                        onClick = {
+                            val targetUrl = rel?.htmlUrl?.takeIf { it.isNotBlank() } ?: AppUpdateManager.RELEASES_HTML_URL
+                            runCatching {
+                                StealthExemptionGate.markInternalJump()
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl))
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                )
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("GitHub Release", fontSize = 12.sp) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsGroupHeader(title: String) {
+    val palette = LocalForHappyPalette.current
+    Text(title, color = palette.primary, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 6.dp, start = 4.dp))
+}
+
+@Composable
+private fun SettingsGroupCard(content: @Composable () -> Unit) {
+    val palette = LocalForHappyPalette.current
+    Surface(
+        color = palette.surface,
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth().border(1.dp, palette.line, RoundedCornerShape(16.dp)),
+    ) {
+        Column { content() }
+    }
+}
+
+@Composable
+private fun SettingsNavRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    badgeText: String? = null,
+    onClick: () -> Unit,
+) {
+    val palette = LocalForHappyPalette.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = palette.primary, modifier = Modifier.size(20.dp))
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(title, color = palette.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                badgeText?.let { BadgePill(it, containerColor = palette.primary.copy(alpha = 0.14f), contentColor = palette.primary) }
+            }
+            Text(subtitle, color = palette.muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = palette.muted, modifier = Modifier.size(18.dp))
+    }
+}
+
+private fun dirSizeBytes(dir: File?): Long {
+    if (dir == null || !dir.exists()) return 0L
+    if (dir.isFile) return dir.length()
+    return dir.listFiles()?.sumOf { dirSizeBytes(it) } ?: 0L
+}
