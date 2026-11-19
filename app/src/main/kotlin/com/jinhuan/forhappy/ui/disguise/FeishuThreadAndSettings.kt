@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,6 +29,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -41,6 +43,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.AddCircleOutline
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.BookmarkBorder
 import androidx.compose.material.icons.rounded.Check
@@ -49,8 +52,10 @@ import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.EmojiEmotions
 import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.OpenInFull
 import androidx.compose.material.icons.rounded.Reply
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -78,7 +83,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -87,6 +96,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
@@ -124,11 +134,17 @@ internal data class FeishuThemePalette(
     val blue: Color,
     val bg: Color,
     val card: Color,
+    val peerBubble: Color,
+    val selfBubble: Color,
     val surfaceMuted: Color,
+    val reactionBg: Color,
+    val reactionMineBg: Color,
     val line: Color,
     val text: Color,
+    val subText: Color,
     val muted: Color,
     val unreadRed: Color,
+    val onlineGreen: Color,
 )
 
 @Composable
@@ -138,24 +154,36 @@ internal fun rememberFeishuColors(): FeishuThemePalette {
         if (isDark) {
             FeishuThemePalette(
                 blue = Color(0xFF4C88FF),
-                bg = Color(0xFF14161A),
-                card = Color(0xFF1E2126),
-                surfaceMuted = Color(0xFF282C33),
-                line = Color(0xFF2F343D),
-                text = Color(0xFFEBEDF0),
-                muted = Color(0xFF8E95A0),
+                bg = Color(0xFF111215),
+                card = Color(0xFF1A1C20),
+                peerBubble = Color(0xFF24272E),
+                selfBubble = Color(0xFF1D3766),
+                surfaceMuted = Color(0xFF25282F),
+                reactionBg = Color(0xFF252931),
+                reactionMineBg = Color(0xFF1E355E),
+                line = Color(0xFF282B32),
+                text = Color(0xFFEFF0F2),
+                subText = Color(0xFFA6ABB4),
+                muted = Color(0xFF7E8590),
                 unreadRed = Color(0xFFF54A45),
+                onlineGreen = Color(0xFF27C346),
             )
         } else {
             FeishuThemePalette(
                 blue = Color(0xFF3370FF),
-                bg = Color(0xFFF5F6F7),
+                bg = Color(0xFFF2F3F5),
                 card = Color(0xFFFFFFFF),
-                surfaceMuted = Color(0xFFF0F1F5),
-                line = Color(0xFFE5E6EB),
+                peerBubble = Color(0xFFFFFFFF),
+                selfBubble = Color(0xFFD8E6FF),
+                surfaceMuted = Color(0xFFF2F3F5),
+                reactionBg = Color(0xFFE5E8EE),
+                reactionMineBg = Color(0xFFDCE8FF),
+                line = Color(0xFFEBEDF0),
                 text = Color(0xFF1F2329),
+                subText = Color(0xFF646A73),
                 muted = Color(0xFF8F959E),
                 unreadRed = Color(0xFFF54A45),
+                onlineGreen = Color(0xFF00B42A),
             )
         }
     }
@@ -164,10 +192,109 @@ internal fun rememberFeishuColors(): FeishuThemePalette {
 internal val FEISHU_WORK_QUICK_PHRASES: List<String> = listOf(
     "收到，已阅",
     "同意，按这个推进",
-    "写得好，感谢分享",
     "辛苦了，点赞",
-    "+1，支持",
+    "已对齐",
+    "+1",
 )
+
+/**
+ * Official Feishu paper-bird vector mark (`FS_MARK` viewBox `0 0 32 32`).
+ */
+@Composable
+internal fun FeishuBrandMark(
+    size: Dp = 24.dp,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier.size(size)) {
+        val w = this.size.width
+        val h = this.size.height
+        val sx = w / 32f
+        val sy = h / 32f
+        drawRoundRect(
+            color = Color(0xFF3370FF),
+            topLeft = Offset.Zero,
+            size = Size(w, h),
+            cornerRadius = CornerRadius(8f * sx, 8f * sy),
+        )
+        val wingPath = Path().apply {
+            moveTo(7f * sx, 15.5f * sy)
+            lineTo(24.5f * sx, 8f * sy)
+            lineTo(20.3f * sx, 24.3f * sy)
+            lineTo(14.9f * sx, 19.9f * sy)
+            lineTo(11.5f * sx, 23.0f * sy)
+            lineTo(11.8f * sx, 18.0f * sy)
+            close()
+        }
+        drawPath(path = wingPath, color = Color.White)
+        val foldPath = Path().apply {
+            moveTo(11.8f * sx, 18.0f * sy)
+            lineTo(20.5f * sx, 10.7f * sy)
+            lineTo(14.5f * sx, 19.1f * sy)
+            close()
+        }
+        drawPath(path = foldPath, color = Color(0xFFC2D4FF))
+    }
+}
+
+/**
+ * Authentic Feishu 7.x Android 2×2 composite group avatar: a soft-tinted rounded square
+ * containing 4 deterministic colleague surname tiles.
+ */
+@Composable
+internal fun FeishuGroupMosaicAvatar(
+    seedKey: String,
+    fc: FeishuThemePalette,
+    size: Dp = 46.dp,
+    modifier: Modifier = Modifier,
+) {
+    val members = remember(seedKey) {
+        val baseHash = abs(seedKey.hashCode()).toLong()
+        (0..3).map { idx ->
+            val name = FeishuDisguiseHelpers.imFake(baseHash + idx * 131L + 7L)
+            val surname = name.take(1).ifBlank { "同" }
+            surname to FeishuDisguiseHelpers.imColor("$seedKey#$idx#$name")
+        }
+    }
+    val outerRadius = size * 0.22f
+    val pad = size * 0.07f
+    val gap = size * 0.045f
+    val cellSize = (size - pad * 2 - gap) / 2f
+    val cellRadius = cellSize * 0.24f
+    val fontSp = (cellSize.value * 0.54f).coerceIn(8f, 12f).sp
+
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(RoundedCornerShape(outerRadius))
+            .background(fc.reactionBg)
+            .padding(pad),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(gap)) {
+            for (row in 0..1) {
+                Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                    for (col in 0..1) {
+                        val (ch, bg) = members[row * 2 + col]
+                        Box(
+                            modifier = Modifier
+                                .size(cellSize)
+                                .clip(RoundedCornerShape(cellRadius))
+                                .background(bg),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = ch,
+                                color = Color.White,
+                                fontSize = fontSp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 internal fun applyLauncherIconAlias(context: Context, selected: AppIconAlias) {
     val pm = context.packageManager
@@ -202,14 +329,32 @@ internal fun feishuSafeAuthor(seedId: Long, rawAuthor: String?, aliasEnabled: Bo
     return DisguiseSanitizer.mapColleagueName(seedId, cleanRaw, aliasEnabled)
 }
 
-internal fun feishuMemePrimaryText(meme: MemeItem): String {
-    val raw = listOfNotNull(meme.title, meme.caption, meme.text, meme.content, meme.body)
-        .firstOrNull { it.isNotBlank() }
-        .orEmpty()
-        .trim()
-    if (raw.isBlank()) return DisguiseSanitizer.workPlaceholder(meme.id)
+/**
+ * Returns sanitized message text ONLY when the meme actually carries a human caption/body.
+ * Media-only memes return `null` so Feishu IM renders a clean standalone image thumbnail
+ * instead of repeating fake placeholder sentences on every photo.
+ */
+internal fun feishuMemeOptionalText(meme: MemeItem): String? {
+    val candidates = listOfNotNull(meme.content, meme.text, meme.caption, meme.body, meme.title)
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+    val raw = candidates.firstOrNull() ?: return if (meme.mediaItems.isEmpty()) DisguiseSanitizer.workPlaceholder(meme.id) else null
+    if (meme.mediaItems.isNotEmpty() && (
+            raw.startsWith("工作同步截图") ||
+                raw.startsWith("佬友素材分享") ||
+                raw == "分享一张图" ||
+                raw == "无题"
+            )
+    ) {
+        return null
+    }
     val cleaned = DisguiseSanitizer.sanitizeSummaryForDisguise(raw, AppDisguiseMode.FEISHU).trim()
-    return cleaned.ifBlank { DisguiseSanitizer.workPlaceholder(meme.id) }
+    return cleaned.takeIf { it.isNotBlank() }
+        ?: if (meme.mediaItems.isEmpty()) DisguiseSanitizer.workPlaceholder(meme.id) else null
+}
+
+internal fun feishuMemePrimaryText(meme: MemeItem): String {
+    return feishuMemeOptionalText(meme) ?: "[图片]"
 }
 
 /**
@@ -329,7 +474,8 @@ internal suspend fun disguiseUploadAndPublish(
 
 /**
  * Shared neutral media renderer for Feishu & LINUX DO. Handles privacy blur, click-to-reveal,
- * auto-muted disguised video playback, and fullscreen `ImmersiveMediaStage`.
+ * auto-muted disguised video playback, Feishu compact IM thumbnails / 9-grid (`compactImMode`),
+ * Discourse Lightbox footer (`discourseLightbox`), and fullscreen `ImmersiveMediaStage`.
  */
 @Composable
 internal fun DisguiseMediaStrip(
@@ -341,6 +487,8 @@ internal fun DisguiseMediaStrip(
     onRevealItem: () -> Unit,
     onOpenViewer: (List<MemeMediaItem>, Int) -> Unit,
     onMediaLoaded: () -> Unit = {},
+    compactImMode: Boolean = false,
+    discourseLightbox: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val items = remember(meme.id, meme.images, meme.image, meme.thumb, meme.media) { meme.mediaItems }
@@ -351,18 +499,38 @@ internal fun DisguiseMediaStrip(
         val single = items.first()
         val thumbUrl = remember(single) { MediaUrlRewriter.rewriteMediaUrl(single.resolvedThumbOrUrl) }
         val videoUrl = remember(single) { single.v?.takeIf { it.isNotBlank() }?.let { MediaUrlRewriter.rewriteMediaUrl(it) } }
-        val aspect = remember(single) {
-            val w = single.w ?: 0
-            val h = single.h ?: 0
-            if (w > 0 && h > 0) (w.toFloat() / h.toFloat()).coerceIn(0.65f, 1.85f) else 1.35f
+        val w = single.w ?: 0
+        val h = single.h ?: 0
+        val aspect = remember(w, h, compactImMode) {
+            if (w > 0 && h > 0) {
+                (w.toFloat() / h.toFloat()).coerceIn(if (compactImMode) 0.62f else 0.65f, 1.80f)
+            } else {
+                if (compactImMode) 1.15f else 1.35f
+            }
+        }
+        val corner = when {
+            compactImMode -> 10.dp
+            discourseLightbox -> 6.dp
+            else -> 8.dp
+        }
+        val sizeMod = if (compactImMode) {
+            val preferredWidth = if (aspect < 0.85f) 168.dp else 216.dp
+            Modifier
+                .width(preferredWidth)
+                .aspectRatio(aspect)
+                .heightIn(max = 236.dp)
+        } else {
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(aspect)
+                .heightIn(max = 268.dp)
         }
         Box(
             modifier = modifier
-                .fillMaxWidth()
-                .aspectRatio(aspect)
-                .heightIn(max = 260.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color(0xFF1F2329).copy(alpha = 0.08f)),
+                .then(sizeMod)
+                .clip(RoundedCornerShape(corner))
+                .border(0.5.dp, Color.Black.copy(alpha = 0.08f), RoundedCornerShape(corner))
+                .background(Color(0xFF1F2329).copy(alpha = 0.06f)),
             contentAlignment = Alignment.Center,
         ) {
             if (single.isVideo && !videoUrl.isNullOrBlank()) {
@@ -378,12 +546,12 @@ internal fun DisguiseMediaStrip(
                 )
                 if (isBlurred) {
                     Surface(
-                        color = Color.Black.copy(alpha = 0.56f),
+                        color = Color.Black.copy(alpha = 0.58f),
                         shape = RoundedCornerShape(999.dp),
                         modifier = Modifier.clickable { onRevealItem() },
                     ) {
                         Text(
-                            text = "已保护 · 点击查看",
+                            text = if (compactImMode) "附件已隐藏 · 轻触查看" else "已保护 · 点击查看",
                             color = Color.White,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
@@ -407,32 +575,144 @@ internal fun DisguiseMediaStrip(
                 )
                 if (isBlurred) {
                     Surface(
-                        color = Color.Black.copy(alpha = 0.56f),
+                        color = Color.Black.copy(alpha = 0.58f),
                         shape = RoundedCornerShape(999.dp),
                         modifier = Modifier.clickable { onRevealItem() },
                     ) {
-                        Text(
-                            text = "已保护 · 点击查看",
-                            color = Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
+                        Row(
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        )
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Icon(Icons.Rounded.Lock, contentDescription = null, tint = Color.White, modifier = Modifier.size(11.dp))
+                            Text(
+                                text = if (compactImMode) "轻触查看图片" else "已保护 · 点击查看",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
                     }
-                } else if (single.isGif || single.isLive) {
-                    Surface(
-                        color = Color.Black.copy(alpha = 0.52f),
-                        shape = RoundedCornerShape(4.dp),
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(6.dp),
-                    ) {
-                        Text(
-                            text = if (single.isLive) "动态" else "GIF",
-                            color = Color.White,
-                            fontSize = 10.sp,
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
-                        )
+                } else {
+                    if (single.isGif || single.isLive) {
+                        Surface(
+                            color = Color.Black.copy(alpha = 0.52f),
+                            shape = RoundedCornerShape(4.dp),
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(6.dp),
+                        ) {
+                            Text(
+                                text = if (single.isLive) "LIVE" else "GIF",
+                                color = Color.White,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                            )
+                        }
+                    }
+                    if (discourseLightbox) {
+                        val dimLabel = if (w > 0 && h > 0) "${w}×${h}" else "原图预览"
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .background(Color.Black.copy(alpha = 0.62f))
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            ) {
+                                Icon(Icons.Rounded.Image, contentDescription = null, tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(12.dp))
+                                Text(
+                                    text = dimLabel,
+                                    color = Color.White.copy(alpha = 0.90f),
+                                    fontSize = 10.sp,
+                                )
+                            }
+                            Icon(
+                                imageVector = Icons.Rounded.OpenInFull,
+                                contentDescription = "展开大图",
+                                tint = Color.White.copy(alpha = 0.90f),
+                                modifier = Modifier.size(12.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    } else if (compactImMode) {
+        // Authentic Feishu 2-col / 3-col tight photo grid (up to 9 cells, max width 216dp)
+        val shown = remember(items) { items.take(9) }
+        val cols = if (shown.size == 2 || shown.size == 4) 2 else 3
+        val gridWidth = if (cols == 2) 196.dp else 216.dp
+        val extraCount = (items.size - 9).coerceAtLeast(0)
+        Column(
+            modifier = modifier
+                .width(gridWidth)
+                .clip(RoundedCornerShape(10.dp))
+                .border(0.5.dp, Color.Black.copy(alpha = 0.08f), RoundedCornerShape(10.dp)),
+            verticalArrangement = Arrangement.spacedBy(2.5.dp),
+        ) {
+            shown.chunked(cols).forEachIndexed { rIdx, rowList ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(2.5.dp),
+                ) {
+                    rowList.forEachIndexed { cIdx, item ->
+                        val flatIdx = rIdx * cols + cIdx
+                        val url = remember(item) { MediaUrlRewriter.rewriteMediaUrl(item.resolvedThumbOrUrl) }
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .aspectRatio(1f)
+                                .background(Color(0xFF1F2329).copy(alpha = 0.07f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            AsyncImage(
+                                model = url,
+                                imageLoader = api.imageLoader,
+                                contentDescription = "附件图片 ${flatIdx + 1}",
+                                contentScale = ContentScale.Crop,
+                                onSuccess = { if (flatIdx == 0) onMediaLoaded() },
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .then(if (isBlurred) Modifier.blur(18.dp) else Modifier)
+                                    .clickable {
+                                        if (isBlurred) onRevealItem() else onOpenViewer(items, flatIdx)
+                                    },
+                            )
+                            if (isBlurred && flatIdx == 0) {
+                                Text(
+                                    text = "${items.size}张 · 查看",
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    modifier = Modifier
+                                        .background(Color.Black.copy(alpha = 0.56f), RoundedCornerShape(999.dp))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                                )
+                            } else if (!isBlurred && flatIdx == shown.lastIndex && extraCount > 0) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color.Black.copy(alpha = 0.48f)),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        text = "+$extraCount",
+                                        color = Color.White,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    repeat(cols - rowList.size) {
+                        Spacer(modifier = Modifier.weight(1f).aspectRatio(1f))
                     }
                 }
             }
@@ -440,14 +720,16 @@ internal fun DisguiseMediaStrip(
     } else {
         LazyRow(
             modifier = modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             itemsIndexed(items, key = { idx, item -> "${meme.id}:$idx:${item.u ?: item.t}" }) { idx, item ->
                 val url = remember(item) { MediaUrlRewriter.rewriteMediaUrl(item.resolvedThumbOrUrl) }
+                val cellCorner = if (discourseLightbox) 6.dp else 8.dp
                 Box(
                     modifier = Modifier
-                        .size(width = 128.dp, height = 112.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .size(width = 136.dp, height = 118.dp)
+                        .clip(RoundedCornerShape(cellCorner))
+                        .border(0.5.dp, Color.Black.copy(alpha = 0.08f), RoundedCornerShape(cellCorner))
                         .background(Color(0xFF1F2329).copy(alpha = 0.08f)),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -475,13 +757,17 @@ internal fun DisguiseMediaStrip(
                         )
                     } else if (idx == 0) {
                         Text(
-                            text = "${items.size}张",
+                            text = "${items.size}P",
                             color = Color.White,
                             fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
                                 .padding(4.dp)
-                                .background(accentColor.copy(alpha = 0.85f), RoundedCornerShape(4.dp))
+                                .background(
+                                    if (discourseLightbox) Color.Black.copy(alpha = 0.65f) else accentColor.copy(alpha = 0.85f),
+                                    RoundedCornerShape(4.dp),
+                                )
                                 .padding(horizontal = 5.dp, vertical = 1.dp),
                         )
                     }
@@ -762,33 +1048,37 @@ internal fun FeishuWorkGroupInputBar(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                IconButton(
-                    onClick = onPickPhotos,
-                    modifier = Modifier.size(36.dp),
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .border(1.4.dp, fc.subText.copy(alpha = 0.78f), CircleShape)
+                        .clickable { onToggleEmojiDrawer() },
+                    contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.Image,
-                        contentDescription = "选择图片",
-                        tint = fc.muted,
-                        modifier = Modifier.size(22.dp),
+                        imageVector = Icons.Rounded.GraphicEq,
+                        contentDescription = "快捷语音短语",
+                        tint = fc.subText,
+                        modifier = Modifier.size(16.dp),
                     )
                 }
 
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(18.dp))
+                        .clip(RoundedCornerShape(8.dp))
                         .background(fc.surfaceMuted)
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        .padding(horizontal = 11.dp, vertical = 8.dp),
                     contentAlignment = Alignment.CenterStart,
                 ) {
                     if (text.isEmpty()) {
                         Text(
-                            text = if (quotedMeme != null) "输入回复内容…" else "发送消息给 $groupTitle",
+                            text = if (quotedMeme != null) "输入回复内容…" else "发送给 $groupTitle",
                             color = fc.muted,
                             fontSize = 14.sp,
                             maxLines = 1,
@@ -807,31 +1097,48 @@ internal fun FeishuWorkGroupInputBar(
 
                 IconButton(
                     onClick = onToggleEmojiDrawer,
-                    modifier = Modifier.size(36.dp),
+                    modifier = Modifier.size(30.dp),
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.EmojiEmotions,
-                        contentDescription = "常用表情与短语",
-                        tint = if (showEmojiDrawer) fc.blue else fc.muted,
+                        contentDescription = "表情",
+                        tint = if (showEmojiDrawer) fc.blue else fc.subText,
                         modifier = Modifier.size(22.dp),
                     )
                 }
 
                 val canSend = !sending && (text.isNotBlank() || stagedItems.isNotEmpty())
-                Surface(
-                    color = if (canSend) fc.blue else fc.surfaceMuted,
-                    shape = CircleShape,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .clickable(enabled = canSend) { onSend() },
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
+                if (canSend) {
+                    Surface(
+                        color = fc.blue,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .height(32.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onSend() },
+                    ) {
+                        Box(
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.Send,
+                                contentDescription = "发送",
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                    }
+                } else {
+                    IconButton(
+                        onClick = onPickPhotos,
+                        modifier = Modifier.size(30.dp),
+                    ) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.Send,
-                            contentDescription = "发送",
-                            tint = if (canSend) Color.White else fc.muted,
-                            modifier = Modifier.size(18.dp),
+                            imageVector = Icons.Rounded.AddCircleOutline,
+                            contentDescription = "发送图片或附件",
+                            tint = fc.subText,
+                            modifier = Modifier.size(23.dp),
                         )
                     }
                 }

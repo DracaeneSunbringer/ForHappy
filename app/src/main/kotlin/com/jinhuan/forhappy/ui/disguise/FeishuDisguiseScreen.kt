@@ -8,8 +8,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.horizontalDrag
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,26 +33,31 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AddCircleOutline
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.BookmarkBorder
 import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Contacts
+import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Group
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.PeopleOutline
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
@@ -79,16 +89,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.jinhuan.forhappy.core.chat.ChatSessionController
@@ -209,6 +226,21 @@ internal object FeishuDisguiseHelpers {
         val epochDay = parsed.toEpochDay()
         val grpIdx = Math.floorMod(epochDay, IM_GROUPS.size)
         return "${IM_GROUPS[grpIdx]} · ${parsed.monthValue}月${parsed.dayOfMonth}日"
+    }
+
+    private val GROUP_SUFFIXES = listOf("同步群", "推进群", "沟通群", "专项群", "协同群", "对齐群")
+
+    fun imConversationGroupTitle(day: String): String {
+        val parsed = runCatching { LocalDate.parse(day) }.getOrNull() ?: return day
+        val epochDay = parsed.toEpochDay()
+        val grpIdx = Math.floorMod(epochDay, IM_GROUPS.size)
+        val base = IM_GROUPS[grpIdx]
+        val suffix = GROUP_SUFFIXES[Math.floorMod(epochDay * 7L + 3L, GROUP_SUFFIXES.size)]
+        return if (base.endsWith("会") || base.endsWith("群")) "${base}沟通群" else "$base$suffix"
+    }
+
+    fun imGroupMemberCount(seedText: String): Int {
+        return 18 + Math.floorMod(seedText.hashCode(), 46)
     }
 
     fun daySeparatorLabel(day: String): String {
@@ -840,12 +872,23 @@ private fun FeishuMessagesHomeTab(
             list.add(
                 FeishuConvTarget.DayWorkGroup(
                     dayEntry = entry,
-                    title = FeishuDisguiseHelpers.imGroupName(entry.day),
+                    title = FeishuDisguiseHelpers.imConversationGroupTitle(entry.day),
                     sortTs = entry.latest?.at ?: 0L,
                 ),
             )
         }
         list.sortedByDescending { it.sortTs }
+    }
+
+    val totalUnreadBadge = remember(mergedConvs) {
+        mergedConvs.sumOf { conv ->
+            when (conv) {
+                is FeishuConvTarget.RealGroup -> conv.group.unread
+                is FeishuConvTarget.RealDm -> conv.dm.unread
+                is FeishuConvTarget.DayWorkGroup -> conv.dayEntry.unseen
+                is FeishuConvTarget.TagTopic -> 0
+            }
+        }
     }
 
     val filteredConvs = remember(mergedConvs, msgFilter, searchQuery) {
@@ -876,52 +919,80 @@ private fun FeishuMessagesHomeTab(
     }
 
     Column(modifier = modifier.fillMaxWidth()) {
-        // Feishu Top Bar
+        // Authentic Feishu 7.x Android Top Header + Permanent Search Capsule + Filter Pills
         Surface(color = fc.card, modifier = Modifier.fillMaxWidth()) {
             Column {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp)
-                        .padding(horizontal = 12.dp),
+                        .height(48.dp)
+                        .padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(30.dp)
-                            .clip(CircleShape)
-                            .background(fc.blue)
+                            .size(32.dp)
                             .clickable(onClick = onOpenMeTab),
-                        contentAlignment = Alignment.Center,
                     ) {
-                        Text(
-                            text = FeishuDisguiseHelpers.avatarChars(selfLabel),
-                            color = Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(CircleShape)
+                                .background(fc.blue),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = FeishuDisguiseHelpers.avatarChars(selfLabel).take(1),
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .size(9.5.dp)
+                                .clip(CircleShape)
+                                .background(fc.onlineGreen)
+                                .border(1.5.dp, fc.card, CircleShape),
                         )
                     }
                     Text(
                         text = "消息",
                         color = fc.text,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f),
                     )
-                    IconButton(onClick = onToggleSearch, modifier = Modifier.size(34.dp)) {
-                        Icon(Icons.Rounded.Search, contentDescription = "搜索", tint = fc.text)
+                    IconButton(
+                        onClick = {
+                            onSelectFilter(if (msgFilter == "unread") "all" else "unread")
+                        },
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.FilterList,
+                            contentDescription = "筛选未读",
+                            tint = if (msgFilter == "unread") fc.blue else fc.text,
+                            modifier = Modifier.size(20.dp),
+                        )
                     }
                     Box {
-                        IconButton(onClick = { onTogglePlusMenu(true) }, modifier = Modifier.size(34.dp)) {
-                            Icon(Icons.Rounded.Add, contentDescription = "发起沟通", tint = fc.text)
+                        IconButton(onClick = { onTogglePlusMenu(true) }, modifier = Modifier.size(32.dp)) {
+                            Icon(
+                                imageVector = Icons.Rounded.AddCircleOutline,
+                                contentDescription = "发起沟通",
+                                tint = fc.text,
+                                modifier = Modifier.size(21.dp),
+                            )
                         }
                         DropdownMenu(
                             expanded = showPlusMenu,
                             onDismissRequest = { onTogglePlusMenu(false) },
                         ) {
                             DropdownMenuItem(
-                                text = { Text("发起单聊（选择同事）") },
+                                text = { Text("发起群聊 / 单聊") },
                                 onClick = onJumpContacts,
                             )
                             DropdownMenuItem(
@@ -932,68 +1003,99 @@ private fun FeishuMessagesHomeTab(
                     }
                 }
 
-                if (showSearch) {
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = onSearchQueryChange,
-                        placeholder = { Text("搜索联系人、群聊或话题", fontSize = 13.sp, color = fc.muted) },
-                        singleLine = true,
-                        leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = fc.muted) },
-                        trailingIcon = {
-                            if (searchQuery.isNotEmpty()) {
-                                IconButton(onClick = { onSearchQueryChange("") }) {
-                                    Icon(Icons.Rounded.Close, contentDescription = "清除", tint = fc.muted)
-                                }
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                // Permanent Feishu Rounded Grey Search Capsule
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 4.dp)
+                        .height(36.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(fc.surfaceMuted)
+                        .padding(horizontal = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Search,
+                        contentDescription = null,
+                        tint = fc.muted,
+                        modifier = Modifier.size(17.dp),
                     )
+                    Box(
+                        modifier = Modifier.weight(1f),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        if (searchQuery.isEmpty()) {
+                            Text(
+                                text = "搜索联系人、群组、消息记录",
+                                color = fc.muted,
+                                fontSize = 13.5.sp,
+                                maxLines = 1,
+                            )
+                        }
+                        BasicTextField(
+                            value = searchQuery,
+                            onValueChange = onSearchQueryChange,
+                            singleLine = true,
+                            textStyle = TextStyle(color = fc.text, fontSize = 13.5.sp),
+                            cursorBrush = SolidColor(fc.blue),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    if (searchQuery.isNotEmpty()) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = "清除",
+                            tint = fc.muted,
+                            modifier = Modifier
+                                .size(16.dp)
+                                .clickable { onSearchQueryChange("") },
+                        )
+                    }
                 }
 
-                // Underline Sub-tabs
+                // Compact Feishu Filter Pills (`全部 / 未读 / @我 / 单聊 / 群组 / 话题`)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(18.dp),
+                        .padding(horizontal = 14.dp, vertical = 7.dp),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    val unreadTabLabel = if (totalUnreadBadge > 0) {
+                        "未读 ${if (totalUnreadBadge > 99) "99+" else "$totalUnreadBadge"}"
+                    } else {
+                        "未读"
+                    }
                     val tabs = listOf(
                         "all" to "全部",
-                        "unread" to "未读",
+                        "unread" to unreadTabLabel,
+                        "at" to "@我",
                         "dm" to "单聊",
                         "group" to "群组",
-                        "at" to "@我",
                         "topics" to "话题",
                     )
                     tabs.forEach { (id, label) ->
                         val active = msgFilter == id
-                        Column(
+                        Surface(
+                            color = if (active) fc.reactionMineBg else Color.Transparent,
+                            shape = RoundedCornerShape(6.dp),
                             modifier = Modifier
-                                .clickable { onSelectFilter(id) }
-                                .padding(top = 8.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable { onSelectFilter(id) },
                         ) {
                             Text(
                                 text = label,
-                                color = if (active) fc.blue else fc.muted,
-                                fontSize = 14.sp,
-                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-                            )
-                            Spacer(Modifier.height(6.dp))
-                            Box(
-                                modifier = Modifier
-                                    .width(24.dp)
-                                    .height(2.5.dp)
-                                    .clip(RoundedCornerShape(2.dp))
-                                    .background(if (active) fc.blue else Color.Transparent),
+                                color = if (active) fc.blue else fc.subText,
+                                fontSize = 12.5.sp,
+                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                             )
                         }
                     }
                 }
-                HorizontalDivider(color = fc.line)
+                HorizontalDivider(color = fc.line, thickness = 0.5.dp)
             }
         }
 
@@ -1020,20 +1122,20 @@ private fun FeishuMessagesHomeTab(
                                 val safeLabel = DisguiseSanitizer.sanitizeSummaryForDisguise(tagItem.tag, AppDisguiseMode.FEISHU)
                                 Surface(
                                     color = fc.card,
-                                    shape = RoundedCornerShape(10.dp),
+                                    shape = RoundedCornerShape(8.dp),
                                     border = BorderStroke(0.5.dp, fc.line),
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(10.dp))
+                                        .clip(RoundedCornerShape(8.dp))
                                         .clickable {
                                             onSelectTarget(FeishuConvTarget.TagTopic(tagItem.tag, tagItem.totalCount))
                                         },
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                                        modifier = Modifier.padding(horizontal = 11.dp, vertical = 8.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                                     ) {
-                                        Icon(Icons.Rounded.Tag, contentDescription = null, tint = fc.blue, modifier = Modifier.size(15.dp))
+                                        Icon(Icons.Rounded.Tag, contentDescription = null, tint = fc.blue, modifier = Modifier.size(14.dp))
                                         Text(safeLabel, color = fc.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                                         Text("${tagItem.totalCount}", color = fc.muted, fontSize = 11.sp)
                                     }
@@ -1089,7 +1191,11 @@ private fun FeishuMessagesHomeTab(
                         aliasEnabled = aliasEnabled,
                         onClick = { onSelectTarget(conv) },
                     )
-                    HorizontalDivider(color = fc.line, modifier = Modifier.padding(start = 74.dp))
+                    HorizontalDivider(
+                        color = fc.line,
+                        thickness = 0.5.dp,
+                        modifier = Modifier.padding(start = 72.dp),
+                    )
                 }
             }
         }
@@ -1107,7 +1213,7 @@ private fun FeishuConversationRow(
         is FeishuConvTarget.RealGroup -> {
             val g = conv.group
             val latestBy = g.latest?.by?.takeIf { it.isNotBlank() }?.let { raw ->
-                "${feishuSafeAuthor(g.id, raw, aliasEnabled)}: "
+                "${feishuSafeAuthor(g.id, raw, aliasEnabled)}："
             }.orEmpty()
             val rawBody = g.latest?.text?.takeIf { it.isNotBlank() } ?: g.desc.orEmpty().ifBlank { "群消息同步" }
             val safeBody = DisguiseSanitizer.sanitizeSummaryForDisguise(rawBody, AppDisguiseMode.FEISHU)
@@ -1117,7 +1223,7 @@ private fun FeishuConversationRow(
                 timeText = FeishuDisguiseHelpers.formatConvTime(conv.sortTs),
                 unread = g.unread,
                 atMe = g.atMe,
-                tagLabel = "群",
+                tagLabel = "部门",
             )
         }
         is FeishuConvTarget.RealDm -> {
@@ -1136,16 +1242,24 @@ private fun FeishuConversationRow(
         is FeishuConvTarget.DayWorkGroup -> {
             val d = conv.dayEntry
             val latestAuthor = d.latest?.by?.let { feishuSafeAuthor(d.latest.id, it, aliasEnabled) }
-            val rawText = d.latest?.text?.takeIf { it.isNotBlank() } ?: "共 ${d.totalCount} 条项目记录"
-            val safeBody = DisguiseSanitizer.sanitizeSummaryForDisguise(rawText, AppDisguiseMode.FEISHU)
-            val prefix = if (!latestAuthor.isNullOrBlank()) "$latestAuthor: " else ""
+            val rawText = d.latest?.text?.takeIf { it.isNotBlank() }
+            val safeBody = if (rawText != null) {
+                val cleaned = DisguiseSanitizer.sanitizeSummaryForDisguise(rawText, AppDisguiseMode.FEISHU).trim()
+                cleaned.ifBlank { "[图片]" }
+            } else {
+                "[图片]"
+            }
+            val prefix = if (!latestAuthor.isNullOrBlank()) "$latestAuthor：" else ""
+            val fallbackTs = conv.sortTs.takeIf { it > 0L } ?: runCatching {
+                LocalDate.parse(d.day).atTime(18, 0).toEpochSecond(java.time.ZoneOffset.ofHours(8))
+            }.getOrDefault(0L)
             ConvDisplay(
                 title = conv.title,
                 preview = "$prefix$safeBody",
-                timeText = FeishuDisguiseHelpers.formatConvTime(conv.sortTs),
+                timeText = FeishuDisguiseHelpers.formatConvTime(fallbackTs),
                 unread = d.unseen,
                 atMe = 0,
-                tagLabel = "部门群",
+                tagLabel = null,
             )
         }
         is FeishuConvTarget.TagTopic -> {
@@ -1166,37 +1280,80 @@ private fun FeishuConversationRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 11.dp),
+            .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Box(contentAlignment = Alignment.TopEnd) {
-            Box(
-                modifier = Modifier
-                    .size(46.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(avatarBg),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = FeishuDisguiseHelpers.avatarChars(title),
-                    color = Color.White,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
+        Box(modifier = Modifier.size(46.dp)) {
+            when (conv) {
+                is FeishuConvTarget.RealDm -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(CircleShape)
+                            .background(avatarBg),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = FeishuDisguiseHelpers.avatarChars(title).take(1),
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(fc.onlineGreen)
+                            .border(1.5.dp, fc.card, CircleShape),
+                    )
+                }
+
+                is FeishuConvTarget.RealGroup -> {
+                    FeishuGroupMosaicAvatar(
+                        seedKey = "rg_${conv.group.id}_$title",
+                        fc = fc,
+                        size = 46.dp,
+                    )
+                }
+
+                is FeishuConvTarget.DayWorkGroup -> {
+                    FeishuGroupMosaicAvatar(
+                        seedKey = "dg_${conv.dayEntry.day}_$title",
+                        fc = fc,
+                        size = 46.dp,
+                    )
+                }
+
+                is FeishuConvTarget.TagTopic -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(fc.reactionMineBg),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Rounded.Tag, contentDescription = null, tint = fc.blue, modifier = Modifier.size(20.dp))
+                    }
+                }
             }
+
             if (unreadCount > 0) {
                 Box(
                     modifier = Modifier
+                        .align(Alignment.TopEnd)
                         .offset(x = 5.dp, y = (-4).dp)
                         .clip(RoundedCornerShape(999.dp))
                         .background(fc.unreadRed)
+                        .border(1.5.dp, fc.card, RoundedCornerShape(999.dp))
                         .padding(horizontal = 5.dp, vertical = 1.dp),
                 ) {
                     Text(
                         text = if (unreadCount > 99) "99+" else "$unreadCount",
                         color = Color.White,
-                        fontSize = 9.sp,
+                        fontSize = 9.5.sp,
                         fontWeight = FontWeight.Bold,
                     )
                 }
@@ -1205,7 +1362,7 @@ private fun FeishuConversationRow(
 
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1215,24 +1372,28 @@ private fun FeishuConversationRow(
                 Row(
                     modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
                     Text(
                         text = title,
                         color = fc.text,
-                        fontSize = 15.sp,
+                        fontSize = 15.5.sp,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
                     )
                     if (!badgeLabel.isNullOrBlank()) {
-                        Surface(color = fc.surfaceMuted, shape = RoundedCornerShape(4.dp)) {
+                        Surface(
+                            color = fc.reactionMineBg,
+                            shape = RoundedCornerShape(3.dp),
+                        ) {
                             Text(
                                 text = badgeLabel,
-                                color = fc.muted,
-                                fontSize = 10.sp,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                color = fc.blue,
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 0.5.dp),
                             )
                         }
                     }
@@ -1248,7 +1409,7 @@ private fun FeishuConversationRow(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 if (atMeCount > 0) {
-                    Text("[有人@我]", color = fc.unreadRed, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                    Text("[有人@我]", color = fc.unreadRed, fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
                 }
                 Text(
                     text = preview,
@@ -1317,23 +1478,47 @@ private fun FeishuContactsTab(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp)
+                        .height(48.dp)
                         .padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("通讯录", color = fc.text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    Text("通讯录", color = fc.text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 }
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    placeholder = { Text("搜索组织内联系人发起单聊", fontSize = 13.sp, color = fc.muted) },
-                    singleLine = true,
-                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = fc.muted) },
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                )
-                HorizontalDivider(color = fc.line)
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                        .height(36.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(fc.surfaceMuted)
+                        .padding(horizontal = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    Icon(Icons.Rounded.Search, contentDescription = null, tint = fc.muted, modifier = Modifier.size(17.dp))
+                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                        if (query.isEmpty()) {
+                            Text("搜索组织内联系人发起单聊", color = fc.muted, fontSize = 13.5.sp)
+                        }
+                        BasicTextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            singleLine = true,
+                            textStyle = TextStyle(color = fc.text, fontSize = 13.5.sp),
+                            cursorBrush = SolidColor(fc.blue),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    if (query.isNotEmpty()) {
+                        Icon(
+                            Icons.Rounded.Close,
+                            contentDescription = "清除",
+                            tint = fc.muted,
+                            modifier = Modifier.size(16.dp).clickable { query = "" },
+                        )
+                    }
+                }
+                HorizontalDivider(color = fc.line, thickness = 0.5.dp)
             }
         }
 
@@ -1398,14 +1583,14 @@ private fun FeishuContactsTab(
                                 .background(color),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text(FeishuDisguiseHelpers.avatarChars(name), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text(FeishuDisguiseHelpers.avatarChars(name).take(1), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text(name, color = fc.text, fontSize = 15.sp, fontWeight = FontWeight.Medium)
                             Text("产品研发中心 · 点击发送消息", color = fc.muted, fontSize = 12.sp)
                         }
                     }
-                    HorizontalDivider(color = fc.line, modifier = Modifier.padding(start = 68.dp))
+                    HorizontalDivider(color = fc.line, thickness = 0.5.dp, modifier = Modifier.padding(start = 68.dp))
                 }
             } else {
                 item {
@@ -1437,20 +1622,20 @@ private fun FeishuContactsTab(
                                 .background(color),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text(FeishuDisguiseHelpers.avatarChars(name), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text(FeishuDisguiseHelpers.avatarChars(name).take(1), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text(name, color = fc.text, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                            Text("内部同事 · 点击打开单聊", color = fc.muted, fontSize = 12.sp)
+                            Text("产品研发中心 · 在线", color = fc.muted, fontSize = 12.sp)
                         }
                     }
-                    HorizontalDivider(color = fc.line, modifier = Modifier.padding(start = 68.dp))
+                    HorizontalDivider(color = fc.line, thickness = 0.5.dp, modifier = Modifier.padding(start = 68.dp))
                 }
 
                 item {
                     Surface(color = fc.bg, modifier = Modifier.fillMaxWidth()) {
                         Text(
-                            text = "部门工作群 (${groups.size})",
+                            text = "我的群组 (${groups.size})",
                             color = fc.muted,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
@@ -1460,7 +1645,6 @@ private fun FeishuContactsTab(
                 }
                 items(groups, key = { "grp_${it.id}" }) { g ->
                     val alias = DisguiseSanitizer.resolveFeishuGroupAlias(g.id, g.name, customAliases)
-                    val color = FeishuDisguiseHelpers.imColor(alias)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1469,21 +1653,17 @@ private fun FeishuContactsTab(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(color),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(Icons.Rounded.Group, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
-                        }
+                        FeishuGroupMosaicAvatar(
+                            seedKey = "rg_${g.id}_$alias",
+                            fc = fc,
+                            size = 40.dp,
+                        )
                         Column(modifier = Modifier.weight(1f)) {
                             Text(alias, color = fc.text, fontSize = 15.sp, fontWeight = FontWeight.Medium)
                             Text("${maxOf(1, g.memberCount)} 名群成员", color = fc.muted, fontSize = 12.sp)
                         }
                     }
-                    HorizontalDivider(color = fc.line, modifier = Modifier.padding(start = 68.dp))
+                    HorizontalDivider(color = fc.line, thickness = 0.5.dp, modifier = Modifier.padding(start = 68.dp))
                 }
             }
         }
@@ -1513,8 +1693,8 @@ private fun FeishuMeTab(
         modifier = modifier
             .fillMaxWidth()
             .background(fc.bg),
-        contentPadding = PaddingValues(vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
             Surface(
@@ -1523,32 +1703,75 @@ private fun FeishuMeTab(
                     .fillMaxWidth()
                     .clickable(enabled = me == null) { onRequireLogin() },
             ) {
-                Row(
-                    modifier = Modifier.padding(18.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                Column(
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(56.dp)
-                            .clip(CircleShape)
-                            .background(fc.blue),
-                        contentAlignment = Alignment.Center,
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
-                        Text(
-                            text = FeishuDisguiseHelpers.avatarChars(displayName),
-                            color = Color.White,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                        )
+                        Box(modifier = Modifier.size(58.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(CircleShape)
+                                    .background(fc.blue),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = FeishuDisguiseHelpers.avatarChars(displayName).take(1),
+                                    color = Color.White,
+                                    fontSize = 21.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                            if (me != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomEnd)
+                                        .size(14.dp)
+                                        .clip(CircleShape)
+                                        .background(fc.onlineGreen)
+                                        .border(2.dp, fc.card, CircleShape),
+                                )
+                            }
+                        }
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                            Text(displayName, color = fc.text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                FeishuBrandMark(size = 15.dp)
+                                Text(
+                                    text = if (me != null) "产品研发协同中心 · 企业认证" else "企业协同办公空间",
+                                    color = fc.subText,
+                                    fontSize = 12.5.sp,
+                                )
+                            }
+                        }
                     }
-                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(displayName, color = fc.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            text = if (me != null) "产品研发中心 · 在线工作区" else "企业协同办公空间",
-                            color = fc.muted,
-                            fontSize = 13.sp,
-                        )
+                    if (me != null) {
+                        Surface(
+                            color = fc.surfaceMuted,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .clip(CircleShape)
+                                        .background(fc.onlineGreen),
+                                )
+                                Text("在线 · 正常接收工作通知", color = fc.subText, fontSize = 12.sp)
+                            }
+                        }
                     }
                 }
             }
@@ -1752,43 +1975,166 @@ private fun FeishuWorkGroupDetailScreen(
         return
     }
 
+    val density = LocalDensity.current
+    val memberCount = remember(title, dayFilter) {
+        FeishuDisguiseHelpers.imGroupMemberCount("${dayFilter.orEmpty()}_$title")
+    }
+    var showGroupSearch by remember { mutableStateOf(false) }
+    var groupSearchQuery by remember { mutableStateOf("") }
+    var showGroupMenu by remember { mutableStateOf(false) }
+    var unseenOnlyFilter by remember { mutableStateOf(false) }
+
+    val displayedMessages = remember(messages, groupSearchQuery, unseenOnlyFilter, seenTracker) {
+        val q = groupSearchQuery.trim()
+        messages.filter { meme ->
+            if (unseenOnlyFilter && seenTracker?.isSeen(meme.id, meme.seenAt) == true) return@filter false
+            if (q.isBlank()) return@filter true
+            val body = feishuMemeOptionalText(meme).orEmpty()
+            val author = feishuSafeAuthor(meme.authorId ?: meme.id, meme.authorName ?: meme.authorUsername, privacyConfig.feishuMemberAliasEnabled)
+            body.contains(q, ignoreCase = true) ||
+                author.contains(q, ignoreCase = true) ||
+                meme.tags.any { it.contains(q, ignoreCase = true) }
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(fc.bg)
             .statusBarsPadding(),
     ) {
+        // Authentic Feishu 7.x Android Group Chat Top Bar
         Surface(color = fc.card, modifier = Modifier.fillMaxWidth()) {
             Column {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(50.dp)
-                        .padding(horizontal = 6.dp),
+                        .padding(horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = onBack, modifier = Modifier.size(38.dp)) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = fc.text)
                     }
-                    Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    ) {
                         Text(
-                            text = title,
+                            text = if (tagFilter == null) "$title ($memberCount)" else title,
                             color = fc.text,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
                         )
-                        Text(
-                            text = "${messages.size} 条部门同步消息",
-                            color = fc.muted,
-                            fontSize = 11.sp,
+                        Surface(
+                            color = fc.reactionMineBg,
+                            shape = RoundedCornerShape(3.dp),
+                        ) {
+                            Text(
+                                text = if (tagFilter == null) "部门" else "话题",
+                                color = fc.blue,
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 0.5.dp),
+                            )
+                        }
+                    }
+                    IconButton(
+                        onClick = {
+                            showGroupSearch = !showGroupSearch
+                            if (!showGroupSearch) groupSearchQuery = ""
+                        },
+                        modifier = Modifier.size(34.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Search,
+                            contentDescription = "搜索聊天记录",
+                            tint = if (showGroupSearch) fc.blue else fc.text,
+                            modifier = Modifier.size(20.dp),
                         )
                     }
+                    IconButton(
+                        onClick = { onNotify("内部工作群 · $memberCount 名同事在线") },
+                        modifier = Modifier.size(34.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.PeopleOutline,
+                            contentDescription = "群成员",
+                            tint = fc.text,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                    Box {
+                        IconButton(onClick = { showGroupMenu = true }, modifier = Modifier.size(34.dp)) {
+                            Icon(Icons.Rounded.MoreHoriz, contentDescription = "群选项", tint = fc.text, modifier = Modifier.size(20.dp))
+                        }
+                        DropdownMenu(
+                            expanded = showGroupMenu,
+                            onDismissRequest = { showGroupMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(if (unseenOnlyFilter) "显示全部消息" else "仅看未读消息") },
+                                onClick = {
+                                    showGroupMenu = false
+                                    unseenOnlyFilter = !unseenOnlyFilter
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("刷新同步记录") },
+                                onClick = {
+                                    showGroupMenu = false
+                                    reloadMessages()
+                                },
+                            )
+                        }
+                    }
                 }
-                HorizontalDivider(color = fc.line)
+                if (showGroupSearch) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .height(34.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(fc.surfaceMuted)
+                            .padding(horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(Icons.Rounded.Search, contentDescription = null, tint = fc.muted, modifier = Modifier.size(16.dp))
+                        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                            if (groupSearchQuery.isEmpty()) {
+                                Text("搜索本群聊天记录", color = fc.muted, fontSize = 13.sp)
+                            }
+                            BasicTextField(
+                                value = groupSearchQuery,
+                                onValueChange = { groupSearchQuery = it },
+                                singleLine = true,
+                                textStyle = TextStyle(color = fc.text, fontSize = 13.sp),
+                                cursorBrush = SolidColor(fc.blue),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                        if (groupSearchQuery.isNotEmpty()) {
+                            Icon(
+                                Icons.Rounded.Close,
+                                contentDescription = "清除",
+                                tint = fc.muted,
+                                modifier = Modifier.size(15.dp).clickable { groupSearchQuery = "" },
+                            )
+                        }
+                    }
+                }
+                HorizontalDivider(color = fc.line, thickness = 0.5.dp)
             }
         }
+
+        val rightEdgeGuardPx = with(density) { 32.dp.toPx() }
+        val quoteTriggerPx = with(density) { 44.dp.toPx() }
 
         LazyColumn(
             state = listState,
@@ -1799,25 +2145,27 @@ private fun FeishuWorkGroupDetailScreen(
                     val b = coords.boundsInWindow()
                     feedViewportRect = RectF(b.left, b.top, b.right, b.bottom)
                 },
-            contentPadding = PaddingValues(12.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (!dayFilter.isNullOrBlank()) {
                 item(key = "day_sep") {
-                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        Surface(color = fc.surfaceMuted, shape = RoundedCornerShape(999.dp)) {
-                            Text(
-                                text = FeishuDisguiseHelpers.daySeparatorLabel(dayFilter),
-                                color = fc.muted,
-                                fontSize = 11.sp,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
-                            )
-                        }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = FeishuDisguiseHelpers.daySeparatorLabel(dayFilter),
+                            color = fc.muted,
+                            fontSize = 11.5.sp,
+                        )
                     }
                 }
             }
 
-            if (loading && messages.isEmpty()) {
+            if (loading && displayedMessages.isEmpty()) {
                 item(key = "loading") {
                     Box(
                         modifier = Modifier
@@ -1828,7 +2176,7 @@ private fun FeishuWorkGroupDetailScreen(
                         CircularProgressIndicator(color = fc.blue, strokeWidth = 2.dp, modifier = Modifier.size(26.dp))
                     }
                 }
-            } else if (messages.isEmpty()) {
+            } else if (displayedMessages.isEmpty()) {
                 item(key = "empty") {
                     Box(
                         modifier = Modifier
@@ -1836,20 +2184,30 @@ private fun FeishuWorkGroupDetailScreen(
                             .padding(32.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text("暂无群消息，在下方发送第一条消息", color = fc.muted, fontSize = 13.sp)
+                        Text(
+                            text = if (unseenOnlyFilter) "本群未读消息已全部读完" else "暂无群消息，在下方发送第一条消息",
+                            color = fc.muted,
+                            fontSize = 13.sp,
+                        )
                     }
                 }
             }
 
-            items(messages, key = { it.id }) { meme ->
-                val authorName = feishuSafeAuthor(meme.authorId ?: meme.id, meme.authorName ?: meme.authorUsername, privacyConfig.feishuMemberAliasEnabled)
+            items(displayedMessages, key = { it.id }) { meme ->
+                val authorName = feishuSafeAuthor(
+                    meme.authorId ?: meme.id,
+                    meme.authorName ?: meme.authorUsername,
+                    privacyConfig.feishuMemberAliasEnabled,
+                )
                 val avatarColor = FeishuDisguiseHelpers.imColor(authorName)
                 val commentTotal = maxOf(meme.comments, meme.commentCount)
                 val boosts = meme.replyList.ifEmpty { meme.replies }
                 val hasMedia = remember(meme.id, meme.images, meme.image, meme.thumb, meme.media) { meme.mediaItems.isNotEmpty() }
+                val msgText = remember(meme) { feishuMemeOptionalText(meme) }
                 var mediaReady by remember(meme.id, hasMedia) { mutableStateOf(!hasMedia) }
                 var itemTopPx by remember(meme.id) { mutableFloatStateOf(0f) }
                 var itemBottomPx by remember(meme.id) { mutableFloatStateOf(0f) }
+                var dragX by remember(meme.id) { mutableFloatStateOf(0f) }
                 val visibleRatio = computeVisibleAreaRatio(itemTopPx, itemBottomPx, feedViewportRect.top, feedViewportRect.bottom)
                 val isItemBlurred = hasMedia && privacyConfig.blurAllEnabled && meme.id !in unblurredIds
 
@@ -1865,68 +2223,115 @@ private fun FeishuWorkGroupDetailScreen(
                     )
                 }
 
+                val bubbleShape = RoundedCornerShape(
+                    topStart = 2.dp,
+                    topEnd = 10.dp,
+                    bottomEnd = 10.dp,
+                    bottomStart = 10.dp,
+                )
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .offset { IntOffset(dragX.roundToInt(), 0) }
+                        .pointerInput(meme.id, rightEdgeGuardPx, quoteTriggerPx) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                if (down.position.x > size.width - rightEdgeGuardPx) {
+                                    return@awaitEachGesture
+                                }
+                                val slop = awaitHorizontalTouchSlopOrCancellation(down.id) { change, over ->
+                                    if (over < 0f) change.consume()
+                                }
+                                if (slop != null) {
+                                    dragX = 0f
+                                    horizontalDrag(slop.id) { change ->
+                                        val dx = change.positionChange().x
+                                        dragX = (dragX + dx).coerceIn(-quoteTriggerPx * 1.4f, 0f)
+                                        change.consume()
+                                    }
+                                    if (dragX <= -quoteTriggerPx) {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        quotedMeme = meme
+                                    }
+                                    dragX = 0f
+                                }
+                            }
+                        }
                         .onGloballyPositioned { coords ->
                             val b = coords.boundsInWindow()
                             itemTopPx = b.top
                             itemBottomPx = b.bottom
                         },
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(9.dp),
+                    verticalAlignment = Alignment.Top,
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(34.dp)
+                            .size(36.dp)
                             .clip(CircleShape)
                             .background(avatarColor),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            text = FeishuDisguiseHelpers.avatarChars(authorName),
+                            text = FeishuDisguiseHelpers.avatarChars(authorName).take(1),
                             color = Color.White,
-                            fontSize = 11.sp,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                         )
                     }
 
                     Column(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.widthIn(max = 268.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
+                        // Colleague name + timestamp + subtle action menu trigger
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            Text(authorName, color = fc.muted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                            Text(FeishuDisguiseHelpers.formatClock(meme.createdAt), color = fc.muted, fontSize = 11.sp)
+                            Text(
+                                text = authorName,
+                                color = fc.subText,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                            Text(
+                                text = FeishuDisguiseHelpers.formatClock(meme.createdAt),
+                                color = fc.muted,
+                                fontSize = 10.5.sp,
+                            )
+                            if (meme.faved) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Bookmark,
+                                    contentDescription = "已收藏",
+                                    tint = fc.blue,
+                                    modifier = Modifier.size(12.dp),
+                                )
+                            }
+                            Icon(
+                                imageVector = Icons.Rounded.MoreHoriz,
+                                contentDescription = "消息操作",
+                                tint = fc.muted.copy(alpha = 0.6f),
+                                modifier = Modifier
+                                    .size(15.dp)
+                                    .clickable { actionSheetMeme = meme },
+                            )
                         }
 
-                        Surface(
-                            color = fc.card,
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(0.5.dp, fc.line),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .combinedClickable(
+                        // Authentic Feishu IM Message Content:
+                        // 1) Pure media -> standalone 65% width rounded thumbnail / 9-grid (NO outer white box!)
+                        // 2) Text or Rich-Post (Text + Media) -> compact borderless Feishu bubble
+                        if (msgText == null && hasMedia) {
+                            Box(
+                                modifier = Modifier.combinedClickable(
                                     onClick = {},
                                     onLongClick = {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         actionSheetMeme = meme
                                     },
                                 ),
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(11.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                RichChatBodyView(
-                                    rawBody = feishuMemePrimaryText(meme),
-                                    imageLoader = api.imageLoader,
-                                    textColor = fc.text,
-                                    showInlineImages = false,
-                                )
-
                                 DisguiseMediaStrip(
                                     meme = meme,
                                     api = api,
@@ -1936,112 +2341,181 @@ private fun FeishuWorkGroupDetailScreen(
                                     onRevealItem = { unblurredIds = unblurredIds + meme.id },
                                     onOpenViewer = { list, idx -> viewerState = Triple(list, idx, meme) },
                                     onMediaLoaded = { mediaReady = true },
+                                    compactImMode = true,
                                 )
-
-                                if (meme.tags.isNotEmpty()) {
-                                    FlowRow(
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                                    ) {
-                                        meme.tags.take(4).forEach { tag ->
-                                            Surface(
-                                                color = fc.surfaceMuted,
-                                                shape = RoundedCornerShape(4.dp),
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(4.dp))
-                                                    .clickable { onOpenTagTopic(tag) },
-                                            ) {
+                            }
+                        } else {
+                            Surface(
+                                color = fc.peerBubble,
+                                shape = bubbleShape,
+                                modifier = Modifier.combinedClickable(
+                                    onClick = {},
+                                    onDoubleClick = {
+                                        scope.launch {
+                                            val updated = api.reactToMeme(meme.id, "👍")
+                                            if (updated != null) {
+                                                messages = messages.map { if (it.id == updated.id) updated else it }
+                                            }
+                                        }
+                                    },
+                                    onLongClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        actionSheetMeme = meme
+                                    },
+                                ),
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(7.dp),
+                                ) {
+                                    if (!msgText.isNullOrBlank()) {
+                                        RichChatBodyView(
+                                            rawBody = msgText,
+                                            imageLoader = api.imageLoader,
+                                            textColor = fc.text,
+                                            showInlineImages = false,
+                                            onLongPress = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                actionSheetMeme = meme
+                                            },
+                                        )
+                                    }
+                                    if (hasMedia) {
+                                        DisguiseMediaStrip(
+                                            meme = meme,
+                                            api = api,
+                                            blurAll = privacyConfig.blurAllEnabled,
+                                            accentColor = fc.blue,
+                                            isItemUnblurred = meme.id in unblurredIds,
+                                            onRevealItem = { unblurredIds = unblurredIds + meme.id },
+                                            onOpenViewer = { list, idx -> viewerState = Triple(list, idx, meme) },
+                                            onMediaLoaded = { mediaReady = true },
+                                            compactImMode = true,
+                                        )
+                                    }
+                                    if (meme.tags.isNotEmpty()) {
+                                        FlowRow(
+                                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                                        ) {
+                                            meme.tags.take(3).forEach { tag ->
                                                 Text(
                                                     text = "#${DisguiseSanitizer.sanitizeSummaryForDisguise(tag, AppDisguiseMode.FEISHU)}",
                                                     color = fc.blue,
-                                                    fontSize = 11.sp,
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                    fontSize = 12.sp,
+                                                    modifier = Modifier.clickable { onOpenTagTopic(tag) },
                                                 )
                                             }
                                         }
                                     }
                                 }
+                            }
+                        }
 
-                                if (meme.reactions.isNotEmpty() || boosts.isNotEmpty()) {
-                                    FlowRow(
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                                    ) {
-                                        meme.reactions.forEach { reaction ->
-                                            ReactionChip(
-                                                emojiKey = reaction.emoji,
-                                                count = reaction.count,
-                                                mine = reaction.mine,
-                                                imageLoader = api.imageLoader,
-                                                onClick = {
-                                                    scope.launch {
-                                                        val updated = api.reactToMeme(meme.id, reaction.emoji)
-                                                        if (updated != null) {
-                                                            messages = messages.map { if (it.id == updated.id) updated else it }
-                                                        }
+                        // Compact Feishu Emoji Reaction & Quick-Stamp Pills directly below bubble/media
+                        val activeReactions = remember(meme.reactions) { meme.reactions.filter { it.count > 0 } }
+                        if (activeReactions.isNotEmpty() || boosts.isNotEmpty()) {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                activeReactions.forEach { reaction ->
+                                    val safeEmoji = DisguiseSanitizer.mapStickerToSafeEmoji(reaction.emoji)
+                                    Surface(
+                                        color = if (reaction.mine) fc.reactionMineBg else fc.reactionBg,
+                                        shape = RoundedCornerShape(999.dp),
+                                        border = if (reaction.mine) BorderStroke(0.8.dp, fc.blue.copy(alpha = 0.65f)) else null,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(999.dp))
+                                            .clickable {
+                                                scope.launch {
+                                                    val updated = api.reactToMeme(meme.id, reaction.emoji)
+                                                    if (updated != null) {
+                                                        messages = messages.map { if (it.id == updated.id) updated else it }
                                                     }
-                                                },
+                                                }
+                                            },
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                        ) {
+                                            Text(safeEmoji, fontSize = 12.sp)
+                                            Text(
+                                                text = "${reaction.count}",
+                                                color = if (reaction.mine) fc.blue else fc.subText,
+                                                fontSize = 11.sp,
+                                                fontWeight = if (reaction.mine) FontWeight.SemiBold else FontWeight.Normal,
                                             )
                                         }
-                                        boosts.forEach { reply ->
-                                            Surface(color = fc.surfaceMuted, shape = RoundedCornerShape(999.dp)) {
-                                                Text(
-                                                    text = DisguiseSanitizer.sanitizeSummaryForDisguise(reply.text, AppDisguiseMode.FEISHU) +
-                                                        if (reply.n > 1) " ×${reply.n}" else "",
-                                                    color = fc.text,
-                                                    fontSize = 11.sp,
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                                )
-                                            }
-                                        }
                                     }
                                 }
-
-                                HorizontalDivider(color = fc.line)
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = if (commentTotal > 0) "话题 ($commentTotal)" else "话题回复",
-                                            color = fc.blue,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            modifier = Modifier.clickable { threadRootMeme = meme },
-                                        )
-                                        Text(
-                                            text = "引用回复",
-                                            color = fc.muted,
-                                            fontSize = 12.sp,
-                                            modifier = Modifier.clickable { quotedMeme = meme },
-                                        )
-                                        Text(
-                                            text = if (meme.faved) "已收藏" else "收藏",
-                                            color = if (meme.faved) fc.blue else fc.muted,
-                                            fontSize = 12.sp,
-                                            modifier = Modifier.clickable {
+                                boosts.forEach { reply ->
+                                    val cleanReply = DisguiseSanitizer.sanitizeSummaryForDisguise(reply.text, AppDisguiseMode.FEISHU)
+                                    Surface(
+                                        color = fc.reactionBg,
+                                        shape = RoundedCornerShape(999.dp),
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(999.dp))
+                                            .clickable {
                                                 scope.launch {
-                                                    val ok = api.toggleFav(meme.id, meme.faved)
-                                                    if (ok) {
-                                                        messages = messages.map {
-                                                            if (it.id == meme.id) it.copy(faved = !meme.faved) else it
+                                                    api.putMemeQuickReply(meme.id, reply.text).onSuccess { updated ->
+                                                        if (updated != null) {
+                                                            messages = messages.map { if (it.id == updated.id) updated else it }
+                                                        } else {
+                                                            reloadMessages()
                                                         }
                                                     }
                                                 }
                                             },
+                                    ) {
+                                        Text(
+                                            text = cleanReply + if (reply.n > 1) " · ${reply.n}" else "",
+                                            color = fc.subText,
+                                            fontSize = 11.sp,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.5.dp),
                                         )
                                     }
-                                    Icon(
-                                        imageVector = Icons.Rounded.MoreHoriz,
-                                        contentDescription = "更多操作",
-                                        tint = fc.muted,
-                                        modifier = Modifier
-                                            .size(18.dp)
-                                            .clickable { actionSheetMeme = meme },
-                                    )
                                 }
+                            }
+                        }
+
+                        // Authentic Feishu Thread Bar (`| 💬 N 条回复 ›`)
+                        if (commentTotal > 0) {
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable { threadRootMeme = meme }
+                                    .padding(vertical = 2.dp, horizontal = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(2.dp)
+                                        .height(13.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(fc.blue.copy(alpha = 0.78f)),
+                                )
+                                Icon(
+                                    imageVector = Icons.Rounded.ChatBubbleOutline,
+                                    contentDescription = null,
+                                    tint = fc.blue,
+                                    modifier = Modifier.size(13.dp),
+                                )
+                                Text(
+                                    text = "$commentTotal 条回复",
+                                    color = fc.blue,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                                    contentDescription = null,
+                                    tint = fc.blue,
+                                    modifier = Modifier.size(14.dp),
+                                )
                             }
                         }
                     }
@@ -2251,27 +2725,40 @@ private fun FeishuRealChatShell(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(50.dp)
-                        .padding(horizontal = 6.dp),
+                        .padding(horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = onBack, modifier = Modifier.size(38.dp)) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = fc.text)
                     }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = title,
-                            color = fc.text,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(subtitle, color = fc.muted, fontSize = 11.sp)
-                    }
                     if (isGroup) {
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        ) {
+                            Text(
+                                text = title,
+                                color = fc.text,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                            Surface(color = fc.reactionMineBg, shape = RoundedCornerShape(3.dp)) {
+                                Text(
+                                    text = "部门",
+                                    color = fc.blue,
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 0.5.dp),
+                                )
+                            }
+                        }
                         Box {
-                            IconButton(onClick = { showMenu = true }) {
-                                Icon(Icons.Rounded.MoreHoriz, contentDescription = "群设置", tint = fc.text)
+                            IconButton(onClick = { showMenu = true }, modifier = Modifier.size(34.dp)) {
+                                Icon(Icons.Rounded.MoreHoriz, contentDescription = "群设置", tint = fc.text, modifier = Modifier.size(20.dp))
                             }
                             DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                                 DropdownMenuItem(
@@ -2284,9 +2771,53 @@ private fun FeishuRealChatShell(
                                 )
                             }
                         }
+                    } else {
+                        val avatarColor = remember(title) { FeishuDisguiseHelpers.imColor(title) }
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .background(avatarColor),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = FeishuDisguiseHelpers.avatarChars(title).take(1),
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = title,
+                                    color = fc.text,
+                                    fontSize = 15.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(fc.onlineGreen),
+                                    )
+                                    Text(subtitle, color = fc.muted, fontSize = 10.5.sp)
+                                }
+                            }
+                        }
                     }
                 }
-                HorizontalDivider(color = fc.line)
+                HorizontalDivider(color = fc.line, thickness = 0.5.dp)
             }
         }
 

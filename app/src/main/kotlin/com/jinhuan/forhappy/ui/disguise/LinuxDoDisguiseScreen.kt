@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
@@ -30,16 +31,19 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Reply
 import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.BookmarkBorder
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
@@ -52,7 +56,9 @@ import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Menu
+import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -80,7 +86,6 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.material.icons.rounded.Add
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -88,10 +93,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -102,6 +111,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -109,11 +119,13 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.jinhuan.forhappy.BuildConfig
 import com.jinhuan.forhappy.core.chat.ChatSessionController
+import com.jinhuan.forhappy.core.clock.ServerClock
 import com.jinhuan.forhappy.core.compose.ComposeTrayItem
 import com.jinhuan.forhappy.core.model.AppDisguiseMode
 import com.jinhuan.forhappy.core.model.AppIconAlias
 import com.jinhuan.forhappy.core.model.AppThemeMode
 import com.jinhuan.forhappy.core.model.ChatGroup
+import com.jinhuan.forhappy.core.model.DayEntry
 import com.jinhuan.forhappy.core.model.DmThread
 import com.jinhuan.forhappy.core.model.MeUser
 import com.jinhuan.forhappy.core.model.MemeComment
@@ -128,7 +140,6 @@ import com.jinhuan.forhappy.core.seen.LocalSeenTracker
 import com.jinhuan.forhappy.core.seen.ObserveMemeSeenDwell
 import com.jinhuan.forhappy.core.seen.computeVisibleAreaRatio
 import com.jinhuan.forhappy.ui.chat.ChatScreen
-import com.jinhuan.forhappy.ui.components.ReactionChip
 import com.jinhuan.forhappy.ui.components.RichChatBodyView
 import com.jinhuan.forhappy.ui.compose.ComposeMediaStager
 import com.jinhuan.forhappy.ui.compose.ImageMaskEditorScreen
@@ -139,6 +150,9 @@ import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
 import com.jinhuan.forhappy.ui.wall.ImmersiveMediaStage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.ZoneOffset
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -148,7 +162,30 @@ import kotlin.math.roundToInt
 internal object LinuxDoTopicMeta {
     const val TITLE = "【持续更新】日常收集的图文与素材分享楼，欢迎佬友补充"
     val TAGS = listOf("资源分享", "持续更新")
+    val CATEGORIES = listOf(
+        "开发调优" to Color(0xFF3AB54A),
+        "资源荟萃" to Color(0xFFF7941D),
+        "文档共建" to Color(0xFF9EB83B),
+        "搞七捻三" to Color(0xFF25AAE2),
+        "跳蚤市场" to Color(0xFFED207B),
+        "运营反馈" to Color(0xFF808281),
+    )
 }
+
+private data class LinuxDoTopicSpec(
+    val key: String,
+    val title: String,
+    val categoryName: String,
+    val categoryColor: Color,
+    val tags: List<String>,
+    val posterName: String,
+    val replyCount: Int,
+    val unreadCount: Int,
+    val lastActiveSec: Long,
+    val pinned: Boolean = false,
+    val dayFilter: String? = null,
+    val tagFilter: String? = null,
+)
 
 private data class LinuxDoColors(
     val bg: Color,
@@ -157,8 +194,12 @@ private data class LinuxDoColors(
     val line: Color,
     val accent: Color,
     val text: Color,
+    val subText: Color,
     val muted: Color,
     val danger: Color,
+    val likeRed: Color,
+    val heatOrange: Color,
+    val isDark: Boolean,
 )
 
 @Composable
@@ -167,25 +208,33 @@ private fun rememberLinuxDoColors(): LinuxDoColors {
     return remember(isDark) {
         if (isDark) {
             LinuxDoColors(
-                bg = Color(0xFF1A1D23),
-                surface = Color(0xFF22262E),
-                surfaceAlt = Color(0xFF2B303A),
-                line = Color(0xFF343A46),
-                accent = Color(0xFF409EFF),
-                text = Color(0xFFE6EAF0),
-                muted = Color(0xFF9098A6),
-                danger = Color(0xFFE05252),
+                bg = Color(0xFF191B1E),
+                surface = Color(0xFF222428),
+                surfaceAlt = Color(0xFF2C2F36),
+                line = Color(0xFF333740),
+                accent = Color(0xFF1A95E0),
+                text = Color(0xFFE4E6EB),
+                subText = Color(0xFFA6ACB8),
+                muted = Color(0xFF858C99),
+                danger = Color(0xFFE45735),
+                likeRed = Color(0xFFFA6C8D),
+                heatOrange = Color(0xFFE08A3C),
+                isDark = true,
             )
         } else {
             LinuxDoColors(
                 bg = Color(0xFFF6F7F9),
                 surface = Color(0xFFFFFFFF),
-                surfaceAlt = Color(0xFFF0F2F5),
-                line = Color(0xFFE5E7EB),
+                surfaceAlt = Color(0xFFEFEFF1),
+                line = Color(0xFFE9ECEF),
                 accent = Color(0xFF0088CC),
-                text = Color(0xFF1C1E21),
-                muted = Color(0xFF687078),
-                danger = Color(0xFFD93838),
+                text = Color(0xFF222222),
+                subText = Color(0xFF646464),
+                muted = Color(0xFF919191),
+                danger = Color(0xFFE45735),
+                likeRed = Color(0xFFFA6C8D),
+                heatOrange = Color(0xFFCF7721),
+                isDark = false,
             )
         }
     }
@@ -200,39 +249,163 @@ private fun linuxDoSafeName(raw: String?): String {
     return cleaned.ifBlank { "佬友" }
 }
 
-private fun linuxDoFloorBody(meme: MemeItem): String {
-    val raw = listOfNotNull(meme.title, meme.content, meme.text, meme.caption, meme.body)
+private fun linuxDoOptionalFloorText(meme: MemeItem): String? {
+    val raw = listOfNotNull(meme.content, meme.text, meme.caption, meme.body, meme.title)
+        .map { it.trim() }
         .firstOrNull { it.isNotBlank() }
-        .orEmpty()
-        .trim()
-    if (raw.isBlank()) return "分享一张日常收藏素材，供大家参考。"
-    return DisguiseSanitizer.sanitizeSummaryForDisguise(raw, AppDisguiseMode.LINUX_DO)
+        ?: return if (meme.mediaItems.isEmpty()) "路过补充一层，供各位佬友参考。" else null
+    if (meme.mediaItems.isNotEmpty() && (
+            raw.startsWith("佬友素材分享") ||
+                raw.startsWith("工作同步截图") ||
+                raw == "分享一张图" ||
+                raw == "无题"
+            )
+    ) {
+        return null
+    }
+    val cleaned = DisguiseSanitizer.sanitizeSummaryForDisguise(raw, AppDisguiseMode.LINUX_DO)
         .replace("欢友", "佬友")
-        .ifBlank { "分享一张日常收藏素材，供大家参考。" }
+        .trim()
+    return cleaned.takeIf { it.isNotBlank() }
+        ?: if (meme.mediaItems.isEmpty()) "路过补充一层，供各位佬友参考。" else null
 }
 
-@Composable
-private fun LinuxDoLogoMark(color: Color) {
-    Canvas(modifier = Modifier.size(20.dp)) {
-        val w = size.width
-        val h = size.height
-        drawRoundRect(
-            color = color,
-            topLeft = Offset.Zero,
-            size = Size(w, h),
-            cornerRadius = CornerRadius(w * 0.25f, w * 0.25f),
-        )
-        drawCircle(
-            color = Color.White,
-            radius = w * 0.24f,
-            center = Offset(w * 0.5f, h * 0.5f),
-        )
+private fun linuxDoFloorBody(meme: MemeItem): String {
+    return linuxDoOptionalFloorText(meme) ?: "分享附图"
+}
+
+private val DAILY_TOPIC_TEMPLATES = listOf(
+    "【日常】%s 收集的一些实用截图与开发素材汇总",
+    "随手整理今日看到的图文与工具碎片（%s）",
+    "【纯水】%s 佬友日常交流与素材备忘楼",
+    "分享几张刚存下来的配图与技术日常记录（%s）",
+    "【茶水间】%s 碎片化阅读与日常配图跟帖",
+    "整理了一波近期的参考图与实用记录（%s）",
+)
+
+private val DAILY_TOPIC_TAG_POOLS = listOf(
+    listOf("纯水", "日常"),
+    listOf("经验分享", "工具"),
+    listOf("资源分享", "汇总"),
+    listOf("日常", "记录"),
+)
+
+private fun buildDailyTopicSpec(dayEntry: DayEntry): LinuxDoTopicSpec {
+    val parsed = runCatching { LocalDate.parse(dayEntry.day) }.getOrNull()
+    val epochDay = parsed?.toEpochDay() ?: abs(dayEntry.day.hashCode()).toLong()
+    val dateShort = if (parsed != null) "${parsed.monthValue}月${parsed.dayOfMonth}日" else dayEntry.day
+    val catPool = listOf(
+        LinuxDoTopicMeta.CATEGORIES[3], // 搞七捻三 #25AAE2
+        LinuxDoTopicMeta.CATEGORIES[1], // 资源荟萃 #F7941D
+        LinuxDoTopicMeta.CATEGORIES[0], // 开发调优 #3AB54A
+        LinuxDoTopicMeta.CATEGORIES[2], // 文档共建 #9EB83B
+    )
+    val (catName, catColor) = catPool[Math.floorMod(epochDay, catPool.size)]
+    val template = DAILY_TOPIC_TEMPLATES[Math.floorMod(epochDay * 5L + 1L, DAILY_TOPIC_TEMPLATES.size)]
+    val snippet = dayEntry.latest?.text
+        ?.let { DisguiseSanitizer.sanitizeSummaryForDisguise(it, AppDisguiseMode.LINUX_DO).replace("欢友", "佬友").trim() }
+        ?.takeIf { it.length in 6..28 && !it.startsWith("[") }
+    val title = if (snippet != null) {
+        "$snippet（$dateShort · 共 ${dayEntry.totalCount} 楼）"
+    } else {
+        String.format(template, dateShort)
+    }
+    val tags = DAILY_TOPIC_TAG_POOLS[Math.floorMod(epochDay * 3L, DAILY_TOPIC_TAG_POOLS.size)]
+    val poster = dayEntry.latest?.by?.let { linuxDoSafeName(it) } ?: "linux_dev"
+    val lastTs = dayEntry.latest?.at?.takeIf { it > 0L }
+        ?: parsed?.atTime(18, 30)?.toEpochSecond(ZoneOffset.ofHours(8))
+        ?: 0L
+    return LinuxDoTopicSpec(
+        key = "day_${dayEntry.day}",
+        title = title,
+        categoryName = catName,
+        categoryColor = catColor,
+        tags = tags,
+        posterName = poster,
+        replyCount = maxOf(0, dayEntry.totalCount - 1),
+        unreadCount = dayEntry.unseen,
+        lastActiveSec = lastTs,
+        pinned = false,
+        dayFilter = dayEntry.day,
+        tagFilter = null,
+    )
+}
+
+/**
+ * Discourse compact relative age (`12m`, `3h`, `4d`, `11月15日`) matching mobile Discourse.
+ */
+private fun ldShortAgo(tsSec: Long?): String {
+    if (tsSec == null || tsSec <= 0L) return ""
+    val sec = if (tsSec > 10_000_000_000L) tsSec / 1000L else tsSec
+    val diff = (ServerClock.serverNowSec() - sec).coerceAtLeast(0L)
+    return when {
+        diff < 60L -> "1m"
+        diff < 3600L -> "${diff / 60L}m"
+        diff < 86_400L -> "${diff / 3600L}h"
+        diff < 86_400L * 25L -> "${diff / 86_400L}d"
+        else -> FeishuDisguiseHelpers.formatConvTime(sec)
     }
 }
 
 /**
- * Zero-giveaway LINUX DO Discourse long-topic disguise matching
- * `docs/redesign/03-privacy-state-machine.md` §5.4–5.7.
+ * Authentic LINUX DO tri-band circular badge (`LD_MARK` viewBox `0 0 120 120`):
+ * Outer `#F0F0F0` circle (`r=50`), clipped inner circle (`r=47`) with `#1C1C1E` top,
+ * `#F0F0F0` middle, and `#FFB003` gold bottom.
+ */
+@Composable
+private fun LinuxDoLogoMark(
+    size: Dp = 26.dp,
+    isDark: Boolean = false,
+) {
+    Canvas(modifier = Modifier.size(size)) {
+        val d = this.size.minDimension
+        val center = Offset(d * 0.5f, d * 0.5f)
+        val outerR = d * (50f / 104f)
+        val innerR = d * (46.5f / 104f)
+        drawCircle(
+            color = Color(0xFFF0F0F0),
+            radius = outerR,
+            center = center,
+        )
+        val innerTop = center.y - innerR
+        val innerDiam = innerR * 2f
+        val clip = Path().apply {
+            addOval(Rect(center.x - innerR, innerTop, center.x + innerR, center.y + innerR))
+        }
+        clipPath(clip) {
+            drawRect(
+                color = Color(0xFF1C1C1E),
+                topLeft = Offset(center.x - innerR, innerTop),
+                size = Size(innerDiam, innerDiam * 0.31f),
+            )
+            drawRect(
+                color = Color(0xFFF0F0F0),
+                topLeft = Offset(center.x - innerR, innerTop + innerDiam * 0.31f),
+                size = Size(innerDiam, innerDiam * 0.38f),
+            )
+            drawRect(
+                color = Color(0xFFFFB003),
+                topLeft = Offset(center.x - innerR, innerTop + innerDiam * 0.69f),
+                size = Size(innerDiam, innerDiam * 0.32f),
+            )
+        }
+        if (!isDark) {
+            drawCircle(
+                color = Color(0xFFD5D9DF),
+                radius = outerR,
+                center = center,
+                style = Stroke(width = d * 0.035f),
+            )
+        }
+    }
+}
+
+/**
+ * Zero-giveaway 2-Level LINUX DO Mobile Discourse Disguise:
+ * - Level 0 (`activeTopic == null`): Classic `linux.do` mobile Home Topic List with category squares,
+ *   tag dropdowns, `最新 / 新 / 未读 / 热门` tabs, pinned megathread, and daily/tag Discourse topics.
+ * - Level 1 (`activeTopic != null`): Authentic Discourse Topic Floor Stream with scroll-aware header,
+ *   Lightbox image footer, boost chips, muted post controls, and bottom-right floating `X / Y` progress pill.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -258,17 +431,32 @@ fun LinuxDoDisguiseScreen(
     onOpenUrl: (String) -> Unit = {},
 ) {
     val lc = rememberLinuxDoColors()
-    val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+    val homeListState = rememberLazyListState()
     val bossKeyActive = LocalBossKeyActive.current
     val seenTracker = LocalSeenTracker.current
     val chatState by chatController.uiState.collectAsState()
 
-    var floors by remember { mutableStateOf<List<MemeItem>>(emptyList()) }
+    val newlySeenByDayState = seenTracker?.newlySeenByDay?.collectAsState()
+    val newlySeenByDay = newlySeenByDayState?.value ?: emptyMap()
+
+    // Level-0 Home Topic List state
+    var daysList by remember { mutableStateOf<List<DayEntry>>(emptyList()) }
     var tagsList by remember { mutableStateOf<List<TagStatItem>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
+    var loadingHome by remember { mutableStateOf(true) }
+    var homeNavTab by remember { mutableStateOf("latest") } // "latest" | "new" | "unread" | "top"
+    var homeCategoryFilter by remember { mutableStateOf<String?>(null) }
+    var homeTagFilter by remember { mutableStateOf<String?>(null) }
+    var showCatMenu by remember { mutableStateOf(false) }
+    var showTagMenu by remember { mutableStateOf(false) }
+
+    // Level-1 Active Topic state (`null` = on Level-0 Discourse Home Topic List)
+    var activeTopic by remember { mutableStateOf<LinuxDoTopicSpec?>(null) }
+
+    var floors by remember { mutableStateOf<List<MemeItem>>(emptyList()) }
+    var loading by remember { mutableStateOf(false) }
     var loadingMore by remember { mutableStateOf(false) }
     var hasMore by remember { mutableStateOf(true) }
     var currentPage by remember { mutableIntStateOf(1) }
@@ -304,7 +492,29 @@ fun LinuxDoDisguiseScreen(
         }
     }
 
+    val adjustedDays = remember(daysList, newlySeenByDay) {
+        if (newlySeenByDay.isEmpty()) {
+            daysList
+        } else {
+            daysList.map { d ->
+                val dec = newlySeenByDay[d.day] ?: 0
+                if (dec > 0) d.copy(unseen = (d.unseen - dec).coerceAtLeast(0)) else d
+            }
+        }
+    }
+
+    fun reloadHomeTopics() {
+        scope.launch {
+            loadingHome = true
+            seenTracker?.resetDayDeltaCounter()
+            daysList = api.fetchDays(limitDays = 20).days
+            tagsList = api.fetchTags()
+            loadingHome = false
+        }
+    }
+
     fun reloadFloors(reset: Boolean = true) {
+        val topic = activeTopic ?: return
         scope.launch {
             if (reset) loading = true else loadingMore = true
             if (unseenOnly) {
@@ -320,13 +530,28 @@ fun LinuxDoDisguiseScreen(
                 emptyList()
             }
             val targetPage = if (reset) 1 else currentPage + 1
+            val effectiveTag = selectedTag ?: topic.tagFilter
+            if (!topic.dayFilter.isNullOrBlank() && effectiveTag == null && searchQuery.isBlank() && !unseenOnly) {
+                val list = api.fetchMemes(
+                    limit = 50,
+                    day = topic.dayFilter,
+                    sort = "old",
+                )
+                seenTracker?.ingestFetchedMemes(list)
+                floors = list
+                hasMore = false
+                loading = false
+                loadingMore = false
+                return@launch
+            }
             val page = api.fetchMemesPage(
                 limit = 30,
                 offset = if (reset) 0 else floors.size,
                 page = targetPage,
-                tag = selectedTag,
+                day = topic.dayFilter,
+                tag = effectiveTag,
                 query = searchQuery.trim().takeIf { it.isNotBlank() },
-                sort = "new",
+                sort = if (topic.dayFilter != null) "old" else "new",
                 unseenOnly = unseenOnly,
                 beforeAnchor = if (reset) null else unseenAnchor,
                 guestSeenIds = guestSnap,
@@ -352,11 +577,14 @@ fun LinuxDoDisguiseScreen(
     LaunchedEffect(Unit) {
         chatController.refreshGroups()
         chatController.refreshDmThreads()
-        tagsList = api.fetchTags()
+        reloadHomeTopics()
     }
 
-    LaunchedEffect(selectedTag, unseenOnly, searchQuery) {
-        reloadFloors(reset = true)
+    LaunchedEffect(activeTopic?.key, selectedTag, unseenOnly, searchQuery) {
+        if (activeTopic != null) {
+            listState.scrollToItem(0)
+            reloadFloors(reset = true)
+        }
     }
 
     // Re-blur media that scrolled out of viewport
@@ -382,17 +610,92 @@ fun LinuxDoDisguiseScreen(
             orderedFloors[firstVisible].first
         }
     }
+    val scrolledPastOpTitle by remember {
+        derivedStateOf {
+            activeTopic != null && (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 110)
+        }
+    }
     val totalFloors = maxOf(1, floors.size)
     val totalChatUnread = remember(chatState.groups, chatState.dmThreads) {
         chatState.groups.sumOf { it.unread } + chatState.dmThreads.sumOf { it.unread }
     }
 
-    BackHandler(enabled = showLeftDrawer || showChatDrawer || showPrefsOverlay || showTimeline) {
+    val anyOverlayOpen = showLeftDrawer || showChatDrawer || showPrefsOverlay || showTimeline
+    BackHandler(enabled = anyOverlayOpen || activeTopic != null) {
         when {
             showPrefsOverlay -> showPrefsOverlay = false
             showChatDrawer -> showChatDrawer = false
             showLeftDrawer -> showLeftDrawer = false
             showTimeline -> showTimeline = false
+            activeTopic != null -> {
+                activeTopic = null
+                selectedTag = null
+                unblurredIds = emptySet()
+            }
+        }
+    }
+
+    val allHomeTopics = remember(adjustedDays, tagsList) {
+        val totalPosts = adjustedDays.sumOf { it.totalCount }
+        val totalUnseen = adjustedDays.sumOf { it.unseen }
+        val latestGlobalSec = adjustedDays.firstOrNull()?.latest?.at ?: ServerClock.serverNowSec()
+        val pinnedMaster = LinuxDoTopicSpec(
+            key = "pinned_master",
+            title = LinuxDoTopicMeta.TITLE,
+            categoryName = "搞七捻三",
+            categoryColor = Color(0xFF25AAE2),
+            tags = LinuxDoTopicMeta.TAGS,
+            posterName = "L先生",
+            replyCount = maxOf(1, totalPosts),
+            unreadCount = totalUnseen,
+            lastActiveSec = latestGlobalSec,
+            pinned = true,
+            dayFilter = null,
+            tagFilter = null,
+        )
+        val dayTopics = adjustedDays.map { buildDailyTopicSpec(it) }
+        val tagTopics = tagsList.take(12).mapIndexed { idx, t ->
+            val cleanTag = DisguiseSanitizer.sanitizeSummaryForDisguise(t.tag, AppDisguiseMode.LINUX_DO)
+            val (catName, catColor) = LinuxDoTopicMeta.CATEGORIES[idx % 4]
+            LinuxDoTopicSpec(
+                key = "tag_${t.tag}",
+                title = "【合集】#$cleanTag 相关技术与日常图文整理",
+                categoryName = catName,
+                categoryColor = catColor,
+                tags = listOf(cleanTag, "合集"),
+                posterName = "discourse_bot",
+                replyCount = maxOf(1, t.totalCount),
+                unreadCount = 0,
+                lastActiveSec = latestGlobalSec - (idx + 1) * 7200L,
+                pinned = false,
+                dayFilter = null,
+                tagFilter = t.tag,
+            )
+        }
+        Triple(pinnedMaster, dayTopics, tagTopics)
+    }
+
+    val filteredHomeTopics = remember(allHomeTopics, homeNavTab, homeCategoryFilter, homeTagFilter, searchQuery) {
+        val (pinned, dayTopics, tagTopics) = allHomeTopics
+        val base = when (homeNavTab) {
+            "unread" -> listOfNotNull(pinned.takeIf { it.unreadCount > 0 }) + dayTopics.filter { it.unreadCount > 0 }
+            "new" -> dayTopics.take(8) + tagTopics.take(4)
+            "top" -> (listOf(pinned) + dayTopics + tagTopics).sortedByDescending { it.replyCount }
+            else -> listOf(pinned) + dayTopics + if (homeTagFilter != null) tagTopics else emptyList()
+        }
+        val q = searchQuery.trim()
+        base.distinctBy { it.key }.filter { spec ->
+            if (homeCategoryFilter != null && spec.categoryName != homeCategoryFilter) return@filter false
+            if (homeTagFilter != null) {
+                val cleanFilter = DisguiseSanitizer.sanitizeSummaryForDisguise(homeTagFilter!!, AppDisguiseMode.LINUX_DO)
+                if (spec.tagFilter != homeTagFilter && spec.tags.none { it.equals(cleanFilter, ignoreCase = true) }) {
+                    return@filter false
+                }
+            }
+            if (q.isNotBlank() && !spec.title.contains(q, ignoreCase = true) && spec.tags.none { it.contains(q, ignoreCase = true) }) {
+                return@filter false
+            }
+            true
         }
     }
 
@@ -406,59 +709,126 @@ fun LinuxDoDisguiseScreen(
                 .fillMaxSize()
                 .statusBarsPadding(),
         ) {
-            // Discourse Top Header
+            // Authentic Mobile Discourse Top Header (`d-header`)
             Surface(color = lc.surface, shadowElevation = 1.dp, modifier = Modifier.fillMaxWidth()) {
                 Column {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(50.dp)
-                            .padding(horizontal = 6.dp),
+                            .height(52.dp)
+                            .padding(horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        IconButton(onClick = { showLeftDrawer = !showLeftDrawer }) {
-                            Icon(Icons.Rounded.Menu, contentDescription = "版块与显示设置", tint = lc.text)
+                        if (activeTopic != null) {
+                            IconButton(
+                                onClick = {
+                                    activeTopic = null
+                                    selectedTag = null
+                                    unblurredIds = emptySet()
+                                },
+                                modifier = Modifier.size(36.dp),
+                            ) {
+                                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回话题列表", tint = lc.subText, modifier = Modifier.size(21.dp))
+                            }
                         }
-                        LinuxDoLogoMark(color = lc.accent)
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            text = "LINUX DO",
-                            color = lc.text,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.weight(1f),
-                        )
+
+                        if (scrolledPastOpTitle && activeTopic != null) {
+                            val topTopic = activeTopic!!
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { scope.launch { listState.animateScrollToItem(0) } }
+                                    .padding(end = 4.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                Text(
+                                    text = topTopic.title,
+                                    color = lc.text,
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .background(topTopic.categoryColor),
+                                    )
+                                    Text(topTopic.categoryName, color = lc.subText, fontSize = 10.5.sp, fontWeight = FontWeight.Medium)
+                                }
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable {
+                                        if (activeTopic != null) {
+                                            activeTopic = null
+                                            selectedTag = null
+                                        } else {
+                                            scope.launch { homeListState.animateScrollToItem(0) }
+                                        }
+                                    }
+                                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                LinuxDoLogoMark(size = 27.dp, isDark = lc.isDark)
+                                Text(
+                                    text = "LINUX DO",
+                                    color = lc.text,
+                                    fontSize = 16.5.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = 0.4.sp,
+                                )
+                            }
+                        }
+
                         IconButton(
                             onClick = {
                                 showSearchBar = !showSearchBar
                                 if (!showSearchBar) searchQuery = ""
                             },
+                            modifier = Modifier.size(36.dp),
                         ) {
-                            Icon(Icons.Rounded.Search, contentDescription = "搜索楼层", tint = lc.text)
+                            Icon(
+                                imageVector = Icons.Rounded.Search,
+                                contentDescription = "搜索",
+                                tint = if (showSearchBar) lc.accent else lc.subText,
+                                modifier = Modifier.size(21.dp),
+                            )
                         }
                         Box(contentAlignment = Alignment.TopEnd) {
-                            IconButton(onClick = { showChatDrawer = true }) {
-                                Icon(Icons.Rounded.ChatBubbleOutline, contentDescription = "社区频道与私信", tint = lc.text)
+                            IconButton(onClick = { showChatDrawer = true }, modifier = Modifier.size(36.dp)) {
+                                Icon(Icons.Rounded.ChatBubbleOutline, contentDescription = "聊天频道", tint = lc.subText, modifier = Modifier.size(20.dp))
                             }
                             if (totalChatUnread > 0) {
                                 Box(
                                     modifier = Modifier
-                                        .padding(top = 8.dp, end = 8.dp)
+                                        .padding(top = 6.dp, end = 6.dp)
                                         .size(8.dp)
                                         .clip(CircleShape)
-                                        .background(lc.danger),
+                                        .background(lc.accent),
                                 )
                             }
+                        }
+                        IconButton(onClick = { showLeftDrawer = !showLeftDrawer }, modifier = Modifier.size(36.dp)) {
+                            Icon(Icons.Rounded.Menu, contentDescription = "侧栏菜单", tint = lc.subText, modifier = Modifier.size(22.dp))
                         }
                         Box {
                             val avatarChar = linuxDoSafeName(me?.displayName).take(1)
                             Box(
                                 modifier = Modifier
-                                    .padding(end = 6.dp)
+                                    .padding(start = 2.dp, end = 4.dp)
                                     .size(30.dp)
                                     .clip(CircleShape)
-                                    .background(lc.accent)
+                                    .background(FeishuDisguiseHelpers.imColor(avatarChar))
                                     .clickable { showUserMenu = true },
                                 contentAlignment = Alignment.Center,
                             ) {
@@ -471,7 +841,7 @@ fun LinuxDoDisguiseScreen(
                                 DropdownMenuItem(
                                     text = {
                                         Text(
-                                            text = if (me != null) linuxDoSafeName(me.displayName) else "登录社区账号",
+                                            text = if (me != null) linuxDoSafeName(me.displayName) else "登录 LINUX DO 账号",
                                             fontWeight = FontWeight.SemiBold,
                                         )
                                     },
@@ -482,7 +852,7 @@ fun LinuxDoDisguiseScreen(
                                 )
                                 HorizontalDivider(color = lc.line)
                                 DropdownMenuItem(
-                                    text = { Text("偏好设置 › 界面 / 隐私") },
+                                    text = { Text("偏好设置 › 界面与隐私") },
                                     onClick = {
                                         showUserMenu = false
                                         showPrefsOverlay = true
@@ -493,513 +863,1059 @@ fun LinuxDoDisguiseScreen(
                     }
 
                     if (showSearchBar) {
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            placeholder = { Text("在本帖楼层中搜索关键词…", fontSize = 13.sp, color = lc.muted) },
-                            singleLine = true,
-                            trailingIcon = {
-                                if (searchQuery.isNotEmpty()) {
-                                    IconButton(onClick = { searchQuery = "" }) {
-                                        Icon(Icons.Rounded.Close, contentDescription = "清空", tint = lc.muted)
-                                    }
-                                }
-                            },
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
-                        )
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                                .height(36.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(lc.surfaceAlt)
+                                .border(1.dp, lc.line, RoundedCornerShape(6.dp))
+                                .padding(horizontal = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(Icons.Rounded.Search, contentDescription = null, tint = lc.muted, modifier = Modifier.size(16.dp))
+                            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                                if (searchQuery.isEmpty()) {
+                                    Text(
+                                        text = if (activeTopic == null) "搜索话题、标签或帖子…" else "在本话题楼层中搜索…",
+                                        color = lc.muted,
+                                        fontSize = 13.sp,
+                                    )
+                                }
+                                BasicTextField(
+                                    value = searchQuery,
+                                    onValueChange = { searchQuery = it },
+                                    singleLine = true,
+                                    textStyle = TextStyle(color = lc.text, fontSize = 13.sp),
+                                    cursorBrush = SolidColor(lc.accent),
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                            if (searchQuery.isNotEmpty()) {
+                                Icon(
+                                    Icons.Rounded.Close,
+                                    contentDescription = "清除",
+                                    tint = lc.muted,
+                                    modifier = Modifier.size(16.dp).clickable { searchQuery = "" },
+                                )
+                            }
+                        }
                     }
                     HorizontalDivider(color = lc.line)
                 }
             }
 
-            // Discourse Topic Floors Feed
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .background(lc.surface)
-                    .onGloballyPositioned { coords ->
-                        val b = coords.boundsInWindow()
-                        feedViewportRect = RectF(b.left, b.top, b.right, b.bottom)
-                    },
-            ) {
-                item(key = "op_header") {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(lc.bg)
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Text(
-                            text = LinuxDoTopicMeta.TITLE,
-                            color = lc.text,
-                            fontSize = 18.sp,
-                            lineHeight = 25.sp,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            LinuxDoTopicMeta.TAGS.forEach { tag ->
-                                Surface(color = lc.accent.copy(alpha = 0.12f), shape = RoundedCornerShape(4.dp)) {
-                                    Text(
-                                        text = tag,
-                                        color = lc.accent,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                    )
-                                }
-                            }
-                            if (!selectedTag.isNullOrBlank()) {
-                                Surface(
-                                    color = lc.accent,
-                                    shape = RoundedCornerShape(4.dp),
-                                    modifier = Modifier.clickable { selectedTag = null },
-                                ) {
-                                    Text(
-                                        text = "#$selectedTag ✕",
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                    )
-                                }
-                            }
-                        }
-                        Text(
-                            text = "L先生 · 话题发起人  |  已收录 $totalFloors 层讨论  |  点击右下角刻度快速跳楼",
-                            color = lc.muted,
-                            fontSize = 11.sp,
-                        )
-                    }
-                    HorizontalDivider(color = lc.line)
-                }
-
-                if (loading && orderedFloors.isEmpty()) {
-                    item(key = "loading_floors") {
-                        Box(
+            if (activeTopic == null) {
+                // ==================== LEVEL 0: AUTHENTIC DISCOURSE HOME TOPIC LIST ====================
+                val totalUnseenTopics = remember(adjustedDays) { adjustedDays.count { it.unseen > 0 } }
+                LazyColumn(
+                    state = homeListState,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .background(lc.surface)
+                        .navigationBarsPadding(),
+                ) {
+                    item(key = "discourse_nav_controls") {
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(40.dp),
-                            contentAlignment = Alignment.Center,
+                                .background(lc.bg)
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            CircularProgressIndicator(color = lc.accent, strokeWidth = 2.dp, modifier = Modifier.size(28.dp))
-                        }
-                    }
-                } else if (orderedFloors.isEmpty()) {
-                    item(key = "empty_floors") {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(40.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text("当前筛选暂无匹配楼层", color = lc.muted, fontSize = 13.sp)
-                        }
-                    }
-                }
-
-                itemsIndexed(orderedFloors, key = { _, (_, meme) -> meme.id }) { _, (floorNum, meme) ->
-                    val author = linuxDoSafeName(meme.authorName ?: meme.authorUsername)
-                    val avatarBg = FeishuDisguiseHelpers.imColor(author)
-                    val likeCount = maxOf(meme.likes, meme.likeCount, meme.ldLikes)
-                    val commentCount = maxOf(meme.comments, meme.commentCount)
-                    val commentsExpanded = expandedFloorIds[meme.id] == true
-                    val loadedComments = floorCommentsMap[meme.id].orEmpty()
-                    val commentsBusy = floorCommentsLoading[meme.id] == true
-                    val hasMedia = remember(meme.id, meme.images, meme.image, meme.thumb, meme.media) { meme.mediaItems.isNotEmpty() }
-                    var mediaReady by remember(meme.id, hasMedia) { mutableStateOf(!hasMedia) }
-                    var itemTopPx by remember(meme.id) { mutableFloatStateOf(0f) }
-                    var itemBottomPx by remember(meme.id) { mutableFloatStateOf(0f) }
-                    val visibleRatio = computeVisibleAreaRatio(itemTopPx, itemBottomPx, feedViewportRect.top, feedViewportRect.bottom)
-                    val isItemBlurred = hasMedia && privacyConfig.blurAllEnabled && meme.id !in unblurredIds
-
-                    if (!bossKeyActive) {
-                        ObserveMemeSeenDwell(
-                            memeId = meme.id,
-                            seenAt = meme.seenAt,
-                            memeDay = meme.resolvedDay,
-                            isMediaReady = mediaReady,
-                            isBlurred = isItemBlurred,
-                            visibleRatio = visibleRatio,
-                            scrollSpeedDpPerSec = 0f,
-                        )
-                    }
-
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .onGloballyPositioned { coords ->
-                                val b = coords.boundsInWindow()
-                                itemTopPx = b.top
-                                itemBottomPx = b.bottom
-                            }
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(CircleShape)
-                                    .background(avatarBg),
-                                contentAlignment = Alignment.Center,
+                            // Row 1: Category Breadcrumb + Tag Breadcrumb + `+ 新建话题`
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                Text(
-                                    text = author.take(2),
-                                    color = Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            }
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(author, color = lc.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                                Text(FeishuDisguiseHelpers.formatConvTime(meme.createdAt ?: 0L), color = lc.muted, fontSize = 11.sp)
-                            }
-                            Surface(color = lc.surfaceAlt, shape = RoundedCornerShape(4.dp)) {
-                                Text(
-                                    text = "#$floorNum",
-                                    color = lc.muted,
-                                    fontSize = 11.sp,
-                                    style = TextStyle(fontFeatureSettings = TABULAR_FONT_FEATURE),
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                )
-                            }
-                        }
-
-                        RichChatBodyView(
-                            rawBody = linuxDoFloorBody(meme),
-                            imageLoader = api.imageLoader,
-                            textColor = lc.text,
-                            showInlineImages = false,
-                        )
-
-                        DisguiseMediaStrip(
-                            meme = meme,
-                            api = api,
-                            blurAll = privacyConfig.blurAllEnabled,
-                            accentColor = lc.accent,
-                            isItemUnblurred = meme.id in unblurredIds,
-                            onRevealItem = { unblurredIds = unblurredIds + meme.id },
-                            onOpenViewer = { list, idx -> viewerState = Triple(list, idx, meme) },
-                            onMediaLoaded = { mediaReady = true },
-                        )
-
-                        if (meme.tags.isNotEmpty()) {
-                            FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
-                            ) {
-                                meme.tags.take(4).forEach { tag ->
+                                Box {
                                     Surface(
-                                        color = lc.surfaceAlt,
-                                        shape = RoundedCornerShape(4.dp),
-                                        modifier = Modifier.clickable { selectedTag = tag },
+                                        color = lc.surface,
+                                        shape = RoundedCornerShape(6.dp),
+                                        border = BorderStroke(1.dp, lc.line),
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .clickable { showCatMenu = true },
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                        ) {
+                                            homeCategoryFilter?.let { cat ->
+                                                val sqColor = LinuxDoTopicMeta.CATEGORIES.firstOrNull { it.first == cat }?.second ?: lc.accent
+                                                Box(modifier = Modifier.size(8.dp).background(sqColor))
+                                            }
+                                            Text(
+                                                text = homeCategoryFilter ?: "所有类别",
+                                                color = lc.text,
+                                                fontSize = 12.5.sp,
+                                                fontWeight = FontWeight.Medium,
+                                            )
+                                            Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null, tint = lc.muted, modifier = Modifier.size(15.dp))
+                                        }
+                                    }
+                                    DropdownMenu(
+                                        expanded = showCatMenu,
+                                        onDismissRequest = { showCatMenu = false },
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("所有类别") },
+                                            onClick = {
+                                                homeCategoryFilter = null
+                                                showCatMenu = false
+                                            },
+                                        )
+                                        LinuxDoTopicMeta.CATEGORIES.forEach { (catName, catColor) ->
+                                            DropdownMenuItem(
+                                                leadingIcon = {
+                                                    Box(modifier = Modifier.size(10.dp).background(catColor))
+                                                },
+                                                text = { Text(catName) },
+                                                onClick = {
+                                                    homeCategoryFilter = catName
+                                                    showCatMenu = false
+                                                },
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Box {
+                                    val activeTagClean = homeTagFilter?.let {
+                                        DisguiseSanitizer.sanitizeSummaryForDisguise(it, AppDisguiseMode.LINUX_DO)
+                                    }
+                                    Surface(
+                                        color = lc.surface,
+                                        shape = RoundedCornerShape(6.dp),
+                                        border = BorderStroke(1.dp, lc.line),
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .clickable { showTagMenu = true },
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        ) {
+                                            Text(
+                                                text = activeTagClean ?: "所有标签",
+                                                color = lc.text,
+                                                fontSize = 12.5.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                maxLines = 1,
+                                            )
+                                            Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null, tint = lc.muted, modifier = Modifier.size(15.dp))
+                                        }
+                                    }
+                                    DropdownMenu(
+                                        expanded = showTagMenu,
+                                        onDismissRequest = { showTagMenu = false },
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("所有标签") },
+                                            onClick = {
+                                                homeTagFilter = null
+                                                showTagMenu = false
+                                            },
+                                        )
+                                        tagsList.take(15).forEach { tagItem ->
+                                            val cleanLabel = DisguiseSanitizer.sanitizeSummaryForDisguise(tagItem.tag, AppDisguiseMode.LINUX_DO)
+                                            DropdownMenuItem(
+                                                text = { Text("$cleanLabel (${tagItem.totalCount})") },
+                                                onClick = {
+                                                    homeTagFilter = tagItem.tag
+                                                    showTagMenu = false
+                                                },
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Spacer(Modifier.weight(1f))
+
+                                Surface(
+                                    color = lc.surfaceAlt,
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .clickable {
+                                            replyFloorTarget = null
+                                            showComposerSheet = true
+                                        },
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                    ) {
+                                        Icon(Icons.Rounded.Add, contentDescription = null, tint = lc.text, modifier = Modifier.size(15.dp))
+                                        Text("新建话题", color = lc.text, fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
+                                    }
+                                }
+                            }
+
+                            // Row 2: Discourse Navigation Pills (`最新 / 新 / 未读 / 热门`)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                val navTabs = listOf(
+                                    "latest" to "最新",
+                                    "new" to "新",
+                                    "unread" to if (totalUnseenTopics > 0) "未读 ($totalUnseenTopics)" else "未读",
+                                    "top" to "热门",
+                                )
+                                navTabs.forEach { (id, label) ->
+                                    val active = homeNavTab == id
+                                    Surface(
+                                        color = if (active) lc.accent.copy(alpha = 0.14f) else Color.Transparent,
+                                        shape = RoundedCornerShape(6.dp),
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .clickable { homeNavTab = id },
                                     ) {
                                         Text(
-                                            text = DisguiseSanitizer.sanitizeSummaryForDisguise(tag, AppDisguiseMode.LINUX_DO),
-                                            color = lc.muted,
+                                            text = label,
+                                            color = if (active) lc.accent else lc.subText,
+                                            fontSize = 13.5.sp,
+                                            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                                            modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        HorizontalDivider(color = lc.line)
+                    }
+
+                    if (loadingHome && daysList.isEmpty()) {
+                        item(key = "home_loading") {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(40.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CircularProgressIndicator(color = lc.accent, strokeWidth = 2.dp, modifier = Modifier.size(26.dp))
+                            }
+                        }
+                    } else if (filteredHomeTopics.isEmpty()) {
+                        item(key = "home_empty") {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(40.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text("没有更多未读或匹配的话题", color = lc.muted, fontSize = 13.sp)
+                            }
+                        }
+                    } else {
+                        items(filteredHomeTopics, key = { it.key }) { topic ->
+                            val posterColor = remember(topic.posterName) { FeishuDisguiseHelpers.imColor(topic.posterName) }
+                            val isFullyRead = !topic.pinned && topic.unreadCount == 0 && topic.dayFilter != null
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(if (topic.pinned) lc.accent.copy(alpha = 0.03f) else lc.surface)
+                                    .clickable {
+                                        selectedTag = null
+                                        unseenOnly = homeNavTab == "unread" && topic.unreadCount > 0
+                                        activeTopic = topic
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.Top,
+                                horizontalArrangement = Arrangement.spacedBy(11.dp),
+                            ) {
+                                // Left circular poster avatar (`mobile Discourse topic-list-item`)
+                                Box(
+                                    modifier = Modifier
+                                        .padding(top = 2.dp)
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .background(posterColor),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        text = topic.posterName.take(1).uppercase(),
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+
+                                // Center Title + Category Square + Tag Pills
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                    ) {
+                                        if (topic.pinned) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.PushPin,
+                                                contentDescription = "置顶话题",
+                                                tint = lc.subText,
+                                                modifier = Modifier.size(14.dp),
+                                            )
+                                        }
+                                        Text(
+                                            text = topic.title,
+                                            color = if (isFullyRead) lc.subText else lc.text,
+                                            fontSize = 15.sp,
+                                            lineHeight = 20.sp,
+                                            fontWeight = if (topic.unreadCount > 0 || topic.pinned) FontWeight.SemiBold else FontWeight.Normal,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(9.dp)
+                                                    .background(topic.categoryColor),
+                                            )
+                                            Text(
+                                                text = topic.categoryName,
+                                                color = lc.subText,
+                                                fontSize = 11.5.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                            )
+                                        }
+                                        topic.tags.forEach { tag ->
+                                            Surface(
+                                                color = lc.surfaceAlt,
+                                                shape = RoundedCornerShape(3.dp),
+                                            ) {
+                                                Text(
+                                                    text = tag,
+                                                    color = lc.subText,
+                                                    fontSize = 10.5.sp,
+                                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Right stacked Reply Count / Unread Pill + Relative Age (`12m` / `3h`)
+                                Column(
+                                    horizontalAlignment = Alignment.End,
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    if (topic.unreadCount > 0) {
+                                        Surface(
+                                            color = lc.accent,
+                                            shape = RoundedCornerShape(999.dp),
+                                        ) {
+                                            Text(
+                                                text = if (topic.unreadCount > 99) "99+" else "${topic.unreadCount}",
+                                                color = Color.White,
+                                                fontSize = 10.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                style = TextStyle(fontFeatureSettings = TABULAR_FONT_FEATURE),
+                                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 1.5.dp),
+                                            )
+                                        }
+                                    } else {
+                                        Text(
+                                            text = "${topic.replyCount}",
+                                            color = if (topic.replyCount >= 50) lc.heatOrange else lc.muted,
+                                            fontSize = 13.sp,
+                                            fontWeight = if (topic.replyCount >= 50) FontWeight.Bold else FontWeight.SemiBold,
+                                            style = TextStyle(fontFeatureSettings = TABULAR_FONT_FEATURE),
+                                        )
+                                    }
+                                    Text(
+                                        text = ldShortAgo(topic.lastActiveSec),
+                                        color = lc.muted,
+                                        fontSize = 11.5.sp,
+                                    )
+                                }
+                            }
+                            HorizontalDivider(color = lc.line)
+                        }
+                    }
+                }
+            } else {
+                // ==================== LEVEL 1: AUTHENTIC DISCOURSE TOPIC FLOOR STREAM ====================
+                val currentTopic = activeTopic!!
+                LazyColumn(
+                    state = listState,
+                    contentPadding = PaddingValues(bottom = 84.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .background(lc.surface)
+                        .onGloballyPositioned { coords ->
+                            val b = coords.boundsInWindow()
+                            feedViewportRect = RectF(b.left, b.top, b.right, b.bottom)
+                        },
+                ) {
+                    item(key = "op_header") {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(lc.surface)
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(9.dp),
+                        ) {
+                            Text(
+                                text = currentTopic.title,
+                                color = lc.text,
+                                fontSize = 19.sp,
+                                lineHeight = 25.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(10.dp)
+                                            .background(currentTopic.categoryColor),
+                                    )
+                                    Text(
+                                        text = currentTopic.categoryName,
+                                        color = lc.subText,
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
+                                currentTopic.tags.forEach { tag ->
+                                    Surface(color = lc.surfaceAlt, shape = RoundedCornerShape(3.dp)) {
+                                        Text(
+                                            text = tag,
+                                            color = lc.subText,
+                                            fontSize = 11.sp,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        )
+                                    }
+                                }
+                                if (!selectedTag.isNullOrBlank()) {
+                                    Surface(
+                                        color = lc.accent,
+                                        shape = RoundedCornerShape(3.dp),
+                                        modifier = Modifier.clickable { selectedTag = null },
+                                    ) {
+                                        Text(
+                                            text = "${DisguiseSanitizer.sanitizeSummaryForDisguise(selectedTag!!, AppDisguiseMode.LINUX_DO)} ✕",
+                                            color = Color.White,
                                             fontSize = 11.sp,
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                         )
                                     }
                                 }
                             }
-                        }
-
-                        if (meme.reactions.isNotEmpty()) {
-                            FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            // Discourse Topic Map / Stats strip
+                            Surface(
+                                color = lc.bg,
+                                shape = RoundedCornerShape(6.dp),
+                                border = BorderStroke(0.5.dp, lc.line),
+                                modifier = Modifier.fillMaxWidth(),
                             ) {
-                                meme.reactions.forEach { reaction ->
-                                    ReactionChip(
-                                        emojiKey = reaction.emoji,
-                                        count = reaction.count,
-                                        mine = reaction.mine,
-                                        imageLoader = api.imageLoader,
-                                        onClick = {
-                                            scope.launch {
-                                                val updated = api.reactToMeme(meme.id, reaction.emoji)
-                                                if (updated != null) {
-                                                    floors = floors.map { if (it.id == updated.id) updated else it }
-                                                }
-                                            }
-                                        },
-                                    )
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                        Column {
+                                            Text("$totalFloors", color = lc.text, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                            Text("帖子", color = lc.muted, fontSize = 10.sp)
+                                        }
+                                        Column {
+                                            Text("${totalFloors * 13 + 42}", color = lc.text, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                            Text("浏览", color = lc.muted, fontSize = 10.sp)
+                                        }
+                                        Column {
+                                            Text("${maxOf(2, totalFloors / 3 + 2)}", color = lc.text, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                            Text("参与者", color = lc.muted, fontSize = 10.sp)
+                                        }
+                                    }
+                                    Surface(
+                                        color = if (unseenOnly) lc.accent else lc.surfaceAlt,
+                                        shape = RoundedCornerShape(4.dp),
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .clickable { unseenOnly = !unseenOnly },
+                                    ) {
+                                        Text(
+                                            text = if (unseenOnly) "未读楼层 ✓" else "只看未读",
+                                            color = if (unseenOnly) Color.White else lc.subText,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        )
+                                    }
                                 }
                             }
                         }
+                        HorizontalDivider(color = lc.line)
+                    }
 
-                        // Discourse floor footer actions
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
+                    if (loading && orderedFloors.isEmpty()) {
+                        item(key = "loading_floors") {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(40.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CircularProgressIndicator(color = lc.accent, strokeWidth = 2.dp, modifier = Modifier.size(28.dp))
+                            }
+                        }
+                    } else if (orderedFloors.isEmpty()) {
+                        item(key = "empty_floors") {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(40.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = if (unseenOnly) "该话题未读楼层已全部读完" else "当前筛选暂无匹配楼层",
+                                    color = lc.muted,
+                                    fontSize = 13.sp,
+                                )
+                            }
+                        }
+                    }
+
+                    itemsIndexed(orderedFloors, key = { _, (_, meme) -> meme.id }) { idx, (floorNum, meme) ->
+                        val prevTs = orderedFloors.getOrNull(idx - 1)?.second?.createdAt ?: 0L
+                        val curTs = meme.createdAt ?: 0L
+                        val gapDays = if (idx > 0 && prevTs > 0L && curTs > 0L) {
+                            abs(curTs - prevTs) / 86_400L
+                        } else {
+                            0L
+                        }
+
+                        val author = linuxDoSafeName(meme.authorName ?: meme.authorUsername)
+                        val avatarBg = FeishuDisguiseHelpers.imColor(author)
+                        val trustLevel = remember(author) { 1 + Math.floorMod(author.hashCode(), 3) }
+                        val likeCount = maxOf(meme.likes, meme.likeCount, meme.ldLikes)
+                        val commentCount = maxOf(meme.comments, meme.commentCount)
+                        val boosts = meme.replyList.ifEmpty { meme.replies }
+                        val optionalBody = remember(meme) { linuxDoOptionalFloorText(meme) }
+                        val commentsExpanded = expandedFloorIds[meme.id] == true
+                        val loadedComments = floorCommentsMap[meme.id].orEmpty()
+                        val commentsBusy = floorCommentsLoading[meme.id] == true
+                        val hasMedia = remember(meme.id, meme.images, meme.image, meme.thumb, meme.media) { meme.mediaItems.isNotEmpty() }
+                        var mediaReady by remember(meme.id, hasMedia) { mutableStateOf(!hasMedia) }
+                        var itemTopPx by remember(meme.id) { mutableFloatStateOf(0f) }
+                        var itemBottomPx by remember(meme.id) { mutableFloatStateOf(0f) }
+                        val visibleRatio = computeVisibleAreaRatio(itemTopPx, itemBottomPx, feedViewportRect.top, feedViewportRect.bottom)
+                        val isItemBlurred = hasMedia && privacyConfig.blurAllEnabled && meme.id !in unblurredIds
+
+                        if (!bossKeyActive) {
+                            ObserveMemeSeenDwell(
+                                memeId = meme.id,
+                                seenAt = meme.seenAt,
+                                memeDay = meme.resolvedDay,
+                                isMediaReady = mediaReady,
+                                isBlurred = isItemBlurred,
+                                visibleRatio = visibleRatio,
+                                scrollSpeedDpPerSec = 0f,
+                            )
+                        }
+
+                        if (gapDays >= 5L) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(lc.bg)
+                                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                HorizontalDivider(color = lc.line, modifier = Modifier.weight(1f))
+                                Text(
+                                    text = if (gapDays >= 30L) "${gapDays / 30L} 个月后" else "$gapDays 天后",
+                                    color = lc.muted,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                HorizontalDivider(color = lc.line, modifier = Modifier.weight(1f))
+                            }
+                        }
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onGloballyPositioned { coords ->
+                                    val b = coords.boundsInWindow()
+                                    itemTopPx = b.top
+                                    itemBottomPx = b.bottom
+                                }
+                                .padding(horizontal = 15.dp, vertical = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(9.dp),
                         ) {
-                            if (commentCount > 0 || commentsExpanded) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
+                            // Discourse Post Header (`avatar + username + TL badge ... relative time + #floor`)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .clickable {
-                                            val next = !commentsExpanded
-                                            expandedFloorIds[meme.id] = next
-                                            if (next && floorCommentsMap[meme.id] == null) {
-                                                floorCommentsLoading[meme.id] = true
-                                                scope.launch {
-                                                    floorCommentsMap[meme.id] = api.fetchMemeComments(meme.id)
-                                                    floorCommentsLoading[meme.id] = false
-                                                }
-                                            }
-                                        }
-                                        .padding(vertical = 4.dp, horizontal = 2.dp),
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(avatarBg),
+                                    contentAlignment = Alignment.Center,
                                 ) {
-                                    Icon(
-                                        imageVector = if (commentsExpanded) Icons.Rounded.KeyboardArrowDown else Icons.Rounded.KeyboardArrowRight,
-                                        contentDescription = null,
-                                        tint = lc.accent,
-                                        modifier = Modifier.size(16.dp),
+                                    Text(
+                                        text = author.take(1).uppercase(),
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    Text(
+                                        text = author,
+                                        color = lc.subText,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                     )
                                     Text(
-                                        text = "${maxOf(commentCount, loadedComments.size)} 条回复",
-                                        color = lc.accent,
-                                        fontSize = 12.sp,
+                                        text = "TL$trustLevel",
+                                        color = lc.muted,
+                                        fontSize = 10.5.sp,
                                         fontWeight = FontWeight.Medium,
                                     )
                                 }
-                            } else {
-                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    text = ldShortAgo(meme.createdAt),
+                                    color = lc.muted,
+                                    fontSize = 12.sp,
+                                )
+                                Text(
+                                    text = "#$floorNum",
+                                    color = lc.muted.copy(alpha = 0.75f),
+                                    fontSize = 11.5.sp,
+                                    style = TextStyle(fontFeatureSettings = TABULAR_FONT_FEATURE),
+                                )
                             }
 
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(3.dp),
-                                    modifier = Modifier.clickable {
-                                        scope.launch {
-                                            val obj = api.toggleLike(meme.id)
-                                            if (obj != null) {
-                                                val delta = if (meme.liked) -1 else 1
-                                                floors = floors.map {
-                                                    if (it.id == meme.id) {
-                                                        it.copy(
-                                                            liked = !it.liked,
-                                                            likes = maxOf(0, likeCount + delta),
-                                                        )
-                                                    } else it
-                                                }
-                                            }
-                                        }
-                                    },
+                            if (!optionalBody.isNullOrBlank()) {
+                                RichChatBodyView(
+                                    rawBody = optionalBody,
+                                    imageLoader = api.imageLoader,
+                                    textColor = lc.text,
+                                    showInlineImages = false,
+                                )
+                            }
+
+                            DisguiseMediaStrip(
+                                meme = meme,
+                                api = api,
+                                blurAll = privacyConfig.blurAllEnabled,
+                                accentColor = lc.accent,
+                                isItemUnblurred = meme.id in unblurredIds,
+                                onRevealItem = { unblurredIds = unblurredIds + meme.id },
+                                onOpenViewer = { list, idx -> viewerState = Triple(list, idx, meme) },
+                                onMediaLoaded = { mediaReady = true },
+                                discourseLightbox = true,
+                            )
+
+                            if (meme.tags.isNotEmpty()) {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
                                 ) {
-                                    Icon(
-                                        imageVector = if (meme.liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                                        contentDescription = "赞",
-                                        tint = if (meme.liked) lc.danger else lc.muted,
-                                        modifier = Modifier.size(17.dp),
-                                    )
-                                    if (likeCount > 0) {
-                                        Text("$likeCount", color = if (meme.liked) lc.danger else lc.muted, fontSize = 12.sp)
+                                    meme.tags.take(4).forEach { tag ->
+                                        Surface(
+                                            color = lc.surfaceAlt,
+                                            shape = RoundedCornerShape(3.dp),
+                                            modifier = Modifier.clickable { selectedTag = tag },
+                                        ) {
+                                            Text(
+                                                text = DisguiseSanitizer.sanitizeSummaryForDisguise(tag, AppDisguiseMode.LINUX_DO),
+                                                color = lc.subText,
+                                                fontSize = 10.5.sp,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            )
+                                        }
                                     }
                                 }
+                            }
 
-                                Icon(
-                                    imageVector = if (meme.faved) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
-                                    contentDescription = "书签",
-                                    tint = if (meme.faved) lc.accent else lc.muted,
-                                    modifier = Modifier
-                                        .size(17.dp)
-                                        .clickable {
+                            // Discourse Boosts (`一句回应` / `助推`)
+                            if (boosts.isNotEmpty()) {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                                ) {
+                                    boosts.forEach { reply ->
+                                        val cleanBoost = DisguiseSanitizer.sanitizeSummaryForDisguise(reply.text, AppDisguiseMode.LINUX_DO)
+                                            .replace("欢友", "佬友")
+                                        Surface(
+                                            color = lc.surfaceAlt,
+                                            shape = RoundedCornerShape(999.dp),
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(999.dp))
+                                                .clickable {
+                                                    scope.launch {
+                                                        api.putMemeQuickReply(meme.id, reply.text).onSuccess { updated ->
+                                                            if (updated != null) {
+                                                                floors = floors.map { if (it.id == updated.id) updated else it }
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                        ) {
+                                            Text(
+                                                text = "「$cleanBoost」" + if (reply.n > 1) " ×${reply.n}" else "",
+                                                color = lc.subText,
+                                                fontSize = 11.sp,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Authentic Discourse Post Controls (`ldControls`)
+                            val activeReactions = remember(meme.reactions) { meme.reactions.filter { it.count > 0 } }
+                            val rxTotal = remember(activeReactions) { activeReactions.sumOf { it.count } }
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 2.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                if (commentCount > 0 || commentsExpanded) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .clickable {
+                                                val next = !commentsExpanded
+                                                expandedFloorIds[meme.id] = next
+                                                if (next && floorCommentsMap[meme.id] == null) {
+                                                    floorCommentsLoading[meme.id] = true
+                                                    scope.launch {
+                                                        floorCommentsMap[meme.id] = api.fetchMemeComments(meme.id)
+                                                        floorCommentsLoading[meme.id] = false
+                                                    }
+                                                }
+                                            }
+                                            .padding(vertical = 4.dp, horizontal = 4.dp),
+                                    ) {
+                                        Text(
+                                            text = "${maxOf(commentCount, loadedComments.size)} 条回复",
+                                            color = lc.subText,
+                                            fontSize = 12.5.sp,
+                                            fontWeight = FontWeight.Medium,
+                                        )
+                                        Icon(
+                                            imageVector = if (commentsExpanded) Icons.Rounded.KeyboardArrowDown else Icons.Rounded.KeyboardArrowRight,
+                                            contentDescription = null,
+                                            tint = lc.muted,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                    }
+                                } else {
+                                    Spacer(Modifier.width(4.dp))
+                                }
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                ) {
+                                    if (rxTotal > 0) {
+                                        val topRx = activeReactions.first()
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(999.dp))
+                                                .background(lc.surfaceAlt)
+                                                .clickable {
+                                                    scope.launch {
+                                                        val updated = api.reactToMeme(meme.id, topRx.emoji)
+                                                        if (updated != null) {
+                                                            floors = floors.map { if (it.id == updated.id) updated else it }
+                                                        }
+                                                    }
+                                                }
+                                                .padding(horizontal = 7.dp, vertical = 2.dp),
+                                        ) {
+                                            activeReactions.take(3).forEach { r ->
+                                                Text(DisguiseSanitizer.mapStickerToSafeEmoji(r.emoji), fontSize = 12.sp)
+                                            }
+                                            Text("$rxTotal", color = lc.subText, fontSize = 11.sp)
+                                        }
+                                    }
+
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                        modifier = Modifier.clickable {
                                             scope.launch {
-                                                if (api.toggleFav(meme.id, meme.faved)) {
+                                                val obj = api.toggleLike(meme.id)
+                                                if (obj != null) {
+                                                    val delta = if (meme.liked) -1 else 1
                                                     floors = floors.map {
-                                                        if (it.id == meme.id) it.copy(faved = !meme.faved) else it
+                                                        if (it.id == meme.id) {
+                                                            it.copy(
+                                                                liked = !it.liked,
+                                                                likes = maxOf(0, likeCount + delta),
+                                                            )
+                                                        } else it
                                                     }
                                                 }
                                             }
                                         },
-                                )
+                                    ) {
+                                        if (likeCount > 0) {
+                                            Text(
+                                                text = "$likeCount",
+                                                color = if (meme.liked) lc.likeRed else lc.muted,
+                                                fontSize = 12.5.sp,
+                                            )
+                                        }
+                                        Icon(
+                                            imageVector = if (meme.liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                                            contentDescription = "点赞",
+                                            tint = if (meme.liked) lc.likeRed else lc.muted,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                    }
 
-                                Icon(
-                                    imageVector = Icons.Rounded.ContentCopy,
-                                    contentDescription = "复制楼层链接",
-                                    tint = lc.muted,
-                                    modifier = Modifier
-                                        .size(16.dp)
-                                        .clickable {
-                                            clipboard.setText(AnnotatedString("#$floorNum ${linuxDoFloorBody(meme)}"))
-                                            toastMsg = "已复制楼层链接"
-                                        },
-                                )
-
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(3.dp),
-                                    modifier = Modifier.clickable {
-                                        replyFloorTarget = floorNum to meme
-                                        showComposerSheet = true
-                                    },
-                                ) {
                                     Icon(
-                                        imageVector = Icons.AutoMirrored.Rounded.Reply,
-                                        contentDescription = "回复此楼",
-                                        tint = lc.accent,
-                                        modifier = Modifier.size(17.dp),
+                                        imageVector = Icons.Rounded.Link,
+                                        contentDescription = "复制楼层链接",
+                                        tint = lc.muted,
+                                        modifier = Modifier
+                                            .size(18.dp)
+                                            .clickable {
+                                                clipboard.setText(AnnotatedString("#$floorNum ${linuxDoFloorBody(meme)}"))
+                                                toastMsg = "已复制 #$floorNum 楼链接"
+                                            },
                                     )
-                                    Text("回复", color = lc.accent, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+
+                                    Icon(
+                                        imageVector = if (meme.faved) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+                                        contentDescription = "书签",
+                                        tint = if (meme.faved) lc.accent else lc.muted,
+                                        modifier = Modifier
+                                            .size(18.dp)
+                                            .clickable {
+                                                scope.launch {
+                                                    if (api.toggleFav(meme.id, meme.faved)) {
+                                                        floors = floors.map {
+                                                            if (it.id == meme.id) it.copy(faved = !meme.faved) else it
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                    )
+
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .clickable {
+                                                replyFloorTarget = floorNum to meme
+                                                showComposerSheet = true
+                                            }
+                                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Rounded.Reply,
+                                            contentDescription = "回复此楼",
+                                            tint = lc.subText,
+                                            modifier = Modifier.size(17.dp),
+                                        )
+                                        Text("回复", color = lc.subText, fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
+                                    }
                                 }
                             }
-                        }
 
-                        if (commentsExpanded) {
-                            Surface(
-                                color = lc.bg,
-                                shape = RoundedCornerShape(8.dp),
-                                border = BorderStroke(0.5.dp, lc.line),
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(10.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                            if (commentsExpanded) {
+                                Surface(
+                                    color = lc.bg,
+                                    shape = RoundedCornerShape(6.dp),
+                                    border = BorderStroke(0.5.dp, lc.line),
+                                    modifier = Modifier.fillMaxWidth(),
                                 ) {
-                                    if (commentsBusy) {
-                                        Text("加载回复中…", color = lc.muted, fontSize = 12.sp)
-                                    } else if (loadedComments.isEmpty()) {
-                                        Text("暂无内嵌回复", color = lc.muted, fontSize = 12.sp)
-                                    } else {
-                                        loadedComments.forEach { cm ->
-                                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Column(
+                                        modifier = Modifier.padding(10.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        if (commentsBusy) {
+                                            Text("正在展开回复…", color = lc.muted, fontSize = 12.sp)
+                                        } else if (loadedComments.isEmpty()) {
+                                            Text("暂无内嵌回复", color = lc.muted, fontSize = 12.sp)
+                                        } else {
+                                            loadedComments.forEachIndexed { cmIdx, cm ->
+                                                if (cmIdx > 0) HorizontalDivider(color = lc.line.copy(alpha = 0.7f))
+                                                val cmName = linuxDoSafeName(cm.displayAuthor)
                                                 Row(
                                                     modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                                                 ) {
-                                                    Text(
-                                                        text = linuxDoSafeName(cm.displayAuthor),
-                                                        color = lc.text,
-                                                        fontSize = 12.sp,
-                                                        fontWeight = FontWeight.SemiBold,
-                                                    )
-                                                    Text(
-                                                        text = FeishuDisguiseHelpers.formatClock(cm.createdAt),
-                                                        color = lc.muted,
-                                                        fontSize = 10.sp,
-                                                    )
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .padding(top = 2.dp)
+                                                            .size(24.dp)
+                                                            .clip(CircleShape)
+                                                            .background(FeishuDisguiseHelpers.imColor(cmName)),
+                                                        contentAlignment = Alignment.Center,
+                                                    ) {
+                                                        Text(cmName.take(1).uppercase(), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                                    }
+                                                    Column(
+                                                        modifier = Modifier.weight(1f),
+                                                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                                        ) {
+                                                            Text(cmName, color = lc.subText, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                                            Text(ldShortAgo(cm.createdAt), color = lc.muted, fontSize = 10.5.sp)
+                                                        }
+                                                        RichChatBodyView(
+                                                            rawBody = DisguiseSanitizer.sanitizeSummaryForDisguise(cm.body, AppDisguiseMode.LINUX_DO)
+                                                                .replace("欢友", "佬友"),
+                                                            imageLoader = api.imageLoader,
+                                                            textColor = lc.text,
+                                                            showInlineImages = false,
+                                                        )
+                                                    }
                                                 }
-                                                RichChatBodyView(
-                                                    rawBody = DisguiseSanitizer.sanitizeSummaryForDisguise(cm.body, AppDisguiseMode.LINUX_DO),
-                                                    imageLoader = api.imageLoader,
-                                                    textColor = lc.text,
-                                                    showInlineImages = false,
-                                                )
                                             }
                                         }
                                     }
                                 }
                             }
                         }
+                        HorizontalDivider(color = lc.line)
                     }
-                    HorizontalDivider(color = lc.line)
-                }
 
-                if (hasMore && floors.isNotEmpty()) {
-                    item(key = "load_more") {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable(enabled = !loadingMore) { reloadFloors(reset = false) }
-                                .padding(16.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = if (loadingMore) "加载后续楼层中…" else "点击加载更多楼层",
-                                color = lc.accent,
-                                fontSize = 13.sp,
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Bottom Discourse Reply Bar
-            HorizontalDivider(color = lc.line)
-            Surface(
-                color = lc.surface,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding(),
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Surface(
-                        color = lc.accent,
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable {
-                                replyFloorTarget = null
-                                showComposerSheet = true
-                            },
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center,
-                        ) {
-                            Icon(Icons.AutoMirrored.Rounded.Reply, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                text = "回复主题（盖新楼）",
-                                color = Color.White,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold,
-                            )
+                    if (hasMore && floors.isNotEmpty()) {
+                        item(key = "load_more") {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(enabled = !loadingMore) { reloadFloors(reset = false) }
+                                    .padding(16.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = if (loadingMore) "加载后续楼层中…" else "加载更多楼层",
+                                    color = lc.accent,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
                         }
                     }
                 }
             }
         }
 
-        // Bottom-right Floor Counter Pill (24dp safe margin from right edge)
-        if (!showLeftDrawer && !showChatDrawer && !showPrefsOverlay && !showTimeline) {
-            Surface(
-                color = lc.surface,
-                shape = RoundedCornerShape(999.dp),
-                shadowElevation = 4.dp,
-                border = BorderStroke(1.dp, lc.line),
+        // Authentic Mobile Discourse Bottom-Right Floating Topic Progress & Reply Bar (24dp safe edge margin)
+        if (activeTopic != null && !anyOverlayOpen) {
+            val progressRatio = remember(currentFloor, totalFloors) {
+                if (totalFloors <= 1) 1f else (currentFloor.toFloat() / totalFloors.toFloat()).coerceIn(0.08f, 1f)
+            }
+            Row(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .navigationBarsPadding()
-                    .padding(end = 24.dp, bottom = 72.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .clickable { showTimeline = true },
+                    .padding(end = 24.dp, bottom = 18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text(
-                    text = "$currentFloor / $totalFloors",
-                    color = lc.text,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    style = TextStyle(fontFeatureSettings = TABULAR_FONT_FEATURE),
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                )
+                Surface(
+                    color = lc.surface,
+                    shape = RoundedCornerShape(6.dp),
+                    shadowElevation = 4.dp,
+                    border = BorderStroke(1.dp, lc.accent.copy(alpha = 0.38f)),
+                    modifier = Modifier
+                        .height(36.dp)
+                        .width(92.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { showTimeline = true },
+                ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .fillMaxWidth(progressRatio)
+                                .height(3.dp)
+                                .background(lc.accent),
+                        )
+                        Text(
+                            text = "$currentFloor / $totalFloors",
+                            color = lc.accent,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            style = TextStyle(fontFeatureSettings = TABULAR_FONT_FEATURE),
+                            modifier = Modifier.align(Alignment.Center),
+                        )
+                    }
+                }
+
+                Surface(
+                    color = lc.accent,
+                    shape = RoundedCornerShape(6.dp),
+                    shadowElevation = 4.dp,
+                    modifier = Modifier
+                        .height(36.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable {
+                            replyFloorTarget = null
+                            showComposerSheet = true
+                        },
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Icon(Icons.AutoMirrored.Rounded.Reply, contentDescription = "回复话题", tint = Color.White, modifier = Modifier.size(16.dp))
+                        Text("回复", color = Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
             }
         }
 
@@ -1021,13 +1937,13 @@ fun LinuxDoDisguiseScreen(
 
                 Surface(
                     color = lc.surface,
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(12.dp),
                     shadowElevation = 8.dp,
                     border = BorderStroke(1.dp, lc.line),
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
                         .padding(end = 24.dp)
-                        .width(64.dp)
+                        .width(68.dp)
                         .height(310.dp)
                         .clickable(enabled = false) {},
                 ) {
@@ -1065,18 +1981,18 @@ fun LinuxDoDisguiseScreen(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .width(4.dp)
+                                    .width(3.dp)
                                     .fillMaxHeight()
                                     .clip(RoundedCornerShape(999.dp))
-                                    .background(lc.line),
+                                    .background(lc.accent.copy(alpha = 0.25f)),
                             )
                             val thumbY = (progress * (trackHeightPx - 36).coerceAtLeast(1)).roundToInt()
                             Box(
                                 modifier = Modifier
                                     .offset { IntOffset(0, thumbY) }
-                                    .width(28.dp)
+                                    .width(34.dp)
                                     .height(22.dp)
-                                    .clip(RoundedCornerShape(6.dp))
+                                    .clip(RoundedCornerShape(5.dp))
                                     .background(lc.accent),
                                 contentAlignment = Alignment.Center,
                             ) {
@@ -1105,7 +2021,7 @@ fun LinuxDoDisguiseScreen(
             }
         }
 
-        // Left Category & Display Drawer
+        // Left Discourse Sidebar Drawer (`话题 / 类别 / 标签 / 显示选项`)
         if (showLeftDrawer) {
             Box(
                 modifier = Modifier
@@ -1117,7 +2033,7 @@ fun LinuxDoDisguiseScreen(
                     color = lc.surface,
                     modifier = Modifier
                         .fillMaxHeight()
-                        .width(290.dp)
+                        .width(284.dp)
                         .clickable(enabled = false) {},
                 ) {
                     Column(
@@ -1127,20 +2043,73 @@ fun LinuxDoDisguiseScreen(
                             .navigationBarsPadding()
                             .verticalScroll(rememberScrollState())
                             .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("帖子显示与话题版块", color = lc.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                LinuxDoLogoMark(size = 22.dp, isDark = lc.isDark)
+                                Text("LINUX DO", color = lc.text, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                            }
                             IconButton(onClick = { showLeftDrawer = false }, modifier = Modifier.size(28.dp)) {
                                 Icon(Icons.Rounded.Close, contentDescription = "关闭", tint = lc.muted)
                             }
                         }
                         HorizontalDivider(color = lc.line)
 
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (activeTopic == null) lc.accent.copy(alpha = 0.10f) else Color.Transparent)
+                                .clickable {
+                                    activeTopic = null
+                                    homeCategoryFilter = null
+                                    showLeftDrawer = false
+                                }
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(Icons.Rounded.Forum, contentDescription = null, tint = if (activeTopic == null) lc.accent else lc.subText, modifier = Modifier.size(17.dp))
+                            Text("全部话题", color = if (activeTopic == null) lc.accent else lc.text, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                        }
+
+                        Text("类别", color = lc.muted, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                        LinuxDoTopicMeta.CATEGORIES.forEach { (catName, catColor) ->
+                            val selected = activeTopic == null && homeCategoryFilter == catName
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (selected) lc.accent.copy(alpha = 0.10f) else Color.Transparent)
+                                    .clickable {
+                                        activeTopic = null
+                                        homeCategoryFilter = catName
+                                        showLeftDrawer = false
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(9.dp),
+                            ) {
+                                Box(modifier = Modifier.size(10.dp).background(catColor))
+                                Text(
+                                    text = catName,
+                                    color = if (selected) lc.accent else lc.text,
+                                    fontSize = 13.5.sp,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                )
+                            }
+                        }
+
+                        HorizontalDivider(color = lc.line)
+                        Text("阅读与隐私选项", color = lc.muted, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                         LinuxDoSwitchRow(
                             title = "仅看未读楼层",
                             checked = unseenOnly,
@@ -1154,7 +2123,7 @@ fun LinuxDoDisguiseScreen(
                             onCheckedChange = { sortDesc = it },
                         )
                         LinuxDoSwitchRow(
-                            title = "图床附件默认保护遮罩",
+                            title = "图片默认保护遮罩",
                             checked = privacyConfig.blurAllEnabled,
                             lc = lc,
                             onCheckedChange = {
@@ -1162,30 +2131,28 @@ fun LinuxDoDisguiseScreen(
                             },
                         )
 
-                        HorizontalDivider(color = lc.line)
-                        Text("按话题标签筛选楼层", color = lc.muted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            FilterChip(
-                                selected = selectedTag == null,
-                                onClick = {
-                                    selectedTag = null
-                                    showLeftDrawer = false
-                                },
-                                label = { Text("全部楼层", fontSize = 12.sp) },
-                            )
-                            tagsList.forEach { t ->
-                                val cleanLabel = DisguiseSanitizer.sanitizeSummaryForDisguise(t.tag, AppDisguiseMode.LINUX_DO)
-                                FilterChip(
-                                    selected = selectedTag == t.tag,
-                                    onClick = {
-                                        selectedTag = t.tag
-                                        showLeftDrawer = false
-                                    },
-                                    label = { Text("#$cleanLabel (${t.totalCount})", fontSize = 12.sp) },
-                                )
+                        if (tagsList.isNotEmpty()) {
+                            HorizontalDivider(color = lc.line)
+                            Text("热门标签", color = lc.muted, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                tagsList.take(16).forEach { t ->
+                                    val cleanLabel = DisguiseSanitizer.sanitizeSummaryForDisguise(t.tag, AppDisguiseMode.LINUX_DO)
+                                    FilterChip(
+                                        selected = (activeTopic != null && selectedTag == t.tag) || (activeTopic == null && homeTagFilter == t.tag),
+                                        onClick = {
+                                            if (activeTopic != null) {
+                                                selectedTag = if (selectedTag == t.tag) null else t.tag
+                                            } else {
+                                                homeTagFilter = if (homeTagFilter == t.tag) null else t.tag
+                                            }
+                                            showLeftDrawer = false
+                                        },
+                                        label = { Text("$cleanLabel (${t.totalCount})", fontSize = 11.5.sp) },
+                                    )
+                                }
                             }
                         }
                     }
@@ -1241,7 +2208,7 @@ fun LinuxDoDisguiseScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
-                    .padding(bottom = 76.dp),
+                    .padding(bottom = 68.dp),
             ) {
                 Text(
                     text = toastMsg.orEmpty(),
@@ -1257,13 +2224,17 @@ fun LinuxDoDisguiseScreen(
         LinuxDoComposerSheet(
             api = api,
             replyFloorTarget = replyFloorTarget,
-            selectedTag = selectedTag,
+            selectedTag = selectedTag ?: activeTopic?.tagFilter ?: homeTagFilter,
             lc = lc,
             onPublishedFloor = {
                 showComposerSheet = false
                 replyFloorTarget = null
-                reloadFloors(reset = true)
-                toastMsg = "新楼层已发布"
+                if (activeTopic != null) {
+                    reloadFloors(reset = true)
+                } else {
+                    reloadHomeTopics()
+                }
+                toastMsg = if (activeTopic != null) "新楼层已发布" else "新话题内容已发布"
             },
             onRepliedToFloor = { targetId ->
                 showComposerSheet = false

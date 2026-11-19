@@ -58,10 +58,12 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.Reply
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AddCircleOutline
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CardGiftcard
+import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
@@ -72,8 +74,10 @@ import androidx.compose.material.icons.rounded.EmojiEmotions
 import androidx.compose.material.icons.rounded.EmojiEvents
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.FormatQuote
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.MenuBook
 import androidx.compose.material.icons.rounded.MoreHoriz
@@ -1064,7 +1068,13 @@ fun ChatScreen(
                     // Active Title Raffle banner (top of group)
                     if (activeHistory == null && activeRaffles.isNotEmpty()) {
                         val raffle = activeRaffles.first()
-                        Surface(color = palette.gold.copy(alpha = 0.14f)) {
+                        val raffleAccent = if (disguiseMode == AppDisguiseMode.NONE) palette.gold else palette.primary
+                        val raffleLabel = if (disguiseMode == AppDisguiseMode.NONE) {
+                            "头衔抽奖「${raffle.resolvedTitleName}」· ${raffle.resolvedParticipantCount}人已报名"
+                        } else {
+                            "群内抽签「${DisguiseSanitizer.sanitizeSummaryForDisguise(raffle.resolvedTitleName, disguiseMode)}」· ${raffle.resolvedParticipantCount}人已登记"
+                        }
+                        Surface(color = raffleAccent.copy(alpha = 0.12f)) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1072,9 +1082,9 @@ fun ChatScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                Icon(Icons.Rounded.EmojiEvents, contentDescription = null, tint = palette.gold, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Rounded.EmojiEvents, contentDescription = null, tint = raffleAccent, modifier = Modifier.size(16.dp))
                                 Text(
-                                    text = "头衔抽奖「${raffle.resolvedTitleName}」· ${raffle.resolvedParticipantCount}人已报名",
+                                    text = raffleLabel,
                                     color = palette.text,
                                     fontSize = 12.sp,
                                     maxLines = 1,
@@ -1082,7 +1092,7 @@ fun ChatScreen(
                                     modifier = Modifier.weight(1f),
                                 )
                                 Surface(
-                                    color = if (raffle.joined) palette.surface2 else palette.gold,
+                                    color = if (raffle.joined) palette.surface2 else raffleAccent,
                                     shape = RoundedCornerShape(999.dp),
                                     modifier = Modifier.clickable(enabled = !raffle.joined) {
                                         if (me == null) {
@@ -1096,7 +1106,7 @@ fun ChatScreen(
                                     },
                                 ) {
                                     Text(
-                                        text = if (raffle.joined) "已报名" else "一键报名",
+                                        text = if (raffle.joined) (if (disguiseMode == AppDisguiseMode.NONE) "已报名" else "已登记") else (if (disguiseMode == AppDisguiseMode.NONE) "一键报名" else "立即登记"),
                                         color = if (raffle.joined) palette.muted else Color.White,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.SemiBold,
@@ -1564,16 +1574,28 @@ fun ChatScreen(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
                                 ) {
+                                    val isFeishuDm = disguiseMode == AppDisguiseMode.FEISHU
+                                    val dmShape = when {
+                                        isFeishuDm && isMine -> RoundedCornerShape(topStart = 10.dp, topEnd = 2.dp, bottomEnd = 10.dp, bottomStart = 10.dp)
+                                        isFeishuDm -> RoundedCornerShape(topStart = 2.dp, topEnd = 10.dp, bottomEnd = 10.dp, bottomStart = 10.dp)
+                                        else -> RoundedCornerShape(15.dp)
+                                    }
                                     Column(horizontalAlignment = if (isMine) Alignment.End else Alignment.Start) {
                                         Surface(
-                                            color = if (isMine) palette.primaryContainer else palette.surface,
-                                            shape = RoundedCornerShape(15.dp),
+                                            color = if (isMine) palette.bubbleSelf else palette.surface,
+                                            shape = dmShape,
                                             modifier = Modifier
-                                                .widthIn(max = 300.dp)
-                                                .border(
-                                                    1.dp,
-                                                    if (isMine) palette.primary.copy(alpha = 0.35f) else palette.line,
-                                                    RoundedCornerShape(15.dp),
+                                                .widthIn(max = 286.dp)
+                                                .then(
+                                                    if (isFeishuDm) {
+                                                        Modifier
+                                                    } else {
+                                                        Modifier.border(
+                                                            1.dp,
+                                                            if (isMine) palette.primary.copy(alpha = 0.35f) else palette.line,
+                                                            dmShape,
+                                                        )
+                                                    },
                                                 )
                                                 .combinedClickable(
                                                     onClick = {},
@@ -1915,127 +1937,209 @@ fun ChatScreen(
             }
         }
 
-        // Slim Composer Capsule (`Emoji` + Input + `[＋]` + `Send`)
-        Surface(color = palette.surface) {
+        // Slim Composer Capsule (`Emoji` + Input + `[＋]` + `Send`; authentic Feishu 7.x bar in FEISHU mode)
+        val isFeishuComposer = disguiseMode == AppDisguiseMode.FEISHU
+        val composerSurfaceBg = if (isFeishuComposer) palette.surfaceRaised else palette.surface
+        Surface(color = composerSurfaceBg) {
             val swipeThresholdPx = with(density) { 48.dp.toPx() }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .imePadding()
-                    .padding(horizontal = 8.dp, vertical = 5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-            ) {
-                IconButton(
-                    onClick = {
-                        showAttachmentTray = false
-                        showStickerTray = !showStickerTray
-                    },
-                    modifier = Modifier.size(34.dp),
-                ) {
-                    Icon(
-                        Icons.Rounded.EmojiEmotions,
-                        contentDescription = "表情",
-                        tint = if (showStickerTray) palette.primary else palette.muted,
-                        modifier = Modifier.size(21.dp),
-                    )
+            Column {
+                if (isFeishuComposer) {
+                    HorizontalDivider(color = palette.line, thickness = 0.5.dp)
                 }
-
-                Surface(
-                    color = palette.surface2,
-                    shape = RoundedCornerShape(18.dp),
+                Row(
                     modifier = Modifier
-                        .weight(1f)
-                        .border(1.dp, palette.line.copy(alpha = 0.8f), RoundedCornerShape(18.dp))
-                        .pointerInput(activePane, activeRound?.messageId, draft, inputMode) {
-                            // Empty input horizontal swipe >= 48dp cycles 聊天 <-> 猜 <-> 问
-                            if (activePane == "group" && activeRound != null && draft.isEmpty()) {
-                                var totalDx = 0f
-                                detectHorizontalDragGestures(
-                                    onDragStart = { totalDx = 0f },
-                                    onDragEnd = {
-                                        if (kotlin.math.abs(totalDx) >= swipeThresholdPx) {
-                                            val modes = if (activeRound.canPlay) {
-                                                listOf(ChatInputMode.CHAT, ChatInputMode.GUESS, ChatInputMode.ASK)
-                                            } else {
-                                                listOf(ChatInputMode.CHAT)
-                                            }
-                                            if (modes.size > 1) {
-                                                val idx = modes.indexOf(inputMode)
-                                                val nextIdx = if (totalDx < 0f) (idx + 1) % modes.size else (idx - 1 + modes.size) % modes.size
-                                                inputMode = modes[nextIdx]
-                                                draft = controller.draftForGroup(state.activeGroupId, inputMode)
-                                            }
-                                        }
-                                        totalDx = 0f
-                                    },
-                                    onDragCancel = { totalDx = 0f },
-                                    onHorizontalDrag = { _, delta -> totalDx += delta },
-                                )
-                            }
-                        },
+                        .fillMaxWidth()
+                        .imePadding()
+                        .padding(horizontal = if (isFeishuComposer) 10.dp else 8.dp, vertical = if (isFeishuComposer) 7.dp else 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(if (isFeishuComposer) 8.dp else 5.dp),
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                    ) {
-                        if (draft.isEmpty()) {
-                            Text(
-                                text = when {
-                                    me == null -> "登录后参与聊天"
-                                    activePane == "dm" -> "发送私信…"
-                                    inputMode == ChatInputMode.GUESS -> if (disguiseMode != AppDisguiseMode.NONE) "输入待提交内容…" else "输入猜词答案（自动加 !）"
-                                    inputMode == ChatInputMode.ASK -> if (disguiseMode != AppDisguiseMode.NONE) "输入提问内容…" else "向欢欢提一个是非问题…"
-                                    else -> "发消息…"
+                    if (isFeishuComposer) {
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .border(1.4.dp, palette.muted.copy(alpha = 0.8f), CircleShape)
+                                .clickable {
+                                    showAttachmentTray = false
+                                    showStickerTray = !showStickerTray
                                 },
-                                color = palette.muted,
-                                fontSize = 14.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.GraphicEq,
+                                contentDescription = "快捷语音短语",
+                                tint = palette.muted,
+                                modifier = Modifier.size(16.dp),
                             )
                         }
-                        BasicTextField(
-                            value = draft,
-                            onValueChange = { next ->
-                                draft = next
-                                if (activePane == "group" && state.editTarget == null) {
-                                    controller.updateGroupDraft(state.activeGroupId, inputMode, next)
+                    } else {
+                        IconButton(
+                            onClick = {
+                                showAttachmentTray = false
+                                showStickerTray = !showStickerTray
+                            },
+                            modifier = Modifier.size(34.dp),
+                        ) {
+                            Icon(
+                                Icons.Rounded.EmojiEmotions,
+                                contentDescription = "表情",
+                                tint = if (showStickerTray) palette.primary else palette.muted,
+                                modifier = Modifier.size(21.dp),
+                            )
+                        }
+                    }
+
+                    val inputShape = RoundedCornerShape(if (isFeishuComposer) 8.dp else 18.dp)
+                    Surface(
+                        color = palette.surface2,
+                        shape = inputShape,
+                        modifier = Modifier
+                            .weight(1f)
+                            .then(
+                                if (isFeishuComposer) {
+                                    Modifier
+                                } else {
+                                    Modifier.border(1.dp, palette.line.copy(alpha = 0.8f), inputShape)
+                                },
+                            )
+                            .pointerInput(activePane, activeRound?.messageId, draft, inputMode) {
+                                // Empty input horizontal swipe >= 48dp cycles 聊天 <-> 猜 <-> 问
+                                if (activePane == "group" && activeRound != null && draft.isEmpty()) {
+                                    var totalDx = 0f
+                                    detectHorizontalDragGestures(
+                                        onDragStart = { totalDx = 0f },
+                                        onDragEnd = {
+                                            if (kotlin.math.abs(totalDx) >= swipeThresholdPx) {
+                                                val modes = if (activeRound.canPlay) {
+                                                    listOf(ChatInputMode.CHAT, ChatInputMode.GUESS, ChatInputMode.ASK)
+                                                } else {
+                                                    listOf(ChatInputMode.CHAT)
+                                                }
+                                                if (modes.size > 1) {
+                                                    val idx = modes.indexOf(inputMode)
+                                                    val nextIdx = if (totalDx < 0f) (idx + 1) % modes.size else (idx - 1 + modes.size) % modes.size
+                                                    inputMode = modes[nextIdx]
+                                                    draft = controller.draftForGroup(state.activeGroupId, inputMode)
+                                                }
+                                            }
+                                            totalDx = 0f
+                                        },
+                                        onDragCancel = { totalDx = 0f },
+                                        onHorizontalDrag = { _, delta -> totalDx += delta },
+                                    )
                                 }
                             },
-                            maxLines = 4,
-                            textStyle = TextStyle(color = palette.text, fontSize = 14.sp),
-                            cursorBrush = SolidColor(palette.primary),
-                            modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            if (draft.isEmpty()) {
+                                Text(
+                                    text = when {
+                                        me == null -> if (isFeishuComposer) "登录企业账号后发言" else "登录后参与聊天"
+                                        activePane == "dm" -> if (isFeishuComposer) "发送给同事…" else "发送私信…"
+                                        inputMode == ChatInputMode.GUESS -> if (disguiseMode != AppDisguiseMode.NONE) "输入待提交内容…" else "输入猜词答案（自动加 !）"
+                                        inputMode == ChatInputMode.ASK -> if (disguiseMode != AppDisguiseMode.NONE) "输入提问内容…" else "向欢欢提一个是非问题…"
+                                        isFeishuComposer -> "发送给当前群组…"
+                                        else -> "发消息…"
+                                    },
+                                    color = palette.muted,
+                                    fontSize = 14.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            BasicTextField(
+                                value = draft,
+                                onValueChange = { next ->
+                                    draft = next
+                                    if (activePane == "group" && state.editTarget == null) {
+                                        controller.updateGroupDraft(state.activeGroupId, inputMode, next)
+                                    }
+                                },
+                                maxLines = 4,
+                                textStyle = TextStyle(color = palette.text, fontSize = 14.sp),
+                                cursorBrush = SolidColor(palette.primary),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+
+                    if (isFeishuComposer) {
+                        IconButton(
+                            onClick = {
+                                showAttachmentTray = false
+                                showStickerTray = !showStickerTray
+                            },
+                            modifier = Modifier.size(30.dp),
+                        ) {
+                            Icon(
+                                Icons.Rounded.EmojiEmotions,
+                                contentDescription = "表情",
+                                tint = if (showStickerTray) palette.primary else palette.muted,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    }
+
+                    IconButton(
+                        onClick = {
+                            showStickerTray = false
+                            showAttachmentTray = !showAttachmentTray
+                        },
+                        modifier = Modifier.size(if (isFeishuComposer) 30.dp else 34.dp),
+                    ) {
+                        Icon(
+                            imageVector = when {
+                                showAttachmentTray -> Icons.Rounded.Close
+                                isFeishuComposer -> Icons.Rounded.AddCircleOutline
+                                else -> Icons.Rounded.Add
+                            },
+                            contentDescription = "更多功能",
+                            tint = if (showAttachmentTray) palette.primary else palette.muted,
+                            modifier = Modifier.size(if (isFeishuComposer) 23.dp else 21.dp),
                         )
                     }
-                }
 
-                IconButton(
-                    onClick = {
-                        showStickerTray = false
-                        showAttachmentTray = !showAttachmentTray
-                    },
-                    modifier = Modifier.size(34.dp),
-                ) {
-                    Icon(
-                        imageVector = if (showAttachmentTray) Icons.Rounded.Close else Icons.Rounded.Add,
-                        contentDescription = "更多功能",
-                        tint = if (showAttachmentTray) palette.primary else palette.muted,
-                        modifier = Modifier.size(21.dp),
-                    )
-                }
-
-                IconButton(
-                    onClick = { submitActiveDraft() },
-                    modifier = Modifier.size(34.dp),
-                ) {
-                    Icon(
-                        Icons.AutoMirrored.Rounded.Send,
-                        contentDescription = "发送",
-                        tint = if (draft.isNotBlank()) palette.primary else palette.muted,
-                        modifier = Modifier.size(20.dp),
-                    )
+                    if (!isFeishuComposer || draft.isNotBlank()) {
+                        if (isFeishuComposer) {
+                            Surface(
+                                color = palette.primary,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier
+                                    .height(32.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { submitActiveDraft() },
+                            ) {
+                                Box(
+                                    modifier = Modifier.padding(horizontal = 12.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        Icons.AutoMirrored.Rounded.Send,
+                                        contentDescription = "发送",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                            }
+                        } else {
+                            IconButton(
+                                onClick = { submitActiveDraft() },
+                                modifier = Modifier.size(34.dp),
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Rounded.Send,
+                                    contentDescription = "发送",
+                                    tint = if (draft.isNotBlank()) palette.primary else palette.muted,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -2817,8 +2921,10 @@ private fun SwipeableChatRow(
                         }
                     }
                     Text(shortTimeStr, color = palette.muted.copy(alpha = 0.7f), fontSize = 10.sp)
-                    msg.floor?.let { fl ->
-                        Text("${fl}楼", color = palette.muted.copy(alpha = 0.65f), fontSize = 10.sp)
+                    if (disguiseMode != AppDisguiseMode.FEISHU) {
+                        msg.floor?.let { fl ->
+                            Text("${fl}楼", color = palette.muted.copy(alpha = 0.65f), fontSize = 10.sp)
+                        }
                     }
                     if (!msg.deleted) {
                         Icon(
@@ -2832,29 +2938,39 @@ private fun SwipeableChatRow(
                 Spacer(Modifier.height(2.dp))
             }
 
+            val isFeishu = disguiseMode == AppDisguiseMode.FEISHU
             val redpackMeta = if (!msg.deleted) msg.parseRedpackMeta() else null
             val novelExcerpt = remember(msg.body, msg.deleted) {
                 if (!msg.deleted) ChatRichTextParser.parseNovelExcerpt(msg.body) else null
             }
             val bubbleBg = when {
                 isLinuxDo -> Color.Transparent
+                isFeishu && msg.mine -> palette.bubbleSelf
+                isFeishu -> palette.surface
                 msg.mine -> palette.primary.copy(alpha = 0.14f)
                 else -> palette.surface
             }
             val bubbleBorder = when {
                 isLinuxDo -> Color.Transparent
                 highlighted -> palette.gold
+                isFeishu -> Color.Transparent
                 msg.mine -> palette.primary.copy(alpha = 0.35f)
                 else -> palette.line
+            }
+            val bubbleShape = when {
+                isLinuxDo -> RoundedCornerShape(0.dp)
+                isFeishu && msg.mine -> RoundedCornerShape(topStart = 10.dp, topEnd = 2.dp, bottomEnd = 10.dp, bottomStart = 10.dp)
+                isFeishu -> RoundedCornerShape(topStart = 2.dp, topEnd = 10.dp, bottomEnd = 10.dp, bottomStart = 10.dp)
+                else -> RoundedCornerShape(15.dp)
             }
 
             Surface(
                 color = bubbleBg,
-                shape = RoundedCornerShape(if (isLinuxDo) 0.dp else 15.dp),
-                modifier = if (isLinuxDo) {
+                shape = bubbleShape,
+                modifier = if (isLinuxDo || (isFeishu && !highlighted)) {
                     Modifier
                 } else {
-                    Modifier.border(if (highlighted) 1.5.dp else 1.dp, bubbleBorder, RoundedCornerShape(15.dp))
+                    Modifier.border(if (highlighted) 1.5.dp else 1.dp, bubbleBorder, bubbleShape)
                 },
             ) {
                 Column(
@@ -2862,14 +2978,22 @@ private fun SwipeableChatRow(
                     verticalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
                     msg.replyTo?.let { rep ->
-                        val cleanRefText = remember(rep.resolvedText) {
-                            ChatRichTextParser.previewSummary(rep.resolvedText).ifBlank {
+                        val cleanRefText = remember(rep.resolvedText, disguiseMode) {
+                            val base = ChatRichTextParser.previewSummary(rep.resolvedText).ifBlank {
                                 if (rep.deleted) "消息已撤回" else if (rep.file != null) "[文件] ${rep.file}" else if (rep.hasImage || rep.thumb != null) "[图片]" else "…"
+                            }
+                            DisguiseSanitizer.sanitizeSummaryForDisguise(base, disguiseMode)
+                        }
+                        val repAuthor = remember(rep.id, rep.resolvedAuthor, isFeishu, stealth.feishuMemberAliasEnabled) {
+                            if (isFeishu && stealth.feishuMemberAliasEnabled) {
+                                DisguiseSanitizer.mapColleagueName(rep.id, rep.resolvedAuthor, true)
+                            } else {
+                                rep.resolvedAuthor
                             }
                         }
                         Surface(
                             color = palette.surface2,
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(if (isFeishu) 6.dp else 8.dp),
                             modifier = Modifier.clickable(enabled = rep.id > 0L) { onQuoteClick(rep.id) },
                         ) {
                             Row(
@@ -2877,8 +3001,16 @@ private fun SwipeableChatRow(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
+                                if (isFeishu) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(2.dp)
+                                            .height(14.dp)
+                                            .background(palette.primary.copy(alpha = 0.7f), RoundedCornerShape(2.dp)),
+                                    )
+                                }
                                 Text(
-                                    text = "${rep.resolvedAuthor}：$cleanRefText",
+                                    text = "$repAuthor：$cleanRefText",
                                     color = palette.muted,
                                     fontSize = 11.sp,
                                     maxLines = 2,
@@ -3055,20 +3187,42 @@ private fun SwipeableChatRow(
 
                 if (msg.replyCount > 0 && msg.id > 0L) {
                     Spacer(Modifier.height(3.dp))
-                    Surface(
-                        color = palette.surface2,
-                        shape = RoundedCornerShape(999.dp),
-                        modifier = Modifier
-                            .border(1.dp, palette.line.copy(alpha = 0.65f), RoundedCornerShape(999.dp))
-                            .clickable { onOpenRepliesSheet() },
-                    ) {
+                    if (isFeishu) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable { onOpenRepliesSheet() }
+                                .padding(horizontal = 2.dp, vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
                         ) {
-                            Icon(Icons.AutoMirrored.Rounded.Reply, contentDescription = null, tint = palette.primary, modifier = Modifier.size(12.dp))
-                            Text("${msg.replyCount} 条回复", color = palette.primary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                            Box(
+                                modifier = Modifier
+                                    .width(2.dp)
+                                    .height(13.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(palette.primary.copy(alpha = 0.78f)),
+                            )
+                            Icon(Icons.Rounded.ChatBubbleOutline, contentDescription = null, tint = palette.primary, modifier = Modifier.size(13.dp))
+                            Text("${msg.replyCount} 条回复", color = palette.primary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            Icon(Icons.Rounded.KeyboardArrowRight, contentDescription = null, tint = palette.primary, modifier = Modifier.size(14.dp))
+                        }
+                    } else {
+                        Surface(
+                            color = palette.surface2,
+                            shape = RoundedCornerShape(999.dp),
+                            modifier = Modifier
+                                .border(1.dp, palette.line.copy(alpha = 0.65f), RoundedCornerShape(999.dp))
+                                .clickable { onOpenRepliesSheet() },
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                            ) {
+                                Icon(Icons.AutoMirrored.Rounded.Reply, contentDescription = null, tint = palette.primary, modifier = Modifier.size(12.dp))
+                                Text("${msg.replyCount} 条回复", color = palette.primary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                            }
                         }
                     }
                 }
@@ -3180,21 +3334,37 @@ private fun ChatBoostsBlock(
     onTapBoost: (ChatBoost) -> Unit,
 ) {
     val palette = LocalForHappyPalette.current
+    val stealth = LocalPrivacyStealthConfig.current
+    val disguiseMode = stealth.disguiseMode
     val aiBoosts = remember(boosts) { boosts.filter { it.ai } }
     val userBoosts = remember(boosts) { boosts.filter { !it.ai } }
 
     Column(horizontalAlignment = if (mineAlignEnd) Alignment.End else Alignment.Start, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         aiBoosts.forEach { b ->
+            val aiTitle = when (disguiseMode) {
+                AppDisguiseMode.FEISHU -> "智能助手摘要"
+                AppDisguiseMode.LINUX_DO -> "Bot 自动小结"
+                AppDisguiseMode.NONE -> "欢欢 AI 回应"
+            }
+            val aiShort = if (disguiseMode == AppDisguiseMode.NONE) "欢欢" else "助"
             Surface(
                 color = palette.primary.copy(alpha = 0.09f),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.border(1.dp, palette.primary.copy(alpha = 0.30f), RoundedCornerShape(12.dp)),
             ) {
                 Row(modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    ForHappyAvatar(username = "欢欢", avatarUrl = b.avatar, imageLoader = api.imageLoader, size = 18.dp)
+                    ForHappyAvatar(username = aiShort, avatarUrl = if (disguiseMode == AppDisguiseMode.NONE) b.avatar else null, imageLoader = api.imageLoader, size = 18.dp)
                     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text("欢欢 AI 回应", color = palette.primary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        Text(b.text.ifBlank { if (b.status == "thinking") "思考中…" else "…" }, color = palette.text, fontSize = 12.sp, lineHeight = 17.sp)
+                        Text(aiTitle, color = palette.primary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = DisguiseSanitizer.sanitizeSummaryForDisguise(
+                                b.text.ifBlank { if (b.status == "thinking") "处理中…" else "…" },
+                                disguiseMode,
+                            ),
+                            color = palette.text,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                        )
                         b.score?.let { sc ->
                             LinearProgressIndicator(
                                 progress = { sc.coerceIn(0, 100) / 100f },
@@ -3211,16 +3381,27 @@ private fun ChatBoostsBlock(
         if (userBoosts.isNotEmpty()) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp, if (mineAlignEnd) Alignment.End else Alignment.Start), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 userBoosts.forEach { b ->
+                    val bAuthor = if (disguiseMode == AppDisguiseMode.FEISHU && stealth.feishuMemberAliasEnabled) {
+                        DisguiseSanitizer.mapColleagueName(b.displayAuthor.hashCode().toLong(), b.displayAuthor, true)
+                    } else {
+                        b.displayAuthor
+                    }
                     Surface(
                         color = if (b.mine) palette.primary.copy(alpha = 0.16f) else palette.surface2,
                         shape = RoundedCornerShape(999.dp),
                         modifier = Modifier
-                            .border(1.dp, if (b.mine) palette.primary.copy(alpha = 0.50f) else palette.line.copy(alpha = 0.70f), RoundedCornerShape(999.dp))
+                            .then(
+                                if (disguiseMode == AppDisguiseMode.FEISHU) {
+                                    Modifier
+                                } else {
+                                    Modifier.border(1.dp, if (b.mine) palette.primary.copy(alpha = 0.50f) else palette.line.copy(alpha = 0.70f), RoundedCornerShape(999.dp))
+                                },
+                            )
                             .clickable { onTapBoost(b) },
                     ) {
                         Row(modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            ForHappyAvatar(username = b.displayAuthor, avatarUrl = b.avatar, imageLoader = api.imageLoader, size = 15.dp)
-                            BoostPillText(text = b.text, imageLoader = api.imageLoader, fontSize = 11.sp)
+                            ForHappyAvatar(username = bAuthor, avatarUrl = if (disguiseMode == AppDisguiseMode.FEISHU) null else b.avatar, imageLoader = api.imageLoader, size = 15.dp)
+                            BoostPillText(text = DisguiseSanitizer.sanitizeSummaryForDisguise(b.text, disguiseMode), imageLoader = api.imageLoader, fontSize = 11.sp)
                         }
                     }
                 }

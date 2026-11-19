@@ -2,14 +2,18 @@ package com.jinhuan.forhappy
 
 import com.jinhuan.forhappy.core.model.AppDisguiseMode
 import com.jinhuan.forhappy.core.model.AppIconAlias
+import com.jinhuan.forhappy.core.model.MemeItem
+import com.jinhuan.forhappy.core.model.MemeMediaItem
 import com.jinhuan.forhappy.core.model.PrivacyStealthConfig
 import com.jinhuan.forhappy.ui.disguise.DisguiseSanitizer
 import com.jinhuan.forhappy.ui.disguise.FeishuDisguiseHelpers
 import com.jinhuan.forhappy.ui.disguise.LinuxDoTopicMeta
+import com.jinhuan.forhappy.ui.disguise.feishuMemeOptionalText
 import com.jinhuan.forhappy.ui.disguise.safeIconAliasTitle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -83,9 +87,31 @@ class Phase6DisguiseAndStealthTest {
         LinuxDoTopicMeta.TAGS.forEach { tag ->
             assertEquals(emptyList<String>(), DisguiseSanitizer.findForbiddenTerms(tag))
         }
+        LinuxDoTopicMeta.CATEGORIES.forEach { (catName, _) ->
+            assertEquals(emptyList<String>(), DisguiseSanitizer.findForbiddenTerms(catName))
+        }
         FeishuDisguiseHelpers.IM_GROUPS.forEach { group ->
             assertEquals("Group $group contains forbidden term", emptyList<String>(), DisguiseSanitizer.findForbiddenTerms(group))
         }
+        for (d in 10..22) {
+            val cleanGroupTitle = FeishuDisguiseHelpers.imConversationGroupTitle("2026-11-$d")
+            assertEquals(emptyList<String>(), DisguiseSanitizer.findForbiddenTerms(cleanGroupTitle))
+            assertFalse(cleanGroupTitle.contains("11月"))
+        }
+        val mediaOnlyMeme = MemeItem(
+            id = 8801L,
+            image = "https://img.52dmeme.com/test.webp",
+            images = listOf(MemeMediaItem(u = "https://img.52dmeme.com/test.webp")),
+        )
+        assertNull(feishuMemeOptionalText(mediaOnlyMeme))
+
+        val captionedMeme = MemeItem(
+            id = 8802L,
+            content = "尽欢图廊摸鱼素材",
+            images = listOf(MemeMediaItem(u = "https://img.52dmeme.com/test.webp")),
+        )
+        val cleanedCaption = feishuMemeOptionalText(captionedMeme).orEmpty()
+        assertEquals(emptyList<String>(), DisguiseSanitizer.findForbiddenTerms(cleanedCaption))
         FeishuDisguiseHelpers.IM_NAMES.forEach { name ->
             assertEquals(emptyList<String>(), DisguiseSanitizer.findForbiddenTerms(name))
         }

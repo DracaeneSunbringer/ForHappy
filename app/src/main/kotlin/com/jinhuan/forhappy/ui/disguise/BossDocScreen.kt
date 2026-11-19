@@ -44,6 +44,7 @@ import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.ThumbUpOffAlt
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,6 +52,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -340,12 +342,16 @@ fun BossDocScreen(
             .background(bg)
             .navigationBarsPadding(),
     ) {
+        val scrolledPastDocH1 by remember {
+            derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 88 }
+        }
+
         Column(modifier = Modifier.fillMaxSize()) {
-            // Feishu Cloud Doc top breadcrumb bar
+            // Authentic Feishu Mobile Cloud Doc Top Bar (minimal chrome; title reveals on scroll)
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(barBg)
+                    .background(bg)
                     .statusBarsPadding(),
             ) {
                 Row(
@@ -363,40 +369,51 @@ fun BossDocScreen(
                             imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
                             contentDescription = "知识库目录",
                             tint = ink,
-                            modifier = Modifier.size(24.dp),
+                            modifier = Modifier.size(25.dp),
                         )
                     }
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(docBlue),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Description,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(15.dp),
-                        )
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    Column(modifier = Modifier.weight(1f)) {
+
+                    if (scrolledPastDocH1) {
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { scope.launch { listState.animateScrollToItem(0) } },
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .clip(RoundedCornerShape(5.dp))
+                                    .background(docBlue),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Description,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(13.dp),
+                                )
+                            }
+                            Text(
+                                text = "2026 Q4 项目复盘与规划",
+                                color = ink,
+                                fontSize = 14.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    } else {
                         Text(
-                            text = "知识库 / 产品中心 / 2026 Q4 项目复盘与规划",
-                            color = ink,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            text = "已自动保存到云端",
+                            text = "已保存到云端",
                             color = muted,
-                            fontSize = 10.sp,
+                            fontSize = 11.5.sp,
                             maxLines = 1,
+                            modifier = Modifier.weight(1f),
                         )
                     }
+
                     Spacer(Modifier.width(4.dp))
                     Row(
                         horizontalArrangement = Arrangement.spacedBy((-4).dp),
@@ -414,15 +431,21 @@ fun BossDocScreen(
                             }
                         },
                     ) {
-                        BossCollabDot("产", docBlue, barBg)
-                        BossCollabDot("研", Color(0xFF14B8A6), barBg)
-                        BossCollabDot("设", Color(0xFFFF7D00), barBg)
+                        BossCollabDot("产", docBlue, bg)
+                        BossCollabDot("研", Color(0xFF14B8A6), bg)
+                        BossCollabDot("设", Color(0xFFFF7D00), bg)
+                    }
+                    IconButton(
+                        onClick = { docToast = "链接已复制（企业内成员可阅读）" },
+                        modifier = Modifier.size(34.dp),
+                    ) {
+                        Icon(Icons.Rounded.Share, contentDescription = "分享文档", tint = ink, modifier = Modifier.size(18.dp))
                     }
                     IconButton(
                         onClick = { showOutlineDrawer = !showOutlineDrawer },
                         modifier = Modifier.size(34.dp),
                     ) {
-                        Icon(Icons.Rounded.Menu, contentDescription = "文档大纲", tint = ink, modifier = Modifier.size(19.dp))
+                        Icon(Icons.Rounded.MoreHoriz, contentDescription = "文档更多与目录", tint = ink, modifier = Modifier.size(20.dp))
                     }
                     if (isPreviewMode) {
                         Surface(
@@ -440,43 +463,9 @@ fun BossDocScreen(
                         }
                     }
                 }
-
-                // Document outline strip
-                LazyRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(barBg)
-                        .padding(bottom = 8.dp),
-                    contentPadding = PaddingValues(horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    itemsIndexed(outlineItems) { idx, (label, itemIdx) ->
-                        val on = activeOutline == idx
-                        Surface(
-                            color = if (on) calloutBg else bg,
-                            shape = RoundedCornerShape(999.dp),
-                            modifier = Modifier
-                                .border(
-                                    1.dp,
-                                    if (on) docBlue.copy(alpha = 0.45f) else line,
-                                    RoundedCornerShape(999.dp),
-                                )
-                                .clickable {
-                                    activeOutline = idx
-                                    scope.launch { listState.animateScrollToItem(itemIdx) }
-                                },
-                        ) {
-                            Text(
-                                text = label,
-                                color = if (on) docBlue else subInk,
-                                fontSize = 11.sp,
-                                fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                            )
-                        }
-                    }
+                if (scrolledPastDocH1) {
+                    HorizontalDivider(color = line, thickness = 0.5.dp)
                 }
-                HorizontalDivider(color = line)
             }
 
             // Document body
@@ -486,18 +475,35 @@ fun BossDocScreen(
                     .weight(1f)
                     .fillMaxWidth()
                     .background(bg),
-                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 18.dp),
+                contentPadding = PaddingValues(start = 20.dp, end = 24.dp, top = 12.dp, bottom = 22.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                // Item 0: Title + Metadata (covert 2000ms long-press on title exits Boss Doc with zero visual clue)
+                // Item 0: Breadcrumb + Title + Metadata (covert 2000ms long-press on title exits Boss Doc)
                 item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            modifier = Modifier.clickable { showFakeKnowledgeBase = true },
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.FolderOpen,
+                                contentDescription = null,
+                                tint = docBlue,
+                                modifier = Modifier.size(14.dp),
+                            )
+                            Text(
+                                text = "项目管理办公室 / 季度复盘归档",
+                                color = muted,
+                                fontSize = 12.sp,
+                            )
+                        }
                         Text(
                             text = "2026 Q4 项目复盘与规划",
                             color = ink,
-                            fontSize = 24.sp,
+                            fontSize = 25.sp,
                             fontWeight = FontWeight.Bold,
-                            lineHeight = 31.sp,
+                            lineHeight = 33.sp,
                             modifier = Modifier.pointerInput(longPressTitleEnabled, isPreviewMode) {
                                 if (!longPressTitleEnabled || isPreviewMode) return@pointerInput
                                 awaitEachGesture {
@@ -513,30 +519,49 @@ fun BossDocScreen(
                                 }
                             },
                         )
-                        Text(
-                            text = "王芳 $modifiedStamp 更新 · 协作者 6 人",
-                            color = muted,
-                            fontSize = 12.sp,
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .clip(CircleShape)
+                                    .background(docBlue),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text("王", color = Color.White, fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Text(
+                                text = "王芳 创建 · $modifiedStamp 修改 · 阅读 48",
+                                color = muted,
+                                fontSize = 12.sp,
+                            )
+                        }
                     }
                 }
 
-                // Item 1: Callout box
+                // Item 1: Authentic Feishu Callout Block
                 item {
                     Surface(
                         color = calloutBg,
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(1.dp, docBlue.copy(alpha = 0.18f), RoundedCornerShape(10.dp)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(
-                            text = "📌 本文档用于周五复盘会前对齐，请各模块负责人在周四 18:00 前补充本组内容。",
-                            color = ink,
-                            fontSize = 13.sp,
-                            lineHeight = 20.sp,
-                            modifier = Modifier.padding(12.dp),
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            Text("📌", fontSize = 14.sp)
+                            Text(
+                                text = "本文档用于周五复盘会前对齐，请各模块负责人在周四 18:00 前补充本组内容。",
+                                color = ink,
+                                fontSize = 13.5.sp,
+                                lineHeight = 20.sp,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
                     }
                 }
 
@@ -689,47 +714,87 @@ fun BossDocScreen(
                 }
             }
 
-            // Bottom Feishu Doc Action Bar (`💬 评论 3 | ↗ 分享 | ⋯`)
-            HorizontalDivider(color = line)
+            // Authentic Feishu Mobile Docs Bottom Comment Capsule & Reaction Bar
+            HorizontalDivider(color = line, thickness = 0.5.dp)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(46.dp)
-                    .background(barBg)
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.SpaceAround,
+                    .height(48.dp)
+                    .background(bg)
+                    .padding(horizontal = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(32.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(bossPalette.tableHeader)
+                        .clickable { docToast = "企业全员只读权限 · 暂无新评论" }
+                        .padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    Text("添加全文评论…", color = muted, fontSize = 12.5.sp)
+                }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { docToast = "暂无新评论（共 3 条已解决）" }
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { docToast = "已为本文档点赞" }
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                ) {
+                    Icon(Icons.Rounded.ThumbUpOffAlt, contentDescription = "点赞", tint = subInk, modifier = Modifier.size(17.dp))
+                    Text("6", color = subInk, fontSize = 12.sp)
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { docToast = "共 3 条协作者批注（均已解决）" }
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
                 ) {
                     Icon(Icons.Rounded.ChatBubbleOutline, contentDescription = "评论", tint = subInk, modifier = Modifier.size(16.dp))
-                    Text("评论 3", color = subInk, fontSize = 12.sp)
+                    Text("3", color = subInk, fontSize = 12.sp)
                 }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                Icon(
+                    imageVector = Icons.Rounded.Menu,
+                    contentDescription = "目录",
+                    tint = subInk,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { docToast = "链接已复制到剪贴板" }
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                ) {
-                    Icon(Icons.Rounded.Share, contentDescription = "分享", tint = subInk, modifier = Modifier.size(16.dp))
-                    Text("分享", color = subInk, fontSize = 12.sp)
-                }
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { docToast = "文档权限：企业内可阅读" }
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                ) {
-                    Icon(Icons.Rounded.MoreHoriz, contentDescription = "更多", tint = subInk, modifier = Modifier.size(18.dp))
+                        .size(20.dp)
+                        .clickable { showOutlineDrawer = true },
+                )
+            }
+        }
+
+        // Authentic Feishu Mobile Docs Right-Edge Floating Mini-Outline Ticks
+        if (!showOutlineDrawer) {
+            val approxSection = (listState.firstVisibleItemIndex - 2).coerceIn(0, outlineItems.lastIndex)
+            Column(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 5.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable {
+                        activeOutline = approxSection
+                        showOutlineDrawer = true
+                    }
+                    .padding(horizontal = 4.dp, vertical = 8.dp),
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                outlineItems.indices.forEach { idx ->
+                    val on = approxSection == idx
+                    Box(
+                        modifier = Modifier
+                            .width(if (on) 14.dp else 9.dp)
+                            .height(2.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(if (on) docBlue else muted.copy(alpha = 0.36f)),
+                    )
                 }
             }
         }
