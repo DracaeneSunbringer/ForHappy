@@ -3,8 +3,11 @@ package com.jinhuan.forhappy
 import com.jinhuan.forhappy.core.model.DayEntry
 import com.jinhuan.forhappy.core.model.ForHappyJson
 import com.jinhuan.forhappy.core.model.MemeItem
+import com.jinhuan.forhappy.core.model.MemesPageResponse
 import com.jinhuan.forhappy.core.model.SeenVisitEntry
 import com.jinhuan.forhappy.core.seen.SeenTracker
+import com.jinhuan.forhappy.core.seen.computeVisibleAreaRatio
+import com.jinhuan.forhappy.core.seen.shouldCountSeenDwell
 import com.jinhuan.forhappy.ui.disguise.FeishuDisguiseHelpers
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -122,5 +125,66 @@ class SeenTrackerAndDisguiseTest {
         assertEquals("韩冰", FeishuDisguiseHelpers.imFake(12720L))
         // epochDay(2026-11-17) = 20774 -> 20774 % 12 = 2 -> "设计走查"
         assertEquals("设计走查 · 11月17日", FeishuDisguiseHelpers.imGroupName("2026-11-17"))
+    }
+
+    @Test
+    fun tallSingleColumnCardMeetsSeenCoverageAgainstClippedViewport() {
+        // Card height = 2600px (> viewport height 1000px). Filling the 1000px viewport must yield 1.0f, not 1000/2600=0.38f!
+        val fullViewportRatio = computeVisibleAreaRatio(
+            itemTopPx = -400f,
+            itemBottomPx = 2200f,
+            viewportTopPx = 0f,
+            viewportBottomPx = 1000f,
+        )
+        assertEquals(1.0f, fullViewportRatio, 0.001f)
+        assertTrue(
+            shouldCountSeenDwell(
+                memeId = 12800L,
+                isMediaReady = true,
+                isBlurred = false,
+                visibleRatio = fullViewportRatio,
+                scrollSpeedDpPerSec = 0f,
+            ),
+        )
+
+        // When scrolled mostly off so only 400px of the 1000px viewport is covered -> 0.40f (< 0.60f)
+        val partialRatio = computeVisibleAreaRatio(
+            itemTopPx = 600f,
+            itemBottomPx = 3200f,
+            viewportTopPx = 0f,
+            viewportBottomPx = 1000f,
+        )
+        assertEquals(0.40f, partialRatio, 0.001f)
+        assertFalse(
+            shouldCountSeenDwell(
+                memeId = 12800L,
+                isMediaReady = true,
+                isBlurred = false,
+                visibleRatio = partialRatio,
+                scrollSpeedDpPerSec = 0f,
+            ),
+        )
+    }
+
+    @Test
+    fun memesPageResponsePreservesUnseenSnapshotAnchorAndTotals() {
+        val resp = MemesPageResponse(
+            items = listOf(MemeItem(id = 12801L, day = "2026-11-19")),
+            offset = 0,
+            more = true,
+            anchor = "1795060123",
+            unseenTotal = 42,
+            total = 120,
+        )
+        val encoded = ForHappyJson.encodeToString(MemesPageResponse.serializer(), resp)
+        val decoded = ForHappyJson.decodeFromString<MemesPageResponse>(encoded)
+        assertEquals("1795060123", decoded.anchor)
+        assertEquals(42, decoded.unseenTotal)
+        assertEquals(120, decoded.total)
+
+        // MemeItem without explicit `day` resolves UTC+8 day from `created_at`
+        // 1794933000 UTC = 2026-11-18 00:30:00 CST (UTC+8)
+        val noDayMeme = MemeItem(id = 12805L, day = null, createdAt = 1794933000L)
+        assertEquals("2026-11-18", noDayMeme.resolvedDay)
     }
 }

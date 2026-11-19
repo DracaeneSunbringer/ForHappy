@@ -75,10 +75,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -89,6 +91,8 @@ import coil3.compose.AsyncImage
 import com.jinhuan.forhappy.core.chat.ChatRichTextParser
 import com.jinhuan.forhappy.core.chat.ChatSessionController
 import com.jinhuan.forhappy.core.clock.ServerClock
+import com.jinhuan.forhappy.core.cosmetics.BadgeAndCosmeticRegistry
+import com.jinhuan.forhappy.core.model.AppDisguiseMode
 import com.jinhuan.forhappy.core.model.ChatGoneGroup
 import com.jinhuan.forhappy.core.model.ChatGroup
 import com.jinhuan.forhappy.core.model.ChatMessage
@@ -100,10 +104,14 @@ import com.jinhuan.forhappy.core.model.MeUser
 import com.jinhuan.forhappy.core.model.UnifiedSessionItem
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
+import com.jinhuan.forhappy.ui.components.BadgeChipView
 import com.jinhuan.forhappy.ui.components.BadgePill
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
+import com.jinhuan.forhappy.ui.components.TitleChipView
+import com.jinhuan.forhappy.ui.components.parseSafeHex
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
+import com.jinhuan.forhappy.ui.theme.LocalPrivacyStealthConfig
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -1437,7 +1445,7 @@ fun GroupInfoDialog(
 /**
  * Bottom sheet shown when tapping a group member's avatar (`02c §1`).
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun MemberProfileSheet(
     member: GroupMemberItem,
@@ -1480,10 +1488,37 @@ fun MemberProfileSheet(
                     size = 54.dp,
                 )
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(member.displayName, color = palette.text, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                        member.title?.takeIf { it.isNotBlank() }?.let {
-                            BadgePill(it, containerColor = palette.gold.copy(alpha = 0.2f), contentColor = palette.gold)
+                    val disguiseMode = LocalPrivacyStealthConfig.current.disguiseMode
+                    val memberIdentity = remember(member.deco, disguiseMode) {
+                        if (disguiseMode == AppDisguiseMode.NONE) {
+                            BadgeAndCosmeticRegistry.resolveEquippedIdentity(member.deco, where = "card")
+                        } else {
+                            null
+                        }
+                    }
+                    val gradColors = remember(memberIdentity?.nickGradientHexes, palette.text) {
+                        memberIdentity?.nickGradientHexes?.map { parseSafeHex(it, palette.text) }?.takeIf { it.size >= 2 }
+                    }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = member.displayName,
+                            style = if (gradColors != null) {
+                                TextStyle(brush = Brush.horizontalGradient(gradColors), fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                            } else {
+                                TextStyle(color = palette.text, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                            },
+                        )
+                        if (disguiseMode == AppDisguiseMode.NONE) {
+                            if (memberIdentity?.title != null) {
+                                TitleChipView(title = memberIdentity.title)
+                            } else {
+                                member.title?.takeIf { it.isNotBlank() }?.let {
+                                    BadgePill(it, containerColor = palette.gold.copy(alpha = 0.2f), contentColor = palette.gold)
+                                }
+                            }
+                            memberIdentity?.badge?.let {
+                                BadgeChipView(badge = it, imageLoader = api.imageLoader, mini = false)
+                            }
                         }
                     }
                     if (member.username.isNotBlank()) {

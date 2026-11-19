@@ -1,5 +1,6 @@
 package com.jinhuan.forhappy.ui.disguise
 
+import android.graphics.RectF
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -75,6 +76,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -91,6 +93,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -120,6 +124,9 @@ import com.jinhuan.forhappy.core.model.ShortcutGestureMode
 import com.jinhuan.forhappy.core.model.TagStatItem
 import com.jinhuan.forhappy.core.navigation.StealthExemptionGate
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
+import com.jinhuan.forhappy.core.seen.LocalSeenTracker
+import com.jinhuan.forhappy.core.seen.ObserveMemeSeenDwell
+import com.jinhuan.forhappy.core.seen.computeVisibleAreaRatio
 import com.jinhuan.forhappy.ui.chat.ChatScreen
 import com.jinhuan.forhappy.ui.components.ReactionChip
 import com.jinhuan.forhappy.ui.components.RichChatBodyView
@@ -256,6 +263,7 @@ fun LinuxDoDisguiseScreen(
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val bossKeyActive = LocalBossKeyActive.current
+    val seenTracker = LocalSeenTracker.current
     val chatState by chatController.uiState.collectAsState()
 
     var floors by remember { mutableStateOf<List<MemeItem>>(emptyList()) }
@@ -263,6 +271,9 @@ fun LinuxDoDisguiseScreen(
     var loading by remember { mutableStateOf(true) }
     var loadingMore by remember { mutableStateOf(false) }
     var hasMore by remember { mutableStateOf(true) }
+    var currentPage by remember { mutableIntStateOf(1) }
+    var unseenAnchor by remember { mutableStateOf<String?>(null) }
+    var feedViewportRect by remember { mutableStateOf(RectF()) }
 
     var selectedTag by remember { mutableStateOf<String?>(null) }
     var unseenOnly by remember { mutableStateOf(false) }
@@ -283,7 +294,7 @@ fun LinuxDoDisguiseScreen(
 
     var showComposerSheet by remember { mutableStateOf(false) }
     var replyFloorTarget by remember { mutableStateOf<Pair<Int, MemeItem>?>(null) }
-    var viewerState by remember { mutableStateOf<Pair<List<MemeMediaItem>, Int>?>(null) }
+    var viewerState by remember { mutableStateOf<Triple<List<MemeMediaItem>, Int, MemeItem?>?>(null) }
     var toastMsg by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(toastMsg) {
@@ -296,17 +307,44 @@ fun LinuxDoDisguiseScreen(
     fun reloadFloors(reset: Boolean = true) {
         scope.launch {
             if (reset) loading = true else loadingMore = true
-            val offset = if (reset) 0 else floors.size
+            if (unseenOnly) {
+                seenTracker?.flushNow()
+            }
+            if (reset) {
+                currentPage = 1
+                unseenAnchor = null
+            }
+            val guestSnap = if (me == null && unseenOnly) {
+                seenTracker?.guestSeenSnapshot().orEmpty()
+            } else {
+                emptyList()
+            }
+            val targetPage = if (reset) 1 else currentPage + 1
             val page = api.fetchMemesPage(
                 limit = 30,
-                offset = offset,
+                offset = if (reset) 0 else floors.size,
+                page = targetPage,
                 tag = selectedTag,
                 query = searchQuery.trim().takeIf { it.isNotBlank() },
                 sort = "new",
                 unseenOnly = unseenOnly,
+                beforeAnchor = if (reset) null else unseenAnchor,
+                guestSeenIds = guestSnap,
             )
-            floors = if (reset) page.items else (floors + page.items).distinctBy { it.id }
-            hasMore = page.more
+            if (!reset) {
+                currentPage = targetPage
+            }
+            if (unseenAnchor == null && page.anchor != null) {
+                unseenAnchor = page.anchor
+            }
+            seenTracker?.ingestFetchedMemes(page.items)
+            val incoming = if (unseenOnly) {
+                page.items.filter { seenTracker?.isSeen(it.id, it.seenAt) != true }
+            } else {
+                page.items
+            }
+            floors = if (reset) incoming else (floors + incoming).distinctBy { it.id }
+            hasMore = page.more && page.items.isNotEmpty()
             if (reset) loading = false else loadingMore = false
         }
     }
@@ -482,7 +520,11 @@ fun LinuxDoDisguiseScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .background(lc.surface),
+                    .background(lc.surface)
+                    .onGloballyPositioned { coords ->
+                        val b = coords.boundsInWindow()
+                        feedViewportRect = RectF(b.left, b.top, b.right, b.bottom)
+                    },
             ) {
                 item(key = "op_header") {
                     Column(
@@ -570,10 +612,33 @@ fun LinuxDoDisguiseScreen(
                     val commentsExpanded = expandedFloorIds[meme.id] == true
                     val loadedComments = floorCommentsMap[meme.id].orEmpty()
                     val commentsBusy = floorCommentsLoading[meme.id] == true
+                    val hasMedia = remember(meme.id, meme.images, meme.image, meme.thumb, meme.media) { meme.mediaItems.isNotEmpty() }
+                    var mediaReady by remember(meme.id, hasMedia) { mutableStateOf(!hasMedia) }
+                    var itemTopPx by remember(meme.id) { mutableFloatStateOf(0f) }
+                    var itemBottomPx by remember(meme.id) { mutableFloatStateOf(0f) }
+                    val visibleRatio = computeVisibleAreaRatio(itemTopPx, itemBottomPx, feedViewportRect.top, feedViewportRect.bottom)
+                    val isItemBlurred = hasMedia && privacyConfig.blurAllEnabled && meme.id !in unblurredIds
+
+                    if (!bossKeyActive) {
+                        ObserveMemeSeenDwell(
+                            memeId = meme.id,
+                            seenAt = meme.seenAt,
+                            memeDay = meme.resolvedDay,
+                            isMediaReady = mediaReady,
+                            isBlurred = isItemBlurred,
+                            visibleRatio = visibleRatio,
+                            scrollSpeedDpPerSec = 0f,
+                        )
+                    }
 
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .onGloballyPositioned { coords ->
+                                val b = coords.boundsInWindow()
+                                itemTopPx = b.top
+                                itemBottomPx = b.bottom
+                            }
                             .padding(horizontal = 16.dp, vertical = 14.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
@@ -625,7 +690,8 @@ fun LinuxDoDisguiseScreen(
                             accentColor = lc.accent,
                             isItemUnblurred = meme.id in unblurredIds,
                             onRevealItem = { unblurredIds = unblurredIds + meme.id },
-                            onOpenViewer = { list, idx -> viewerState = list to idx },
+                            onOpenViewer = { list, idx -> viewerState = Triple(list, idx, meme) },
+                            onMediaLoaded = { mediaReady = true },
                         )
 
                         if (meme.tags.isNotEmpty()) {
@@ -1219,11 +1285,12 @@ fun LinuxDoDisguiseScreen(
         )
     }
 
-    viewerState?.let { (mediaItems, idx) ->
+    viewerState?.let { (mediaItems, idx, ownerMeme) ->
         ImmersiveMediaStage(
             mediaItems = mediaItems,
             initialIndex = idx,
             api = api,
+            meme = ownerMeme,
             forceBlurAll = false,
             onDismiss = { viewerState = null },
         )

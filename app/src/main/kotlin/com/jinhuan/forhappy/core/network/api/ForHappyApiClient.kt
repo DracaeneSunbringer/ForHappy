@@ -12,6 +12,7 @@ import com.jinhuan.forhappy.core.clock.ServerClock
 import com.jinhuan.forhappy.core.compose.PuzzleDraftSpec
 import com.jinhuan.forhappy.core.compose.SocialPreviewData
 import com.jinhuan.forhappy.core.compose.SocialPreviewMedia
+import com.jinhuan.forhappy.core.cosmetics.BadgeAndCosmeticRegistry
 import com.jinhuan.forhappy.core.db.ForHappyDatabase
 import com.jinhuan.forhappy.core.dynamic.TopbarModuleScanner
 import com.jinhuan.forhappy.core.model.AnchorTag
@@ -244,7 +245,10 @@ class ForHappyApiClient(
         val res = executeRawJson("GET", "/api/me")
         if (res.code !in 200..299) return null
         val parsed = runCatching { ForHappyJson.decodeFromString<MeResponse>(res.body) }.getOrNull()
-        parsed?.now?.let { ServerClock.calibrateFromServerSec(it) }
+        if (parsed != null) {
+            parsed.now?.let { ServerClock.calibrateFromServerSec(it) }
+            BadgeAndCosmeticRegistry.updateFromMeResponse(parsed)
+        }
         return parsed?.user
     }
 
@@ -284,6 +288,8 @@ class ForHappyApiClient(
         search: String? = null,
         sort: String = "new",
         unseenOnly: Boolean = false,
+        beforeAnchor: String? = null,
+        guestSeenIds: List<Long> = emptyList(),
         textFilter: String = "",
         nsfwHide: Boolean = false,
         nsfwModeParam: String? = null,
@@ -298,11 +304,23 @@ class ForHappyApiClient(
             if (!beforeDay.isNullOrBlank()) add("before=${enc(beforeDay)}")
             if (!tag.isNullOrBlank()) add("tag=${enc(tag)}")
             if (!search.isNullOrBlank()) add("q=${enc(search)}")
-            if (unseenOnly) add("unseen=1")
+            if (unseenOnly) {
+                add("unseen=1")
+                if (beforeDay.isNullOrBlank() && !beforeAnchor.isNullOrBlank()) {
+                    add("before=${enc(beforeAnchor)}")
+                }
+            }
             if (textFilter.isNotBlank()) add("text=${enc(textFilter)}")
             if (!author.isNullOrBlank()) add("author=${enc(author)}")
         }.joinToString("&")
-        val res = executeRawJson("GET", "/api/days?$q")
+        val res = if (guestSeenIds.isNotEmpty()) {
+            val body = buildJsonObject {
+                put("seen", JsonArray(guestSeenIds.map { JsonPrimitive(it) }))
+            }.toString()
+            executeRawJson("POST", "/api/browse/days?$q", body)
+        } else {
+            executeRawJson("GET", "/api/days?$q")
+        }
         if (res.code !in 200..299) return DaysResponse()
         return runCatching { ForHappyJson.decodeFromString<DaysResponse>(res.body) }.getOrDefault(DaysResponse())
     }
@@ -310,6 +328,7 @@ class ForHappyApiClient(
     suspend fun fetchMemesPage(
         limit: Int = 30,
         offset: Int = 0,
+        page: Int? = null,
         day: String? = null,
         focus: Long? = null,
         tag: String? = null,
@@ -317,31 +336,50 @@ class ForHappyApiClient(
         series: String? = null,
         sort: String = "new",
         unseenOnly: Boolean = false,
+        beforeAnchor: String? = null,
+        guestSeenIds: List<Long> = emptyList(),
         textFilter: String = "",
         nsfwHide: Boolean = false,
         nsfwModeParam: String? = null,
         author: String? = null,
     ): MemesPageResponse {
         val effectiveNsfw = nsfwModeParam ?: if (nsfwHide) "0" else null
+        val usePageParam = page != null && page > 0 && day.isNullOrBlank() && (focus == null || focus <= 0L)
         val q = buildList {
-            add("limit=$limit")
-            if (focus != null && focus > 0L) {
-                add("focus=$focus")
+            if (usePageParam) {
+                add("page=$page")
             } else {
-                add("offset=$offset")
+                add("limit=$limit")
+                if (focus != null && focus > 0L) {
+                    add("focus=$focus")
+                } else {
+                    add("offset=$offset")
+                }
+                if (sort == "hot") add("page=${(offset / maxOf(1, limit)) + 1}")
             }
             add("sort=${enc(sort)}")
-            if (sort == "hot") add("page=${(offset / maxOf(1, limit)) + 1}")
             if (effectiveNsfw != null) add("nsfw=${enc(effectiveNsfw)}")
             if (!day.isNullOrBlank()) add("day=${enc(day)}")
             if (!tag.isNullOrBlank()) add("tag=${enc(tag)}")
             if (!query.isNullOrBlank()) add("q=${enc(query)}")
             if (!series.isNullOrBlank()) add("series=${enc(series)}")
-            if (unseenOnly) add("unseen=1")
+            if (unseenOnly) {
+                add("unseen=1")
+                if (!beforeAnchor.isNullOrBlank()) {
+                    add("before=${enc(beforeAnchor)}")
+                }
+            }
             if (textFilter.isNotBlank()) add("text=${enc(textFilter)}")
             if (!author.isNullOrBlank()) add("author=${enc(author)}")
         }.joinToString("&")
-        val res = executeRawJson("GET", "/api/memes?$q")
+        val res = if (guestSeenIds.isNotEmpty()) {
+            val body = buildJsonObject {
+                put("seen", JsonArray(guestSeenIds.map { JsonPrimitive(it) }))
+            }.toString()
+            executeRawJson("POST", "/api/browse/memes?$q", body)
+        } else {
+            executeRawJson("GET", "/api/memes?$q")
+        }
         if (res.code !in 200..299) return MemesPageResponse()
         val obj = runCatching { ForHappyJson.parseToJsonElement(res.body).jsonObject }.getOrNull() ?: return MemesPageResponse()
         val arr = obj["items"] ?: obj["memes"] ?: return MemesPageResponse()
@@ -350,7 +388,17 @@ class ForHappyApiClient(
         }.getOrDefault(emptyList())
         val respOffset = obj["offset"]?.jsonPrimitive?.intOrNull ?: offset
         val more = obj["more"]?.jsonPrimitive?.booleanOrNull ?: (items.size >= limit)
-        return MemesPageResponse(items = items, offset = respOffset, more = more)
+        val anchor = obj["anchor"]?.takeIf { it !is JsonNull }?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+        val unseenTotal = obj["unseen_total"]?.takeIf { it !is JsonNull }?.jsonPrimitive?.intOrNull
+        val total = obj["total"]?.takeIf { it !is JsonNull }?.jsonPrimitive?.intOrNull
+        return MemesPageResponse(
+            items = items,
+            offset = respOffset,
+            more = more,
+            anchor = anchor,
+            unseenTotal = unseenTotal,
+            total = total,
+        )
     }
 
     suspend fun fetchMemes(

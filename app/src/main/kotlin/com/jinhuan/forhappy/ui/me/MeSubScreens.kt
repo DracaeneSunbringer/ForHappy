@@ -3,6 +3,7 @@ package com.jinhuan.forhappy.ui.me
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -66,6 +67,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -79,6 +81,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.jinhuan.forhappy.core.cosmetics.BadgeAndCosmeticRegistry
+import com.jinhuan.forhappy.core.cosmetics.OwnedBadgeItem
 import com.jinhuan.forhappy.core.model.DecoConfig
 import com.jinhuan.forhappy.core.model.ForHappyJson
 import com.jinhuan.forhappy.core.model.HbKeyStatus
@@ -88,8 +92,12 @@ import com.jinhuan.forhappy.core.model.WalletLedgerRow
 import com.jinhuan.forhappy.core.model.WalletSummary
 import com.jinhuan.forhappy.core.navigation.StealthExemptionGate
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
+import com.jinhuan.forhappy.ui.components.BadgeArtIcon
+import com.jinhuan.forhappy.ui.components.BadgeChipView
 import com.jinhuan.forhappy.ui.components.BadgePill
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
+import com.jinhuan.forhappy.ui.components.TitleChipView
+import com.jinhuan.forhappy.ui.components.parseSafeHex
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.theme.TABULAR_FONT_FEATURE
@@ -105,6 +113,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -117,48 +126,12 @@ import java.util.Locale
 const val KV_DECO_CLEAN = "deco.clean.v2"
 
 fun parseDecoConfig(deco: JsonElement?, localCleanRaw: String? = null): DecoConfig {
-    val obj = runCatching { deco?.jsonObject }.getOrNull()
-    val fromServer = if (obj != null) {
-        DecoConfig(
-            customTitle = obj["customTitle"]?.jsonPrimitive?.contentOrNull
-                ?: obj["title"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-            titleStyle = obj["titleStyle"]?.jsonPrimitive?.contentOrNull ?: "pill",
-            fillMode = obj["fillMode"]?.jsonPrimitive?.contentOrNull ?: "solid",
-            primaryHex = obj["primaryHex"]?.jsonPrimitive?.contentOrNull ?: "#1B7F4B",
-            secondaryHex = obj["secondaryHex"]?.jsonPrimitive?.contentOrNull ?: "#34A853",
-            nickGradient = obj["nickGradient"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-            bubbleSkin = obj["bubbleSkin"]?.jsonPrimitive?.contentOrNull ?: "default",
-            cleanHideOthersNick = obj["cleanHideOthersNick"]?.jsonPrimitive?.booleanOrNull ?: false,
-            cleanHideOthersBadges = obj["cleanHideOthersBadges"]?.jsonPrimitive?.booleanOrNull ?: false,
-            cleanHideOthersStyles = obj["cleanHideOthersStyles"]?.jsonPrimitive?.booleanOrNull ?: false,
-            cleanHideBubbles = obj["cleanHideBubbles"]?.jsonPrimitive?.booleanOrNull ?: false,
-        )
-    } else {
-        DecoConfig()
-    }
-    if (localCleanRaw.isNullOrBlank()) return fromServer
-    val localCfg = runCatching { ForHappyJson.decodeFromString<DecoConfig>(localCleanRaw) }.getOrNull() ?: return fromServer
-    return fromServer.copy(
-        cleanHideOthersNick = localCfg.cleanHideOthersNick || fromServer.cleanHideOthersNick,
-        cleanHideOthersBadges = localCfg.cleanHideOthersBadges || fromServer.cleanHideOthersBadges,
-        cleanHideOthersStyles = localCfg.cleanHideOthersStyles || fromServer.cleanHideOthersStyles,
-        cleanHideBubbles = localCfg.cleanHideBubbles || fromServer.cleanHideBubbles,
-    )
+    return BadgeAndCosmeticRegistry.parseServerDecoConfig(deco, localCleanRaw)
 }
 
 fun extractBadgeLabels(badges: JsonElement?): List<String> {
-    val arr = runCatching { badges?.jsonArray }.getOrNull() ?: return emptyList()
-    return arr.mapNotNull { el ->
-        when (el) {
-            is JsonPrimitive -> el.contentOrNull?.takeIf { it.isNotBlank() }
-            is JsonObject -> {
-                el["name"]?.jsonPrimitive?.contentOrNull
-                    ?: el["label"]?.jsonPrimitive?.contentOrNull
-                    ?: el["icon"]?.jsonPrimitive?.contentOrNull
-                    ?: el["id"]?.jsonPrimitive?.contentOrNull
-            }
-            else -> null
-        }
+    return BadgeAndCosmeticRegistry.parseOwnedBadges(badges).map { item ->
+        if (item.levelText.isNotBlank()) "${item.meta.name} ${item.levelText}" else item.meta.name
     }
 }
 
@@ -847,6 +820,94 @@ fun Cards52bDialog(
     }
 }
 
+private data class OwnedRaffleEntry(
+    val id: String,
+    val name: String,
+    val level: Int,
+    val rarity: String,
+)
+
+private data class OwnedPersonalEntry(
+    val id: String,
+    val name: String,
+    val rarity: String,
+)
+
+private val NICK_GRADIENT_OPTIONS = listOf(
+    Triple("", "默认纯色", emptyList<String>()),
+    Triple("sakura", "樱粉", listOf("#ff5fa2", "#ffb3d1", "#c86bff")),
+    Triple("salt", "海盐", listOf("#00b4d8", "#48cae4", "#90e0ef")),
+    Triple("sunset", "日落", listOf("#ff6b35", "#f7c548", "#ff3864")),
+    Triple("pine", "森林", listOf("#2d6a4f", "#52b788", "#b7e4c7")),
+    Triple("cyber", "赛博", listOf("#f72585", "#7209b7", "#4cc9f0")),
+    Triple("blackgold", "黑金", listOf("#111111", "#d4a017", "#fff3b0")),
+)
+
+private fun parseOwnedRaffleTitles(obj: JsonObject?, allCosmetics: Boolean): List<OwnedRaffleEntry> {
+    if (allCosmetics) {
+        return BadgeAndCosmeticRegistry.RAFFLE_TITLES.values.map {
+            OwnedRaffleEntry(id = it.id, name = it.name, level = 5, rarity = it.rarity)
+        }
+    }
+    val arr = runCatching { (obj?.get("titles") ?: obj?.get("items"))?.jsonArray }.getOrNull() ?: return emptyList()
+    return arr.mapNotNull { el ->
+        when (el) {
+            is JsonPrimitive -> {
+                val id = el.contentOrNull?.trim().orEmpty()
+                if (id.isEmpty()) null
+                else {
+                    val cat = BadgeAndCosmeticRegistry.RAFFLE_TITLES[id]
+                    OwnedRaffleEntry(id = id, name = cat?.name ?: id, level = 1, rarity = cat?.rarity ?: "normal")
+                }
+            }
+            is JsonObject -> {
+                val enabled = el["enabled"]?.jsonPrimitive?.booleanOrNull ?: true
+                if (!enabled) return@mapNotNull null
+                val id = (el["id"]?.jsonPrimitive?.contentOrNull ?: el["title"]?.jsonPrimitive?.contentOrNull)?.trim().orEmpty()
+                if (id.isEmpty()) return@mapNotNull null
+                val cat = BadgeAndCosmeticRegistry.RAFFLE_TITLES[id]
+                val lv = el["level"]?.jsonPrimitive?.intOrNull
+                    ?: el["permanent_level"]?.jsonPrimitive?.intOrNull
+                    ?: 1
+                val name = el["name"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() } ?: cat?.name ?: id
+                val rarity = el["rarity"]?.jsonPrimitive?.contentOrNull ?: cat?.rarity ?: "normal"
+                OwnedRaffleEntry(id = id, name = name, level = lv.coerceAtLeast(1), rarity = rarity)
+            }
+            else -> null
+        }
+    }
+}
+
+private fun parseOwnedPersonalTitles(obj: JsonObject?, allCosmetics: Boolean): List<OwnedPersonalEntry> {
+    if (allCosmetics) {
+        return BadgeAndCosmeticRegistry.PERSONAL_TITLES.values.map {
+            OwnedPersonalEntry(id = it.id, name = it.name, rarity = it.rarity)
+        }
+    }
+    val arr = runCatching { (obj?.get("titles") ?: obj?.get("items"))?.jsonArray }.getOrNull() ?: return emptyList()
+    return arr.mapNotNull { el ->
+        when (el) {
+            is JsonPrimitive -> {
+                val id = el.contentOrNull?.trim().orEmpty()
+                if (id.isEmpty()) null
+                else {
+                    val cat = BadgeAndCosmeticRegistry.PERSONAL_TITLES[id]
+                    OwnedPersonalEntry(id = id, name = cat?.name ?: id, rarity = cat?.rarity ?: "normal")
+                }
+            }
+            is JsonObject -> {
+                val id = (el["id"]?.jsonPrimitive?.contentOrNull ?: el["title"]?.jsonPrimitive?.contentOrNull)?.trim().orEmpty()
+                if (id.isEmpty()) return@mapNotNull null
+                val cat = BadgeAndCosmeticRegistry.PERSONAL_TITLES[id]
+                val name = el["name"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() } ?: cat?.name ?: id
+                val rarity = el["rarity"]?.jsonPrimitive?.contentOrNull ?: cat?.rarity ?: "normal"
+                OwnedPersonalEntry(id = id, name = name, rarity = rarity)
+            }
+            else -> null
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DecoStudioDialog(
@@ -858,37 +919,70 @@ fun DecoStudioDialog(
 ) {
     val palette = LocalForHappyPalette.current
     val scope = rememberCoroutineScope()
+    val allCosmetics = me.cosmeticAccess == "all"
 
     var config by remember(me.id) { mutableStateOf(parseDecoConfig(me.deco, initialCleanRaw)) }
-    var raffleTitles by remember { mutableStateOf<List<String>>(emptyList()) }
-    var personalTitles by remember { mutableStateOf<List<String>>(emptyList()) }
-    var activeTab by remember { mutableIntStateOf(0) } // 0=称号 1=渐变昵称 2=徽章柜 3=气泡皮肤 4=洁癖屏蔽
+    var ownedRaffles by remember { mutableStateOf<List<OwnedRaffleEntry>>(emptyList()) }
+    var ownedPersonals by remember { mutableStateOf<List<OwnedPersonalEntry>>(emptyList()) }
+    var activeTab by remember { mutableIntStateOf(0) } // 0=称号套装 1=炫彩昵称 2=徽章墙 3=气泡与社区 4=洁癖屏蔽
     var saving by remember { mutableStateOf(false) }
     var bannerText by remember { mutableStateOf<String?>(null) }
 
     val previewPagerState = rememberPagerState(initialPage = 0, pageCount = { 4 })
     val previewLabels = listOf("图廊卡片", "群聊名牌", "聊天气泡", "回应框")
-    val badges = remember(me.badges) { extractBadgeLabels(me.badges) }
 
-    LaunchedEffect(me.id) {
+    val ownedBadges = remember(me.badges, me.farmBadgeProgress) {
+        BadgeAndCosmeticRegistry.parseOwnedBadges(me.badges, me.farmBadgeProgress)
+    }
+    val badgeWall = remember(me.badges, me.farmBadgeProgress, allCosmetics) {
+        BadgeAndCosmeticRegistry.buildBadgeWall(
+            badgesJson = me.badges,
+            farmProgress = me.farmBadgeProgress,
+            allCosmetics = allCosmetics,
+        )
+    }
+    val unlockedBadgeCount = remember(badgeWall) { badgeWall.count { it.owned } }
+
+    LaunchedEffect(me.id, allCosmetics) {
         val rObj = api.fetchMyRaffleTitles()
         val pObj = api.fetchMyPersonalTitles()
-        raffleTitles = rObj?.get("titles")?.let { runCatching { it.jsonArray.mapNotNull { t -> t.jsonPrimitive.contentOrNull } }.getOrNull() }
-            ?: rObj?.get("items")?.let { runCatching { it.jsonArray.mapNotNull { t -> t.jsonObject["title"]?.jsonPrimitive?.contentOrNull } }.getOrNull() }
-            ?: emptyList()
-        personalTitles = pObj?.get("titles")?.let { runCatching { it.jsonArray.mapNotNull { t -> t.jsonPrimitive.contentOrNull } }.getOrNull() }
-            ?: pObj?.get("items")?.let { runCatching { it.jsonArray.mapNotNull { t -> t.jsonObject["title"]?.jsonPrimitive?.contentOrNull } }.getOrNull() }
-            ?: emptyList()
+        ownedRaffles = parseOwnedRaffleTitles(rObj, allCosmetics)
+        ownedPersonals = parseOwnedPersonalTitles(pObj, allCosmetics)
+    }
+
+    val previewDecoJson = remember(me.deco, config, ownedBadges) {
+        BadgeAndCosmeticRegistry.buildServerDecoPayload(me.deco, config, ownedBadges)
+    }
+    val previewCardIdentity = remember(previewDecoJson, me.badges, me.officialTitles) {
+        BadgeAndCosmeticRegistry.resolveEquippedIdentity(
+            decoJson = previewDecoJson,
+            badgesJson = me.badges,
+            officialTitles = me.officialTitles,
+            where = "card",
+        )
+    }
+    val previewChatIdentity = remember(previewDecoJson, me.badges, me.officialTitles) {
+        BadgeAndCosmeticRegistry.resolveEquippedIdentity(
+            decoJson = previewDecoJson,
+            badgesJson = me.badges,
+            officialTitles = me.officialTitles,
+            where = "chat",
+        )
     }
 
     val titleColor = remember(config.primaryHex, palette.primary) { parseHexColor(config.primaryHex, palette.primary) }
-    val nickBrushColors = when (config.nickGradient) {
-        "pine" -> listOf(Color(0xFF1B7F4B), Color(0xFF34A853))
-        "sunset" -> listOf(Color(0xFFEA580C), Color(0xFFEC4899))
-        "aurora" -> listOf(Color(0xFF06B6D4), Color(0xFF8B5CF6))
-        "gold" -> listOf(Color(0xFFD97706), Color(0xFFF59E0B))
-        else -> null
+    val nickBrushColors = remember(previewCardIdentity.nickGradientHexes, palette.text) {
+        previewCardIdentity.nickGradientHexes.map { parseSafeHex(it, palette.text) }.takeIf { it.size >= 2 }
     }
+
+    fun clearExclusiveTitleSlots(base: DecoConfig): DecoConfig = base.copy(
+        equippedPersonalId = "",
+        equippedRaffleId = "",
+        equippedRaffleLevel = 1,
+        equippedOfficialId = "",
+        equippedGrowthId = "",
+        equippedInviteTitle = false,
+    )
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -914,21 +1008,44 @@ fun DecoStudioDialog(
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
                     }
                     Text("装扮工作室", color = palette.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    TextButton(
+                        enabled = !saving,
+                        onClick = {
+                            saving = true
+                            scope.launch {
+                                val res = api.updateMeDeco(null)
+                                val cleaned = DecoConfig(
+                                    cleanHideOthersNick = config.cleanHideOthersNick,
+                                    cleanHideOthersBadges = config.cleanHideOthersBadges,
+                                    cleanHideOthersStyles = config.cleanHideOthersStyles,
+                                    cleanHideBubbles = config.cleanHideBubbles,
+                                )
+                                api.putPref(KV_DECO_CLEAN, ForHappyJson.encodeToString(DecoConfig.serializer(), cleaned))
+                                saving = false
+                                res.fold(
+                                    onSuccess = {
+                                        config = cleaned
+                                        bannerText = "已清空全部装扮"
+                                        onSaved()
+                                    },
+                                    onFailure = { err -> bannerText = err.message ?: "清空失败" },
+                                )
+                            }
+                        },
+                    ) {
+                        Text("清空", color = palette.muted, fontSize = 12.sp)
+                    }
                     Button(
                         enabled = !saving,
                         onClick = {
                             saving = true
                             scope.launch {
-                                val decoJson = buildJsonObject {
-                                    put("customTitle", JsonPrimitive(config.customTitle))
-                                    put("titleStyle", JsonPrimitive(config.titleStyle))
-                                    put("fillMode", JsonPrimitive(config.fillMode))
-                                    put("primaryHex", JsonPrimitive(config.primaryHex))
-                                    put("secondaryHex", JsonPrimitive(config.secondaryHex))
-                                    put("nickGradient", JsonPrimitive(config.nickGradient))
-                                    put("bubbleSkin", JsonPrimitive(config.bubbleSkin))
-                                }
-                                val res = api.updateMeDeco(decoJson)
+                                val payload = BadgeAndCosmeticRegistry.buildServerDecoPayload(
+                                    originalDeco = me.deco,
+                                    config = config,
+                                    ownedBadges = ownedBadges,
+                                )
+                                val res = api.updateMeDeco(payload)
                                 api.putPref(KV_DECO_CLEAN, ForHappyJson.encodeToString(DecoConfig.serializer(), config))
                                 saving = false
                                 res.fold(
@@ -986,36 +1103,42 @@ fun DecoStudioDialog(
                             when (page) {
                                 0 -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                     ForHappyAvatar(me.displayName, me.avatar, api.imageLoader, size = 38.dp)
-                                    Column {
-                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                             Text(me.displayName, style = nickStyle)
-                                            if (config.customTitle.isNotBlank()) {
-                                                BadgePill(config.customTitle, containerColor = titleColor.copy(alpha = 0.16f), contentColor = titleColor)
+                                            previewCardIdentity.title?.let { TitleChipView(title = it) }
+                                            previewCardIdentity.badge?.let {
+                                                BadgeChipView(badge = it, imageLoader = api.imageLoader, mini = false)
                                             }
                                         }
-                                        Text("图廊卡片署名与角标实时预览", color = palette.muted, fontSize = 11.sp)
+                                        Text("主页与图廊卡片署名预览", color = palette.muted, fontSize = 11.sp)
                                     }
                                 }
-                                1 -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text("[名牌]", color = palette.muted, fontSize = 11.sp)
+                                1 -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("[群聊]", color = palette.muted, fontSize = 11.sp)
                                     Text(me.displayName, style = nickStyle)
-                                    if (config.customTitle.isNotBlank()) {
-                                        BadgePill(config.customTitle, containerColor = titleColor, contentColor = Color.White)
+                                    previewChatIdentity.title?.let { TitleChipView(title = it) }
+                                    previewChatIdentity.badge?.let {
+                                        BadgeChipView(badge = it, imageLoader = api.imageLoader, mini = true)
                                     }
-                                    badges.take(3).forEach { b -> Text(b, color = palette.gold, fontSize = 11.sp) }
                                 }
                                 2 -> {
+                                    val bubbleName = BadgeAndCosmeticRegistry.COMMUNITY_SKINS[config.communityBubbleId]?.let { "社区·${it.name}" }
+                                        ?: BadgeAndCosmeticRegistry.BUBBLE_PRESETS.firstOrNull { it.first == config.bubbleSkin }?.second
+                                        ?: if (config.bubbleSkin.isBlank() || config.bubbleSkin == "default") "默认" else config.bubbleSkin
                                     val bubbleBg = when {
                                         config.cleanHideBubbles -> palette.surface
-                                        config.bubbleSkin == "warm" -> Color(0xFFFFF3E0)
-                                        config.bubbleSkin == "moss" -> Color(0xFFE7F5EC)
-                                        config.bubbleSkin == "ocean" -> Color(0xFFE3F2FD)
-                                        config.bubbleSkin == "paper" -> Color(0xFFF6F1E7)
+                                        config.communityBubbleId.isNotBlank() -> Color(0xFFEDE9FE)
+                                        config.bubbleSkin in setOf("sakura", "petal", "bunny") -> Color(0xFFFCE7F3)
+                                        config.bubbleSkin in setOf("mint", "moss") -> Color(0xFFE7F5EC)
+                                        config.bubbleSkin in setOf("aurora", "galaxy", "ocean", "cyber", "prism") -> Color(0xFFE0F2FE)
+                                        config.bubbleSkin in setOf("paper", "boba", "lemon", "gold", "warm") -> Color(0xFFFEF3C7)
+                                        config.bubbleSkin in setOf("night", "ink", "bit") -> Color(0xFFE2E8F0)
                                         else -> palette.primaryContainer
                                     }
                                     Surface(color = bubbleBg, shape = RoundedCornerShape(14.dp)) {
                                         Text(
-                                            "摸鱼快乐！当前皮肤：${config.bubbleSkin}",
+                                            "摸鱼快乐！当前气泡：$bubbleName",
                                             color = Color(0xFF1F2937),
                                             fontSize = 13.sp,
                                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -1027,9 +1150,16 @@ fun DecoStudioDialog(
                                     shape = RoundedCornerShape(10.dp),
                                     modifier = Modifier.border(1.dp, titleColor.copy(alpha = 0.4f), RoundedCornerShape(10.dp)),
                                 ) {
-                                    Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
                                         Text(me.displayName, style = nickStyle)
-                                        Text("回应了这组图片：「太好看了！」", color = palette.text, fontSize = 12.sp)
+                                        previewCardIdentity.badge?.let {
+                                            BadgeChipView(badge = it, imageLoader = api.imageLoader, mini = true)
+                                        }
+                                        Text("回应了图片：「太好看了！」", color = palette.text, fontSize = 12.sp)
                                     }
                                 }
                             }
@@ -1057,7 +1187,7 @@ fun DecoStudioDialog(
                     .padding(horizontal = 14.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                listOf("称号", "渐变昵称", "徽章柜", "气泡皮肤", "洁癖屏蔽").forEachIndexed { idx, label ->
+                listOf("称号套装", "炫彩昵称", "徽章墙 ($unlockedBadgeCount)", "气泡与社区", "洁癖屏蔽").forEachIndexed { idx, label ->
                     FilterChip(
                         selected = activeTab == idx,
                         onClick = { activeTab = idx },
@@ -1067,100 +1197,439 @@ fun DecoStudioDialog(
             }
             HorizontalDivider(color = palette.line)
 
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState())
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                when (activeTab) {
-                    0 -> {
-                        OutlinedTextField(
-                            value = config.customTitle,
-                            onValueChange = { config = config.copy(customTitle = it.take(16)) },
-                            label = { Text("自定义称号 (留空隐藏)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        val available = (raffleTitles + personalTitles).distinct()
-                        if (available.isNotEmpty()) {
-                            Text("已拥有称号快捷选用", color = palette.muted, fontSize = 12.sp)
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                available.forEach { t ->
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                if (activeTab == 2) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        item(key = "badge_mode_header") {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("昵称旁徽章搭配方式（最多展示 1 枚佩戴徽章）", color = palette.muted, fontSize = 12.sp)
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    listOf(
+                                        "set" to "跟随套装",
+                                        "custom" to "自选单枚徽章",
+                                        "none" to "不展示徽章",
+                                    ).forEach { (modeKey, modeLabel) ->
+                                        FilterChip(
+                                            selected = config.badgeMode == modeKey,
+                                            onClick = { config = config.copy(badgeMode = modeKey) },
+                                            label = { Text(modeLabel, fontSize = 12.sp) },
+                                        )
+                                    }
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = "徽章墙 · 已点亮 $unlockedBadgeCount / ${badgeWall.size} 枚",
+                                        color = palette.text,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    if (config.equippedBadgeId.isNotBlank()) {
+                                        TextButton(
+                                            onClick = { config = config.copy(equippedBadgeId = "") },
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                        ) {
+                                            Text("卸下当前徽章", fontSize = 11.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        items(badgeWall, key = { "wall_badge_${it.id}" }) { item ->
+                            val isEquipped = config.communityBadgeId.isBlank() &&
+                                config.badgeMode != "none" &&
+                                config.equippedBadgeId == item.id
+                            BadgeWallCardRow(
+                                item = item,
+                                isEquipped = isEquipped,
+                                api = api,
+                                onToggleEquip = {
+                                    if (item.owned) {
+                                        config = if (isEquipped) {
+                                            config.copy(equippedBadgeId = "")
+                                        } else {
+                                            config.copy(
+                                                equippedBadgeId = item.id,
+                                                badgeMode = "custom",
+                                                communityBadgeId = "",
+                                            )
+                                        }
+                                    }
+                                },
+                            )
+                        }
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .imePadding()
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        when (activeTab) {
+                            0 -> {
+                                if (ownedRaffles.isNotEmpty()) {
+                                    Text("已拥有抽奖称号套装（点选穿戴 / 再点卸下）", color = palette.muted, fontSize = 12.sp)
+                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        ownedRaffles.forEach { item ->
+                                            val selected = config.equippedRaffleId == item.id
+                                            val suffix = if (item.level > 1) " Lv${item.level}" else ""
+                                            FilterChip(
+                                                selected = selected,
+                                                onClick = {
+                                                    config = if (selected) {
+                                                        clearExclusiveTitleSlots(config)
+                                                    } else {
+                                                        clearExclusiveTitleSlots(config).copy(
+                                                            equippedRaffleId = item.id,
+                                                            equippedRaffleLevel = item.level,
+                                                            communityTitleId = "",
+                                                        )
+                                                    }
+                                                },
+                                                label = { Text("${item.name}$suffix", fontSize = 12.sp) },
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (ownedPersonals.isNotEmpty()) {
+                                    Text("已拥有专属称号套装", color = palette.muted, fontSize = 12.sp)
+                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        ownedPersonals.forEach { item ->
+                                            val selected = config.equippedPersonalId == item.id
+                                            val tag = if (item.rarity.equals("SSR", ignoreCase = true)) " · SSR" else ""
+                                            FilterChip(
+                                                selected = selected,
+                                                onClick = {
+                                                    config = if (selected) {
+                                                        clearExclusiveTitleSlots(config)
+                                                    } else {
+                                                        clearExclusiveTitleSlots(config).copy(
+                                                            equippedPersonalId = item.id,
+                                                            communityTitleId = "",
+                                                        )
+                                                    }
+                                                },
+                                                label = { Text("${item.name}$tag", fontSize = 12.sp) },
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (me.officialTitles.isNotEmpty()) {
+                                    Text("站长授予官方称号", color = palette.muted, fontSize = 12.sp)
+                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        me.officialTitles.forEach { ot ->
+                                            val selected = config.equippedOfficialId == ot.id
+                                            FilterChip(
+                                                selected = selected,
+                                                onClick = {
+                                                    config = if (selected) {
+                                                        clearExclusiveTitleSlots(config)
+                                                    } else {
+                                                        clearExclusiveTitleSlots(config).copy(
+                                                            equippedOfficialId = ot.id,
+                                                            communityTitleId = "",
+                                                        )
+                                                    }
+                                                },
+                                                label = { Text(ot.name, fontSize = 12.sp) },
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (ownedBadges.any { it.id == "guide" && it.count >= 3 } || allCosmetics) {
                                     FilterChip(
-                                        selected = config.customTitle == t,
-                                        onClick = { config = config.copy(customTitle = t) },
-                                        label = { Text(t, fontSize = 12.sp) },
+                                        selected = config.equippedInviteTitle,
+                                        onClick = {
+                                            config = if (config.equippedInviteTitle) {
+                                                clearExclusiveTitleSlots(config)
+                                            } else {
+                                                clearExclusiveTitleSlots(config).copy(equippedInviteTitle = true, communityTitleId = "")
+                                            }
+                                        },
+                                        label = { Text("✿ 广结善缘（引路人专属）", fontSize = 12.sp) },
                                     )
                                 }
-                            }
-                        }
-                        Text("主色调", color = palette.muted, fontSize = 12.sp)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("#1B7F4B", "#2563EB", "#C58C24", "#DB2777", "#7C3AED").forEach { hex ->
-                                val c = parseHexColor(hex, palette.primary)
-                                Box(
-                                    modifier = Modifier
-                                        .size(30.dp)
-                                        .clip(CircleShape)
-                                        .background(c)
-                                        .border(if (config.primaryHex == hex) 2.5.dp else 1.dp, palette.text, CircleShape)
-                                        .clickable { config = config.copy(primaryHex = hex) },
+
+                                Text("开源社区投稿称号（全员可用）", color = palette.muted, fontSize = 12.sp)
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    BadgeAndCosmeticRegistry.COMMUNITY_SKINS.values.filter { it.hasTitle }.forEach { skin ->
+                                        val selected = config.communityTitleId == skin.id
+                                        FilterChip(
+                                            selected = selected,
+                                            onClick = {
+                                                config = config.copy(communityTitleId = if (selected) "" else skin.id)
+                                            },
+                                            label = { Text(skin.name, fontSize = 12.sp) },
+                                        )
+                                    }
+                                }
+
+                                HorizontalDivider(color = palette.line)
+
+                                OutlinedTextField(
+                                    value = config.customTitle,
+                                    onValueChange = { config = config.copy(customTitle = it.take(8)) },
+                                    label = { Text("自定义文字称号（最多 8 字，未穿戴套装时生效）") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
                                 )
+
+                                Text("称号外框与填充", color = palette.muted, fontSize = 12.sp)
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    listOf("pill" to "胶囊", "tag" to "方签", "ribbon" to "丝带").forEach { (shKey, shLabel) ->
+                                        FilterChip(
+                                            selected = config.titleStyle == shKey,
+                                            onClick = { config = config.copy(titleStyle = shKey) },
+                                            label = { Text(shLabel, fontSize = 12.sp) },
+                                        )
+                                    }
+                                    listOf("solid" to "实心底", "outline" to "描边底").forEach { (fillKey, fillLabel) ->
+                                        FilterChip(
+                                            selected = config.fillMode == fillKey,
+                                            onClick = { config = config.copy(fillMode = fillKey) },
+                                            label = { Text(fillLabel, fontSize = 12.sp) },
+                                        )
+                                    }
+                                }
+
+                                Text("自定义称号主色", color = palette.muted, fontSize = 12.sp)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    listOf("#16a34a", "#1B7F4B", "#2563EB", "#D97706", "#DB2777", "#7C3AED", "#1E293B").forEach { hex ->
+                                        val c = parseHexColor(hex, palette.primary)
+                                        Box(
+                                            modifier = Modifier
+                                                .size(30.dp)
+                                                .clip(CircleShape)
+                                                .background(c)
+                                                .border(if (config.primaryHex.equals(hex, ignoreCase = true)) 2.5.dp else 1.dp, palette.text, CircleShape)
+                                                .clickable { config = config.copy(primaryHex = hex, secondaryHex = hex) },
+                                        )
+                                    }
+                                }
+
+                                Text("装扮展示范围", color = palette.muted, fontSize = 12.sp)
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    listOf("all" to "全站显示", "chat" to "仅群聊显示", "wall" to "仅图廊显示").forEach { (scKey, scLabel) ->
+                                        FilterChip(
+                                            selected = config.decoScope == scKey,
+                                            onClick = { config = config.copy(decoScope = scKey) },
+                                            label = { Text(scLabel, fontSize = 12.sp) },
+                                        )
+                                    }
+                                }
                             }
-                        }
-                    }
-                    1 -> {
-                        Text("选择昵称渐变色（仅在未开启洁癖屏蔽他人样式时生效）", color = palette.muted, fontSize = 12.sp)
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("" to "默认纯色", "pine" to "松绿森林", "sunset" to "晚霞橘粉", "aurora" to "极光蓝紫", "gold" to "鎏金琥珀").forEach { (id, label) ->
-                                FilterChip(
-                                    selected = config.nickGradient == id,
-                                    onClick = { config = config.copy(nickGradient = id) },
-                                    label = { Text(label, fontSize = 12.sp) },
-                                )
+                            1 -> {
+                                Text("选择炫彩渐变昵称（与网页端预设实时同步）", color = palette.muted, fontSize = 12.sp)
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    NICK_GRADIENT_OPTIONS.forEach { (id, label, stops) ->
+                                        val isSelected = config.nickGradient == id && (id.isNotEmpty() || config.customGradientStops.isEmpty())
+                                        FilterChip(
+                                            selected = isSelected,
+                                            onClick = {
+                                                config = config.copy(
+                                                    nickGradient = id,
+                                                    customGradientStops = stops,
+                                                )
+                                            },
+                                            label = {
+                                                if (stops.size >= 2) {
+                                                    Text(
+                                                        text = label,
+                                                        style = TextStyle(
+                                                            brush = Brush.horizontalGradient(stops.map { parseSafeHex(it, palette.text) }),
+                                                            fontSize = 12.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                        ),
+                                                    )
+                                                } else {
+                                                    Text(label, fontSize = 12.sp)
+                                                }
+                                            },
+                                        )
+                                    }
+                                }
                             }
-                        }
-                    }
-                    2 -> {
-                        Text("已解锁徽章（展示前 3–6 枚）", color = palette.muted, fontSize = 12.sp)
-                        if (badges.isEmpty()) {
-                            Text("暂无可展示徽章，活跃发图/参与活动即可解锁", color = palette.muted, fontSize = 13.sp)
-                        } else {
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                badges.take(6).forEach { b ->
-                                    BadgePill(b, containerColor = palette.surface, contentColor = palette.text)
+                            3 -> {
+                                Text("官方聊天气泡皮肤", color = palette.muted, fontSize = 12.sp)
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    BadgeAndCosmeticRegistry.BUBBLE_PRESETS.forEach { (id, label) ->
+                                        val selected = config.communityBubbleId.isBlank() &&
+                                            (config.bubbleSkin == id || (id.isEmpty() && config.bubbleSkin == "default"))
+                                        FilterChip(
+                                            selected = selected,
+                                            onClick = { config = config.copy(bubbleSkin = id, communityBubbleId = "") },
+                                            label = { Text(label, fontSize = 12.sp) },
+                                        )
+                                    }
+                                }
+
+                                HorizontalDivider(color = palette.line)
+
+                                Text("开源社区投稿气泡皮肤（meme-hall-skins）", color = palette.muted, fontSize = 12.sp)
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    BadgeAndCosmeticRegistry.COMMUNITY_SKINS.values.filter { it.hasBubble }.forEach { skin ->
+                                        val selected = config.communityBubbleId == skin.id
+                                        FilterChip(
+                                            selected = selected,
+                                            onClick = {
+                                                config = config.copy(communityBubbleId = if (selected) "" else skin.id)
+                                            },
+                                            label = { Text("${skin.name} · ${skin.author}", fontSize = 12.sp) },
+                                        )
+                                    }
+                                }
+
+                                Text("开源社区投稿徽章（佩戴后覆盖单枚徽章槽）", color = palette.muted, fontSize = 12.sp)
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    BadgeAndCosmeticRegistry.COMMUNITY_SKINS.values.filter { it.hasBadge }.forEach { skin ->
+                                        val selected = config.communityBadgeId == skin.id
+                                        FilterChip(
+                                            selected = selected,
+                                            onClick = {
+                                                config = config.copy(
+                                                    communityBadgeId = if (selected) "" else skin.id,
+                                                    badgeMode = if (selected) config.badgeMode else "set",
+                                                )
+                                            },
+                                            label = { Text("${skin.name} · ${skin.author}", fontSize = 12.sp) },
+                                        )
+                                    }
+                                }
+                            }
+                            4 -> {
+                                CleanDecoToggleRow("隐藏他人彩色渐变昵称", config.cleanHideOthersNick) {
+                                    config = config.copy(cleanHideOthersNick = it)
+                                }
+                                CleanDecoToggleRow("隐藏他人徽章图标", config.cleanHideOthersBadges) {
+                                    config = config.copy(cleanHideOthersBadges = it)
+                                }
+                                CleanDecoToggleRow("隐藏他人装饰边框与特殊称号", config.cleanHideOthersStyles) {
+                                    config = config.copy(cleanHideOthersStyles = it)
+                                }
+                                CleanDecoToggleRow("隐藏聊天气泡特效皮肤", config.cleanHideBubbles) {
+                                    config = config.copy(cleanHideBubbles = it)
                                 }
                             }
                         }
                     }
-                    3 -> {
-                        Text("选择本人聊天消息气泡皮肤", color = palette.muted, fontSize = 12.sp)
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("default" to "默认", "warm" to "暖杏", "moss" to "青苔", "ocean" to "海风", "paper" to "宣纸").forEach { (id, label) ->
-                                FilterChip(
-                                    selected = config.bubbleSkin == id,
-                                    onClick = { config = config.copy(bubbleSkin = id) },
-                                    label = { Text(label, fontSize = 12.sp) },
-                                )
-                            }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BadgeWallCardRow(
+    item: OwnedBadgeItem,
+    isEquipped: Boolean,
+    api: ForHappyApiClient,
+    onToggleEquip: () -> Unit,
+) {
+    val palette = LocalForHappyPalette.current
+    val borderColor = when {
+        isEquipped -> palette.primary
+        item.owned -> palette.line
+        else -> palette.line.copy(alpha = 0.45f)
+    }
+    val containerColor = when {
+        isEquipped -> palette.primary.copy(alpha = 0.10f)
+        item.owned -> palette.surface
+        else -> palette.surface.copy(alpha = 0.55f)
+    }
+
+    Surface(
+        color = containerColor,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(if (isEquipped) 1.5.dp else 1.dp, borderColor),
+        modifier = Modifier
+            .fillMaxWidth()
+            .alpha(if (item.owned) 1f else 0.58f)
+            .clickable(enabled = item.owned) { onToggleEquip() },
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            BadgeArtIcon(
+                art = item.art,
+                level = item.level,
+                imageLoader = api.imageLoader,
+                size = 42.dp,
+            )
+
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        text = item.meta.name,
+                        color = palette.text,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    BadgePill(
+                        text = item.levelText,
+                        containerColor = if (item.owned) palette.gold.copy(alpha = 0.16f) else palette.surface2,
+                        contentColor = if (item.owned) palette.gold else palette.muted,
+                    )
+                }
+
+                Text(
+                    text = item.meta.desc,
+                    color = palette.muted,
+                    fontSize = 12.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+
+                val progressLine = buildString {
+                    if (item.id == "elder") {
+                        append(if (item.owned) "开站纪念元老专属" else "2026-10-01 开站限定")
+                    } else {
+                        if (item.count > 0) {
+                            append("当前累计 ${item.count} ${item.meta.unit}")
+                        } else {
+                            append("尚未点亮")
+                        }
+                        if (item.nextAt > 0 && item.remainingToNext > 0) {
+                            append(" · 再达成 ${item.remainingToNext} ${item.meta.unit} 升级")
+                        } else if (item.owned && item.nextAt == 0) {
+                            append(" · 已满级")
                         }
                     }
-                    4 -> {
-                        CleanDecoToggleRow("隐藏他人彩色渐变昵称", config.cleanHideOthersNick) {
-                            config = config.copy(cleanHideOthersNick = it)
-                        }
-                        CleanDecoToggleRow("隐藏他人徽章列表", config.cleanHideOthersBadges) {
-                            config = config.copy(cleanHideOthersBadges = it)
-                        }
-                        CleanDecoToggleRow("隐藏他人装饰边框与特殊称号", config.cleanHideOthersStyles) {
-                            config = config.copy(cleanHideOthersStyles = it)
-                        }
-                        CleanDecoToggleRow("隐藏聊天气泡特效皮肤", config.cleanHideBubbles) {
-                            config = config.copy(cleanHideBubbles = it)
-                        }
-                    }
+                    item.lastDay?.takeIf { it.isNotBlank() }?.let { append(" · 最近 $it") }
+                }
+                Text(progressLine, color = palette.muted.copy(alpha = 0.85f), fontSize = 11.sp)
+            }
+
+            if (item.owned) {
+                Surface(
+                    color = if (isEquipped) palette.primary else palette.surface2,
+                    shape = RoundedCornerShape(999.dp),
+                ) {
+                    Text(
+                        text = if (isEquipped) "佩戴中" else "佩戴",
+                        color = if (isEquipped) palette.onPrimary else palette.text,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    )
                 }
             }
         }

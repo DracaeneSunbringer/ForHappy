@@ -8,7 +8,9 @@ import kotlinx.coroutines.delay
 val LocalSeenTracker = staticCompositionLocalOf<SeenTracker?> { null }
 
 /**
- * Computes what fraction `[0f..1f]` of a card's vertical extent is inside the visible viewport.
+ * Computes what fraction `[0f..1f]` of a card's clipped阅读窗口 is inside the visible viewport,
+ * aligned with `kourou25/meme-hall-frontend/seen-visibility.js` (`expectedHeight = min(itemHeight, viewportHeight)`),
+ * so tall single-column cards (`itemHeight > viewportHeight`) still reach `>= 0.60f` when filling the screen.
  */
 fun computeVisibleAreaRatio(
     itemTopPx: Float,
@@ -17,9 +19,11 @@ fun computeVisibleAreaRatio(
     viewportBottomPx: Float,
 ): Float {
     val itemHeight = itemBottomPx - itemTopPx
-    if (itemHeight <= 0f || viewportBottomPx <= viewportTopPx) return 0f
+    val viewportHeight = viewportBottomPx - viewportTopPx
+    if (itemHeight <= 0f || viewportHeight <= 0f) return 0f
+    val expectedHeight = minOf(itemHeight, viewportHeight)
     val inter = (minOf(itemBottomPx, viewportBottomPx) - maxOf(itemTopPx, viewportTopPx)).coerceAtLeast(0f)
-    return (inter / itemHeight).coerceIn(0f, 1f)
+    return (inter / expectedHeight).coerceIn(0f, 1f)
 }
 
 /**

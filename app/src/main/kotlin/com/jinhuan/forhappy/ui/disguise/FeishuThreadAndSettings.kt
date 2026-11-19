@@ -340,6 +340,7 @@ internal fun DisguiseMediaStrip(
     isItemUnblurred: Boolean,
     onRevealItem: () -> Unit,
     onOpenViewer: (List<MemeMediaItem>, Int) -> Unit,
+    onMediaLoaded: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val items = remember(meme.id, meme.images, meme.image, meme.thumb, meme.media) { meme.mediaItems }
@@ -365,6 +366,7 @@ internal fun DisguiseMediaStrip(
             contentAlignment = Alignment.Center,
         ) {
             if (single.isVideo && !videoUrl.isNullOrBlank()) {
+                LaunchedEffect(videoUrl) { onMediaLoaded() }
                 NativeVideoPlayer(
                     videoUrl = videoUrl,
                     posterUrl = thumbUrl,
@@ -395,6 +397,7 @@ internal fun DisguiseMediaStrip(
                     imageLoader = api.imageLoader,
                     contentDescription = "附件图片",
                     contentScale = ContentScale.Crop,
+                    onSuccess = { onMediaLoaded() },
                     modifier = Modifier
                         .fillMaxSize()
                         .then(if (isBlurred) Modifier.blur(22.dp) else Modifier)
@@ -453,6 +456,7 @@ internal fun DisguiseMediaStrip(
                         imageLoader = api.imageLoader,
                         contentDescription = "附件图片 ${idx + 1}",
                         contentScale = ContentScale.Crop,
+                        onSuccess = { if (idx == 0) onMediaLoaded() },
                         modifier = Modifier
                             .fillMaxSize()
                             .then(if (isBlurred) Modifier.blur(20.dp) else Modifier)

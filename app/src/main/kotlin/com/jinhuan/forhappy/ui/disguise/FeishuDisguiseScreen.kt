@@ -1,5 +1,6 @@
 package com.jinhuan.forhappy.ui.disguise
 
+import android.graphics.RectF
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -67,6 +68,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -79,6 +81,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
@@ -113,7 +117,10 @@ import com.jinhuan.forhappy.ui.compose.ImageMaskEditorScreen
 import com.jinhuan.forhappy.ui.theme.LocalBossKeyActive
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
 import com.jinhuan.forhappy.core.clock.ServerClock
+import com.jinhuan.forhappy.core.seen.LocalSeenTracker
+import com.jinhuan.forhappy.core.seen.ObserveMemeSeenDwell
 import com.jinhuan.forhappy.core.seen.SeenTracker
+import com.jinhuan.forhappy.core.seen.computeVisibleAreaRatio
 import com.jinhuan.forhappy.ui.wall.ImmersiveMediaStage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -323,6 +330,19 @@ fun FeishuDisguiseScreen(
     var tagsList by remember { mutableStateOf<List<TagStatItem>>(emptyList()) }
     var loadingDays by remember { mutableStateOf(true) }
     var customGroupAliases by remember { mutableStateOf<Map<Long, String>>(emptyMap()) }
+    val seenTracker = LocalSeenTracker.current
+    val newlySeenByDayState = seenTracker?.newlySeenByDay?.collectAsState()
+    val newlySeenByDay = newlySeenByDayState?.value ?: emptyMap()
+    val adjustedDayGroups = remember(dayGroups, newlySeenByDay) {
+        if (newlySeenByDay.isEmpty()) {
+            dayGroups
+        } else {
+            dayGroups.map { d ->
+                val dec = newlySeenByDay[d.day] ?: 0
+                if (dec > 0) d.copy(unseen = (d.unseen - dec).coerceAtLeast(0)) else d
+            }
+        }
+    }
 
     var activeTarget by remember { mutableStateOf<FeishuConvTarget?>(null) }
     var settingsPage by remember { mutableStateOf<FeishuSettingsPage?>(null) }
@@ -355,6 +375,7 @@ fun FeishuDisguiseScreen(
             }
         }
         loadingDays = true
+        seenTracker?.resetDayDeltaCounter()
         dayGroups = api.fetchDays(limitDays = 12).days.take(12)
         tagsList = api.fetchTags()
         loadingDays = false
@@ -508,7 +529,7 @@ fun FeishuDisguiseScreen(
                                 me = me,
                                 groups = chatState.groups,
                                 dmThreads = chatState.dmThreads,
-                                dayGroups = dayGroups,
+                                dayGroups = adjustedDayGroups,
                                 tagsList = tagsList,
                                 loadingDays = loadingDays,
                                 customAliases = customGroupAliases,
@@ -1621,6 +1642,8 @@ private fun FeishuWorkGroupDetailScreen(
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val bossKeyActive = LocalBossKeyActive.current
+    val seenTracker = LocalSeenTracker.current
+    var feedViewportRect by remember { mutableStateOf(RectF()) }
 
     var messages by remember(dayFilter, tagFilter) { mutableStateOf<List<MemeItem>>(emptyList()) }
     var loading by remember(dayFilter, tagFilter) { mutableStateOf(true) }
@@ -1637,7 +1660,7 @@ private fun FeishuWorkGroupDetailScreen(
     var actionSheetMeme by remember { mutableStateOf<MemeItem?>(null) }
     var threadRootMeme by remember { mutableStateOf<MemeItem?>(null) }
     var maskEditorIndex by remember { mutableStateOf<Int?>(null) }
-    var viewerState by remember { mutableStateOf<Pair<List<MemeMediaItem>, Int>?>(null) }
+    var viewerState by remember { mutableStateOf<Triple<List<MemeMediaItem>, Int, MemeItem?>?>(null) }
 
     fun reloadMessages() {
         scope.launch {
@@ -1648,6 +1671,7 @@ private fun FeishuWorkGroupDetailScreen(
                 tag = tagFilter,
                 sort = "new",
             )
+            seenTracker?.ingestFetchedMemes(list)
             messages = list
             loading = false
         }
@@ -1685,14 +1709,20 @@ private fun FeishuWorkGroupDetailScreen(
     }
 
     if (threadRootMeme != null) {
+        val activeRoot = threadRootMeme!!
+        LaunchedEffect(activeRoot.id, bossKeyActive) {
+            if (!bossKeyActive) {
+                seenTracker?.markSeen(activeRoot.id, activeRoot.seenAt, activeRoot.resolvedDay)
+            }
+        }
         FeishuThreadScreen(
-            rootMeme = threadRootMeme!!,
+            rootMeme = activeRoot,
             api = api,
             blurAll = privacyConfig.blurAllEnabled,
             aliasEnabled = privacyConfig.feishuMemberAliasEnabled,
             unblurredIds = unblurredIds,
             onRevealMeme = { id -> unblurredIds = unblurredIds + id },
-            onOpenViewer = { mediaList, idx -> viewerState = mediaList to idx },
+            onOpenViewer = { mediaList, idx -> viewerState = Triple(mediaList, idx, activeRoot) },
             onReactMeme = { targetMeme, emoji ->
                 scope.launch {
                     val updated = api.reactToMeme(targetMeme.id, emoji)
@@ -1709,11 +1739,12 @@ private fun FeishuWorkGroupDetailScreen(
             },
             onClose = { threadRootMeme = null },
         )
-        viewerState?.let { (mediaItems, idx) ->
+        viewerState?.let { (mediaItems, idx, ownerMeme) ->
             ImmersiveMediaStage(
                 mediaItems = mediaItems,
                 initialIndex = idx,
                 api = api,
+                meme = ownerMeme,
                 forceBlurAll = false,
                 onDismiss = { viewerState = null },
             )
@@ -1763,7 +1794,11 @@ private fun FeishuWorkGroupDetailScreen(
             state = listState,
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .onGloballyPositioned { coords ->
+                    val b = coords.boundsInWindow()
+                    feedViewportRect = RectF(b.left, b.top, b.right, b.bottom)
+                },
             contentPadding = PaddingValues(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -1811,9 +1846,33 @@ private fun FeishuWorkGroupDetailScreen(
                 val avatarColor = FeishuDisguiseHelpers.imColor(authorName)
                 val commentTotal = maxOf(meme.comments, meme.commentCount)
                 val boosts = meme.replyList.ifEmpty { meme.replies }
+                val hasMedia = remember(meme.id, meme.images, meme.image, meme.thumb, meme.media) { meme.mediaItems.isNotEmpty() }
+                var mediaReady by remember(meme.id, hasMedia) { mutableStateOf(!hasMedia) }
+                var itemTopPx by remember(meme.id) { mutableFloatStateOf(0f) }
+                var itemBottomPx by remember(meme.id) { mutableFloatStateOf(0f) }
+                val visibleRatio = computeVisibleAreaRatio(itemTopPx, itemBottomPx, feedViewportRect.top, feedViewportRect.bottom)
+                val isItemBlurred = hasMedia && privacyConfig.blurAllEnabled && meme.id !in unblurredIds
+
+                if (!bossKeyActive) {
+                    ObserveMemeSeenDwell(
+                        memeId = meme.id,
+                        seenAt = meme.seenAt,
+                        memeDay = meme.resolvedDay,
+                        isMediaReady = mediaReady,
+                        isBlurred = isItemBlurred,
+                        visibleRatio = visibleRatio,
+                        scrollSpeedDpPerSec = 0f,
+                    )
+                }
 
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onGloballyPositioned { coords ->
+                            val b = coords.boundsInWindow()
+                            itemTopPx = b.top
+                            itemBottomPx = b.bottom
+                        },
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Box(
@@ -1875,7 +1934,8 @@ private fun FeishuWorkGroupDetailScreen(
                                     accentColor = fc.blue,
                                     isItemUnblurred = meme.id in unblurredIds,
                                     onRevealItem = { unblurredIds = unblurredIds + meme.id },
-                                    onOpenViewer = { list, idx -> viewerState = list to idx },
+                                    onOpenViewer = { list, idx -> viewerState = Triple(list, idx, meme) },
+                                    onMediaLoaded = { mediaReady = true },
                                 )
 
                                 if (meme.tags.isNotEmpty()) {
@@ -2136,11 +2196,12 @@ private fun FeishuWorkGroupDetailScreen(
         }
     }
 
-    viewerState?.let { (mediaItems, idx) ->
+    viewerState?.let { (mediaItems, idx, ownerMeme) ->
         ImmersiveMediaStage(
             mediaItems = mediaItems,
             initialIndex = idx,
             api = api,
+            meme = ownerMeme,
             forceBlurAll = false,
             onDismiss = { viewerState = null },
         )

@@ -76,6 +76,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -246,6 +247,21 @@ fun WallScreen(
     var loadingMore by remember { mutableStateOf(false) }
     var hasMore by remember { mutableStateOf(false) }
     var fetchOffset by remember { mutableIntStateOf(0) }
+    var currentPage by remember { mutableIntStateOf(1) }
+    var unseenAnchor by remember { mutableStateOf<String?>(null) }
+
+    val newlySeenByDayState = seenTracker?.newlySeenByDay?.collectAsState()
+    val newlySeenByDay = newlySeenByDayState?.value ?: emptyMap()
+    val adjustedDaysMeta = remember(daysMeta, newlySeenByDay) {
+        if (newlySeenByDay.isEmpty()) {
+            daysMeta
+        } else {
+            daysMeta.map { d ->
+                val dec = newlySeenByDay[d.day] ?: 0
+                if (dec > 0) d.copy(unseen = (d.unseen - dec).coerceAtLeast(0)) else d
+            }
+        }
+    }
 
     // Sub-sheets & full-screen overlays
     var selectedMemeId by remember { mutableStateOf(initialDetailMemeId) }
@@ -418,9 +434,17 @@ fun WallScreen(
     fun reload(curFilter: WallFilterState = filter, asRefresh: Boolean = false) {
         scope.launch {
             if (asRefresh) refreshing = true else loading = true
-            if (curFilter.unseenOnly) {
+            if (curFilter.unseenOnly || asRefresh) {
                 seenTracker?.flushNow()
             }
+            unseenAnchor = null
+            currentPage = 1
+            val guestSnap = if (me == null && curFilter.unseenOnly) {
+                seenTracker?.guestSeenSnapshot().orEmpty()
+            } else {
+                emptyList()
+            }
+            val useFlatPage = curFilter.fromDay == null && curFilter.focusMemeId == null
             val tagsCsv = curFilter.tags.takeIf { it.isNotEmpty() }?.joinToString(",")
             val q = curFilter.searchQuery.trim().ifBlank { null }
             val author = curFilter.author.trim().ifBlank { null }
@@ -431,6 +455,7 @@ fun WallScreen(
                 api.fetchMemesPage(
                     limit = 40,
                     offset = 0,
+                    page = if (useFlatPage) 1 else null,
                     day = curFilter.fromDay,
                     focus = curFilter.focusMemeId,
                     tag = tagsCsv,
@@ -438,6 +463,8 @@ fun WallScreen(
                     series = series,
                     sort = curFilter.sort,
                     unseenOnly = curFilter.unseenOnly,
+                    beforeAnchor = null,
+                    guestSeenIds = guestSnap,
                     textFilter = curFilter.textFilter,
                     nsfwModeParam = nsfwParam,
                     author = author,
@@ -452,6 +479,7 @@ fun WallScreen(
                         search = q,
                         sort = curFilter.sort,
                         unseenOnly = curFilter.unseenOnly,
+                        guestSeenIds = guestSnap,
                         textFilter = curFilter.textFilter,
                         nsfwModeParam = nsfwParam,
                         author = author,
@@ -464,8 +492,10 @@ fun WallScreen(
             val page = pageDef.await()
             val daysResp = daysDef.await()
             if (daysResp != null) {
+                seenTracker?.resetDayDeltaCounter()
                 daysMeta = daysResp.days
             }
+            unseenAnchor = page.anchor
             seenTracker?.ingestFetchedMemes(page.items)
             val filtered = if (curFilter.unseenOnly) {
                 page.items.filter { seenTracker?.isSeen(it.id, it.seenAt) != true }
@@ -473,7 +503,7 @@ fun WallScreen(
                 page.items
             }
             memes = filtered
-            fetchOffset = page.items.size
+            fetchOffset = page.offset + page.items.size
             hasMore = page.more
             loading = false
             refreshing = false
@@ -509,6 +539,15 @@ fun WallScreen(
         if (loading || loadingMore || !hasMore) return
         scope.launch {
             loadingMore = true
+            if (filter.unseenOnly) {
+                seenTracker?.flushNow()
+            }
+            val guestSnap = if (me == null && filter.unseenOnly) {
+                seenTracker?.guestSeenSnapshot().orEmpty()
+            } else {
+                emptyList()
+            }
+            val useFlatPage = filter.fromDay == null && filter.focusMemeId == null
             val tagsCsv = filter.tags.takeIf { it.isNotEmpty() }?.joinToString(",")
             val q = filter.searchQuery.trim().ifBlank { null }
             val author = filter.author.trim().ifBlank { null }
@@ -516,28 +555,44 @@ fun WallScreen(
             val nsfwParam = filter.nsfwQueryValue()
             val existingIds = memes.asSequence().map { it.id }.toHashSet()
 
-            val page = api.fetchMemesPage(
-                limit = 30,
-                offset = fetchOffset,
-                day = filter.fromDay,
-                tag = tagsCsv,
-                query = q,
-                series = series,
-                sort = filter.sort,
-                unseenOnly = filter.unseenOnly,
-                textFilter = filter.textFilter,
-                nsfwModeParam = nsfwParam,
-                author = author,
-            )
-            seenTracker?.ingestFetchedMemes(page.items)
-            val appended = page.items.filter { existingIds.add(it.id) }.let { list ->
-                if (filter.unseenOnly) list.filter { seenTracker?.isSeen(it.id, it.seenAt) != true } else list
+            var hops = 0
+            var accAppended = emptyList<MemeItem>()
+            while (hops < 3 && accAppended.isEmpty() && hasMore) {
+                hops += 1
+                val nextPage = if (useFlatPage) currentPage + 1 else null
+                val page = api.fetchMemesPage(
+                    limit = 30,
+                    offset = fetchOffset,
+                    page = nextPage,
+                    day = filter.fromDay,
+                    tag = tagsCsv,
+                    query = q,
+                    series = series,
+                    sort = filter.sort,
+                    unseenOnly = filter.unseenOnly,
+                    beforeAnchor = unseenAnchor,
+                    guestSeenIds = guestSnap,
+                    textFilter = filter.textFilter,
+                    nsfwModeParam = nsfwParam,
+                    author = author,
+                )
+                if (useFlatPage) {
+                    currentPage += 1
+                }
+                if (unseenAnchor == null && page.anchor != null) {
+                    unseenAnchor = page.anchor
+                }
+                seenTracker?.ingestFetchedMemes(page.items)
+                val batch = page.items.filter { existingIds.add(it.id) }.let { list ->
+                    if (filter.unseenOnly) list.filter { seenTracker?.isSeen(it.id, it.seenAt) != true } else list
+                }
+                accAppended = accAppended + batch
+                fetchOffset = page.offset + page.items.size
+                hasMore = page.more && page.items.isNotEmpty()
             }
-            if (appended.isNotEmpty()) {
-                memes = memes + appended
+            if (accAppended.isNotEmpty()) {
+                memes = memes + accAppended
             }
-            fetchOffset += page.items.size
-            hasMore = page.more && page.items.isNotEmpty()
             loadingMore = false
         }
     }
@@ -577,8 +632,8 @@ fun WallScreen(
         }
     }
 
-    val entries = remember(memes, daysMeta, filter.isByDay) {
-        buildFeedEntries(memes, daysMeta, filter.isByDay)
+    val entries = remember(memes, adjustedDaysMeta, filter.isByDay) {
+        buildFeedEntries(memes, adjustedDaysMeta, filter.isByDay)
     }
 
     // Auto-pagination trigger when scrolling near bottom
@@ -606,7 +661,7 @@ fun WallScreen(
                     ?: return@collect
                 api.putPref(
                     KV_WALL_POS,
-                    ForHappyJson.encodeToString(WallPosSnapshot.serializer(), WallPosSnapshot(card.meme.id, card.meme.day)),
+                    ForHappyJson.encodeToString(WallPosSnapshot.serializer(), WallPosSnapshot(card.meme.id, card.meme.resolvedDay)),
                 )
             }
     }
@@ -1196,7 +1251,7 @@ fun WallScreen(
 
     if (showDayJumpSheet) {
         WallDayJumpSheet(
-            days = daysMeta,
+            days = adjustedDaysMeta,
             currentFromDay = filter.fromDay,
             onSelectDay = { isoDay ->
                 applyFilter(filter.copy(fromDay = isoDay, focusMemeId = null))
@@ -1438,7 +1493,9 @@ private fun CleanMemeCard(
 
     var revealed by remember(meme.id, blurAllEnabled, filter.nsfwMode) { mutableStateOf(false) }
     var useExtFallback by remember(meme.id) { mutableStateOf(false) }
-    var visibleRatio by remember(meme.id) { mutableFloatStateOf(0f) }
+    var itemTopPx by remember(meme.id) { mutableFloatStateOf(0f) }
+    var itemBottomPx by remember(meme.id) { mutableFloatStateOf(0f) }
+    val visibleRatio = computeVisibleAreaRatio(itemTopPx, itemBottomPx, viewportRect.top, viewportRect.bottom)
 
     val primaryMedia = remember(meme) { meme.mediaItems.firstOrNull() }
     val rawUrl = remember(meme.id, isSingleColumn, useExtFallback) {
@@ -1478,7 +1535,7 @@ private fun CleanMemeCard(
     ObserveMemeSeenDwell(
         memeId = meme.id,
         seenAt = meme.seenAt,
-        memeDay = meme.day,
+        memeDay = meme.resolvedDay,
         isMediaReady = mediaReady,
         isBlurred = isBlurred,
         visibleRatio = visibleRatio,
@@ -1523,7 +1580,8 @@ private fun CleanMemeCard(
             .border(1.dp, palette.line.copy(alpha = 0.7f), RoundedCornerShape(ForHappyDimens.radiusM))
             .onGloballyPositioned { coords ->
                 val b = coords.boundsInWindow()
-                visibleRatio = computeVisibleAreaRatio(b.top, b.bottom, viewportRect.top, viewportRect.bottom)
+                itemTopPx = b.top
+                itemBottomPx = b.bottom
             }
             .combinedClickable(
                 onClick = { handleCardTap() },
@@ -1884,7 +1942,7 @@ private fun WallImmersivePagerFeed(
             ObserveMemeSeenDwell(
                 memeId = meme.id,
                 seenAt = meme.seenAt,
-                memeDay = meme.day,
+                memeDay = meme.resolvedDay,
                 isMediaReady = mediaReady,
                 isBlurred = isBlurred,
                 visibleRatio = if (page == pagerState.currentPage) 1f else 0f,
@@ -2084,7 +2142,7 @@ private fun buildFeedEntries(
     val out = ArrayList<WallFeedEntry>(memes.size + 8)
     var currentDay: String? = null
     for (m in memes) {
-        val day = m.day?.takeIf { it.isNotBlank() }
+        val day = m.resolvedDay
         if (day != null && day != currentDay) {
             currentDay = day
             val meta = dayLookup[day]

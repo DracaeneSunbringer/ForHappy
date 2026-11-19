@@ -126,6 +126,10 @@ class SeenTracker(
         return _seenIds.value.contains(memeId)
     }
 
+    fun guestSeenSnapshot(): List<Long> {
+        return if (ownerUid <= 0L) _seenIds.value.toList() else emptyList()
+    }
+
     fun markSeen(
         memeId: Long,
         existingSeenAt: Long? = null,
@@ -134,7 +138,12 @@ class SeenTracker(
         if (memeId <= 0L) return
         scope.launch {
             if (markSeenSuspend(memeId, existingSeenAt, memeDay)) {
-                scheduleDebouncedFlush()
+                val immediate = stateMutex.withLock { pendingQueue.size >= MAX_BATCH_SIZE }
+                if (immediate) {
+                    flushNow()
+                } else {
+                    scheduleDebouncedFlush()
+                }
             }
         }
     }

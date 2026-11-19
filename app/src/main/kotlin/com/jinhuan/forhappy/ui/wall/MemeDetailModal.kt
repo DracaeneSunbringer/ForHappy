@@ -246,7 +246,7 @@ fun MemeDetailModal(
             seenTracker.markSeen(
                 memeId = memeId,
                 existingSeenAt = resolved?.seenAt,
-                memeDay = resolved?.day,
+                memeDay = resolved?.resolvedDay,
             )
         } else {
             runCatching { api.recordMemeViews(listOf(memeId)) }

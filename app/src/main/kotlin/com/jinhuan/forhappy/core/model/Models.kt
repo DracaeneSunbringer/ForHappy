@@ -80,6 +80,38 @@ data class AccountLimitItem(
 )
 
 @Serializable
+data class OfficialTitleMeta(
+    val id: String = "",
+    val name: String = "",
+    val mood: String = "",
+)
+
+@Serializable
+data class FarmBadgeMeta(
+    val id: String = "",
+    val name: String = "",
+    val tier: String = "rare",
+    val unit: String = "次",
+    val desc: String = "",
+    val levels: List<Int> = emptyList(),
+)
+
+@Serializable
+data class GrowthRewardMeta(
+    val id: String = "",
+    val series: String? = null,
+    val board: String? = null,
+    val period: String? = null,
+    val level: Int = 1,
+    val wins: Int = 0,
+    val name: String = "",
+    val label: String? = null,
+    val symbol: String? = null,
+    val unit: String? = null,
+    val desc: String = "",
+)
+
+@Serializable
 data class MeUser(
     val id: Long = 0L,
     val username: String = "",
@@ -96,6 +128,9 @@ data class MeUser(
     val fancy: JsonElement? = null,
     val badges: JsonElement? = null,
     val unlocks: JsonElement? = null,
+    @SerialName("cosmetic_access") val cosmeticAccess: String? = null,
+    @SerialName("official_titles") val officialTitles: List<OfficialTitleMeta> = emptyList(),
+    @SerialName("farm_badge_progress") val farmBadgeProgress: Map<String, Int> = emptyMap(),
     @SerialName("created_at") val createdAt: Long? = null,
     val limits: List<AccountLimitItem> = emptyList(),
     @SerialName("linuxdo_id") val linuxdoId: Long? = null,
@@ -130,6 +165,12 @@ data class ChatUser(
 data class MeResponse(
     val user: MeUser? = null,
     val now: Double? = null,
+    @SerialName("official_titles") val officialTitles: List<OfficialTitleMeta> = emptyList(),
+    @SerialName("guess_rewards") val guessRewards: List<GrowthRewardMeta> = emptyList(),
+    @SerialName("luck_rewards") val luckRewards: List<GrowthRewardMeta> = emptyList(),
+    @SerialName("rank_rewards") val rankRewards: List<GrowthRewardMeta> = emptyList(),
+    @SerialName("activity_rewards") val activityRewards: List<GrowthRewardMeta> = emptyList(),
+    @SerialName("farm_badges") val farmBadges: List<FarmBadgeMeta> = emptyList(),
 )
 
 @Serializable
@@ -241,6 +282,9 @@ data class MemesPageResponse(
     val items: List<MemeItem> = emptyList(),
     val offset: Int = 0,
     val more: Boolean = false,
+    val anchor: String? = null,
+    @SerialName("unseen_total") val unseenTotal: Int? = null,
+    val total: Int? = null,
 )
 
 @Serializable
@@ -439,6 +483,14 @@ data class MemeItem(
     val totalComments: Int get() = if (commentCount > 0) commentCount else comments
     val isFaved: Boolean get() = faved || favFolders.isNotEmpty()
     val isRisky: Boolean get() = sensitive || spoiler || nsfw != 0
+    val resolvedDay: String?
+        get() = day?.takeIf { it.isNotBlank() }
+            ?: createdAt?.takeIf { it > 0L }?.let { sec ->
+                java.time.Instant.ofEpochSecond(sec)
+                    .atZone(java.time.ZoneId.of("Asia/Shanghai"))
+                    .toLocalDate()
+                    .toString()
+            }
 
     val authorDisplay: String
         get() = authorNick?.takeIf { it.isNotBlank() }
@@ -764,9 +816,10 @@ data class ChatMessage(
 
     val resolvedTitle: String?
         get() = title?.takeIf { it.isNotBlank() }
-            ?: runCatching { user?.deco?.jsonObject?.get("t")?.jsonPrimitive?.contentOrNull }
-                .getOrNull()
-                ?.takeIf { it.isNotBlank() }
+            ?: com.jinhuan.forhappy.core.cosmetics.BadgeAndCosmeticRegistry
+                .resolveEquippedIdentity(user?.deco, where = "chat")
+                .title
+                ?.displayLabel
 
     val allMedia: List<ChatMedia>
         get() = if (media.isNotEmpty()) {
@@ -1907,8 +1960,23 @@ data class DecoConfig(
     val fillMode: String = "solid", // "solid" | "gradient" | "glow"
     val primaryHex: String = "#1B7F4B",
     val secondaryHex: String = "#34A853",
-    val nickGradient: String = "", // "" | "pine" | "sunset" | "aurora" | "gold"
-    val bubbleSkin: String = "default", // "default" | "warm" | "moss" | "ocean" | "paper"
+    val textHex: String = "#FFFFFF",
+    val nickGradient: String = "", // "" | "pine" | "sunset" | "aurora" | "gold" | "sakura" | "salt" | "cyber" | "blackgold"
+    val customGradientStops: List<String> = emptyList(),
+    val bubbleSkin: String = "default",
+    val badgeMode: String = "set", // "set" | "custom" | "none"
+    val equippedBadgeId: String = "",
+    val badgeScope: String = "all", // "all" | "chat" | "post"
+    val decoScope: String = "all", // "all" | "chat" | "post"
+    val equippedPersonalId: String = "",
+    val equippedRaffleId: String = "",
+    val equippedRaffleLevel: Int = 1,
+    val equippedOfficialId: String = "",
+    val equippedGrowthId: String = "",
+    val equippedInviteTitle: Boolean = false,
+    val communityTitleId: String = "",
+    val communityBadgeId: String = "",
+    val communityBubbleId: String = "",
     val cleanHideOthersNick: Boolean = false,
     val cleanHideOthersBadges: Boolean = false,
     val cleanHideOthersStyles: Boolean = false,

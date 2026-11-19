@@ -89,10 +89,14 @@ import com.jinhuan.forhappy.core.model.ShortcutGestureMode
 import com.jinhuan.forhappy.core.model.WalletSummary
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
+import com.jinhuan.forhappy.core.cosmetics.BadgeAndCosmeticRegistry
 import com.jinhuan.forhappy.core.update.AppUpdateController
 import com.jinhuan.forhappy.core.update.UpdateStatus
+import com.jinhuan.forhappy.ui.components.BadgeChipView
 import com.jinhuan.forhappy.ui.components.BadgePill
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
+import com.jinhuan.forhappy.ui.components.TitleChipView
+import com.jinhuan.forhappy.ui.components.parseSafeHex
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.theme.LocalPrivacyStealthConfig
@@ -116,7 +120,7 @@ private val ME_STREAM_TABS = listOf(
     "seen" to "最近看过",
 )
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun MeScreen(
     api: ForHappyApiClient,
@@ -226,7 +230,17 @@ fun MeScreen(
         (updateState.status == UpdateStatus.AVAILABLE || updateState.status == UpdateStatus.READY_TO_INSTALL)
 
     val decoConfig = remember(me?.deco, cleanRawPref) { parseDecoConfig(me?.deco, cleanRawPref) }
-    val badges = remember(me?.badges) { extractBadgeLabels(me?.badges) }
+    val equippedIdentity = remember(me?.deco, me?.badges, me?.officialTitles) {
+        BadgeAndCosmeticRegistry.resolveEquippedIdentity(
+            decoJson = me?.deco,
+            badgesJson = me?.badges,
+            officialTitles = me?.officialTitles.orEmpty(),
+            where = "card",
+        )
+    }
+    val ownedBadges = remember(me?.badges, me?.farmBadgeProgress) {
+        BadgeAndCosmeticRegistry.parseOwnedBadges(me?.badges, me?.farmBadgeProgress.orEmpty())
+    }
 
     Column(
         modifier = Modifier
@@ -344,14 +358,21 @@ fun MeScreen(
                                 Text("尚未登录", color = palette.text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                                 Text("登录 52dmeme.com 解锁 D币、集卡、收藏与同步", color = palette.muted, fontSize = 12.sp)
                             } else {
-                                val grad = when (decoConfig.nickGradient) {
-                                    "pine" -> listOf(Color(0xFF1B7F4B), Color(0xFF34A853))
-                                    "sunset" -> listOf(Color(0xFFEA580C), Color(0xFFEC4899))
-                                    "aurora" -> listOf(Color(0xFF06B6D4), Color(0xFF8B5CF6))
-                                    "gold" -> listOf(Color(0xFFD97706), Color(0xFFF59E0B))
-                                    else -> null
+                                val grad = remember(equippedIdentity.nickGradientHexes, decoConfig.nickGradient, palette.text) {
+                                    val fromIdentity = equippedIdentity.nickGradientHexes.map { parseSafeHex(it, palette.text) }
+                                    when {
+                                        fromIdentity.size >= 2 -> fromIdentity
+                                        decoConfig.nickGradient == "pine" -> listOf(Color(0xFF1B7F4B), Color(0xFF34A853))
+                                        decoConfig.nickGradient == "sunset" -> listOf(Color(0xFFEA580C), Color(0xFFEC4899))
+                                        decoConfig.nickGradient == "aurora" -> listOf(Color(0xFF06B6D4), Color(0xFF8B5CF6))
+                                        decoConfig.nickGradient == "gold" -> listOf(Color(0xFFD97706), Color(0xFFF59E0B))
+                                        else -> null
+                                    }
                                 }
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
                                     Text(
                                         text = me.displayName,
                                         style = if (grad != null) {
@@ -362,12 +383,16 @@ fun MeScreen(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
-                                    if (decoConfig.customTitle.isNotBlank()) {
-                                        val tc = parseHexColor(decoConfig.primaryHex, palette.primary)
-                                        BadgePill(decoConfig.customTitle, containerColor = tc.copy(alpha = 0.14f), contentColor = tc)
+                                    equippedIdentity.title?.let { titleChip ->
+                                        TitleChipView(title = titleChip)
                                     }
-                                    badges.take(3).forEach { b ->
-                                        Text(b, color = palette.gold, fontSize = 12.sp)
+                                    equippedIdentity.badge?.let { badgeChip ->
+                                        BadgeChipView(
+                                            badge = badgeChip,
+                                            imageLoader = api.imageLoader,
+                                            mini = false,
+                                            onClick = { showDecoDialog = true },
+                                        )
                                     }
                                 }
                                 val joinDate = me.createdAt?.takeIf { it > 0L }?.let {
@@ -440,8 +465,8 @@ fun MeScreen(
                         )
                         AssetGridCell(
                             emoji = "🎨",
-                            value = "装扮",
-                            label = "工作室",
+                            value = if (me != null && ownedBadges.isNotEmpty()) "${ownedBadges.size}枚" else "装扮",
+                            label = "装扮与徽章",
                             onClick = { if (me == null) onRequireLogin() else showDecoDialog = true },
                             modifier = Modifier.weight(1f),
                         )

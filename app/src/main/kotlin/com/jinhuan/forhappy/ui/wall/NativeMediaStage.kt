@@ -109,6 +109,7 @@ import com.jinhuan.forhappy.core.model.MemeItem
 import com.jinhuan.forhappy.core.model.MemeMediaItem
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
+import com.jinhuan.forhappy.core.seen.LocalSeenTracker
 import com.jinhuan.forhappy.ui.theme.LocalBossKeyActive
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.theme.LocalPrivacyStealthConfig
@@ -918,10 +919,22 @@ fun ImmersiveMediaStage(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
+    val seenTracker = LocalSeenTracker.current
+    val bossKeyActive = LocalBossKeyActive.current
 
     if (mediaItems.isEmpty()) {
         LaunchedEffect(Unit) { onDismiss() }
         return
+    }
+
+    LaunchedEffect(meme?.id, bossKeyActive) {
+        if (meme != null && meme.id > 0L && !bossKeyActive) {
+            seenTracker?.markSeen(
+                memeId = meme.id,
+                existingSeenAt = meme.seenAt,
+                memeDay = meme.resolvedDay,
+            )
+        }
     }
 
     val safeInitial = initialIndex.coerceIn(0, mediaItems.lastIndex)

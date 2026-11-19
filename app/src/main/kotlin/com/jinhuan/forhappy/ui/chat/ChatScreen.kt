@@ -122,6 +122,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -143,6 +144,7 @@ import coil3.compose.AsyncImage
 import com.jinhuan.forhappy.core.chat.ChatRichTextParser
 import com.jinhuan.forhappy.core.chat.ChatSessionController
 import com.jinhuan.forhappy.core.clock.ServerClock
+import com.jinhuan.forhappy.core.cosmetics.BadgeAndCosmeticRegistry
 import com.jinhuan.forhappy.core.model.AppDisguiseMode
 import com.jinhuan.forhappy.core.model.BOOST_MAX_LEN
 import com.jinhuan.forhappy.core.model.BOOST_PRESETS
@@ -170,12 +172,15 @@ import com.jinhuan.forhappy.core.model.parseRedpackMeta
 import com.jinhuan.forhappy.core.navigation.StealthExemptionGate
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
+import com.jinhuan.forhappy.ui.components.BadgeChipView
 import com.jinhuan.forhappy.ui.components.BadgePill
 import com.jinhuan.forhappy.ui.components.BoostPillText
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
 import com.jinhuan.forhappy.ui.components.ReactionChip
 import com.jinhuan.forhappy.ui.components.RichChatBodyView
+import com.jinhuan.forhappy.ui.components.TitleChipView
 import com.jinhuan.forhappy.ui.components.boostPresetAccent
+import com.jinhuan.forhappy.ui.components.parseSafeHex
 import com.jinhuan.forhappy.ui.compose.ComposeMediaStager
 import com.jinhuan.forhappy.ui.disguise.DisguiseSanitizer
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
@@ -2773,21 +2778,42 @@ private fun SwipeableChatRow(
             modifier = Modifier.widthIn(max = 318.dp),
         ) {
             if (!isContinuation) {
+                val chatIdentity = remember(msg.user?.deco, cleanDecoMode, disguiseMode) {
+                    if (!cleanDecoMode && disguiseMode == AppDisguiseMode.NONE) {
+                        BadgeAndCosmeticRegistry.resolveEquippedIdentity(msg.user?.deco, where = "chat")
+                    } else {
+                        null
+                    }
+                }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
                     if (!msg.mine || isLinuxDo) {
+                        val gradColors = remember(chatIdentity?.nickGradientHexes, palette.muted) {
+                            chatIdentity?.nickGradientHexes?.map { parseSafeHex(it, palette.muted) }?.takeIf { it.size >= 2 }
+                        }
                         Text(
                             text = shownAuthor,
-                            color = palette.muted,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
+                            style = if (gradColors != null) {
+                                TextStyle(brush = Brush.horizontalGradient(gradColors), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            } else {
+                                TextStyle(color = palette.muted, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                            },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                     if (!cleanDecoMode && disguiseMode == AppDisguiseMode.NONE) {
-                        msg.resolvedTitle?.let { titleLabel ->
-                            BadgePill(titleLabel, containerColor = palette.gold.copy(alpha = 0.16f), contentColor = palette.gold)
+                        if (chatIdentity?.title != null) {
+                            TitleChipView(title = chatIdentity.title)
+                        } else {
+                            msg.title?.takeIf { it.isNotBlank() }?.let { titleLabel ->
+                                BadgePill(titleLabel, containerColor = palette.gold.copy(alpha = 0.16f), contentColor = palette.gold)
+                            }
+                        }
+                        chatIdentity?.badge?.let { badgeChip ->
+                            BadgeChipView(badge = badgeChip, imageLoader = api.imageLoader, mini = true)
                         }
                     }
                     Text(shortTimeStr, color = palette.muted.copy(alpha = 0.7f), fontSize = 10.sp)
