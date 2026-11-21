@@ -142,6 +142,9 @@ data class MeUser(
             ?: username.ifBlank { "欢友" }
 
     fun isNotifEnabled(key: String): Boolean = notifPrefs[key] != false
+
+    val isFancyGranted: Boolean
+        get() = parseJsonTruthy(fancy)
 }
 
 @Serializable
@@ -153,12 +156,18 @@ data class ChatUser(
     val avatar: String? = null,
     @SerialName("is_admin") val isAdmin: Boolean = false,
     val fancy: JsonElement? = null,
+    @SerialName("cosmetic_access") val cosmeticAccess: String? = null,
+    val badges: JsonElement? = null,
+    @SerialName("official_titles") val officialTitles: List<OfficialTitleMeta> = emptyList(),
     val deco: JsonElement? = null,
 ) {
     val displayName: String
         get() = name?.takeIf { it.isNotBlank() }
             ?: nick?.takeIf { it.isNotBlank() }
             ?: username.ifBlank { "欢友" }
+
+    val isFancyGranted: Boolean
+        get() = parseJsonTruthy(fancy)
 }
 
 @Serializable
@@ -678,11 +687,18 @@ data class ChatReplyPreview(
     val nick: String? = null,
     val username: String? = null,
     val avatar: String? = null,
+    @SerialName("is_admin") val isAdmin: Boolean = false,
+    val fancy: JsonElement? = null,
+    val deco: JsonElement? = null,
+    @SerialName("media_expired") val mediaExpired: Boolean = false,
     val deleted: Boolean = false,
     val image: JsonElement? = null,
     val thumb: String? = null,
     val file: String? = null,
 ) {
+    val isFancyGranted: Boolean
+        get() = parseJsonTruthy(fancy)
+
     val hasImage: Boolean
         get() {
             val prim = image as? JsonPrimitive ?: return false
@@ -733,6 +749,9 @@ data class ChatBoost(
     val score: Int? = null,
     val at: Long = 0L,
     val mine: Boolean = false,
+    @SerialName("is_admin") val isAdmin: Boolean = false,
+    val fancy: JsonElement? = null,
+    @SerialName("cosmetic_access") val cosmeticAccess: String? = null,
     val deco: JsonElement? = null,
 ) {
     val displayAuthor: String
@@ -1982,3 +2001,11 @@ data class DecoConfig(
     val cleanHideOthersStyles: Boolean = false,
     val cleanHideBubbles: Boolean = false,
 )
+
+internal fun parseJsonTruthy(el: JsonElement?): Boolean {
+    val prim = el as? JsonPrimitive ?: return false
+    return prim.booleanOrNull == true ||
+        prim.intOrNull == 1 ||
+        prim.contentOrNull?.trim()?.equals("true", ignoreCase = true) == true ||
+        prim.contentOrNull?.trim() == "1"
+}

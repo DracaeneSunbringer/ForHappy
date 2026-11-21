@@ -122,7 +122,23 @@ class ForHappyApiClient(
     companion object {
         const val ORIGIN = "https://52dmeme.com"
         private const val KV_MODULES_CACHE = "dynamic.topbar_modules"
+        private const val KV_COSMETICS_ME_CATALOG = "cosmetics.me_catalog.v1"
+        private const val KV_COSMETICS_COMMUNITY_SKINS = "cosmetics.community_skins.v1"
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+    }
+
+    init {
+        runCatching {
+            db.getKvBlocking(KV_COSMETICS_ME_CATALOG)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { raw -> ForHappyJson.decodeFromString<MeResponse>(raw) }
+                ?.let { BadgeAndCosmeticRegistry.updateFromMeResponse(it) }
+        }
+        runCatching {
+            db.getKvBlocking(KV_COSMETICS_COMMUNITY_SKINS)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { BadgeAndCosmeticRegistry.updateCommunitySkinsCatalog(it) }
+        }
     }
 
     val okHttpClient: OkHttpClient = OkHttpClient.Builder()
@@ -248,8 +264,17 @@ class ForHappyApiClient(
         if (parsed != null) {
             parsed.now?.let { ServerClock.calibrateFromServerSec(it) }
             BadgeAndCosmeticRegistry.updateFromMeResponse(parsed)
+            runCatching { db.putKv(KV_COSMETICS_ME_CATALOG, res.body) }
         }
         return parsed?.user
+    }
+
+    suspend fun fetchCommunitySkinsCatalog(): Boolean {
+        val res = executeRawJson("GET", "/api/community-skins")
+        if (res.code !in 200..299 || res.body.isBlank()) return false
+        BadgeAndCosmeticRegistry.updateCommunitySkinsCatalog(res.body)
+        runCatching { db.putKv(KV_COSMETICS_COMMUNITY_SKINS, res.body) }
+        return true
     }
 
     suspend fun loginWithPassword(login: String, password: String): Result<Unit> {

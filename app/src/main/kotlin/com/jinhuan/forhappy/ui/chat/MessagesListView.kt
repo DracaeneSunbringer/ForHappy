@@ -67,6 +67,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -1489,9 +1490,14 @@ fun MemberProfileSheet(
                 )
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     val disguiseMode = LocalPrivacyStealthConfig.current.disguiseMode
-                    val memberIdentity = remember(member.deco, disguiseMode) {
+                    val cosmeticCatalogRev by BadgeAndCosmeticRegistry.catalogRevision.collectAsState()
+                    val memberIdentity = remember(member.deco, disguiseMode, palette.isDark, cosmeticCatalogRev) {
                         if (disguiseMode == AppDisguiseMode.NONE) {
-                            BadgeAndCosmeticRegistry.resolveEquippedIdentity(member.deco, where = "card")
+                            BadgeAndCosmeticRegistry.resolveEquippedIdentity(
+                                decoJson = member.deco,
+                                where = "card",
+                                isDarkTheme = palette.isDark,
+                            )
                         } else {
                             null
                         }

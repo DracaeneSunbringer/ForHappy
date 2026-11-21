@@ -56,6 +56,7 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -69,6 +70,7 @@ import androidx.compose.ui.unit.sp
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
 import com.jinhuan.forhappy.core.chat.ChatRichTextParser
+import com.jinhuan.forhappy.core.cosmetics.ChatBubbleCosmetics
 import com.jinhuan.forhappy.core.model.AppDisguiseMode
 import com.jinhuan.forhappy.core.model.BOOST_PRESETS
 import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
@@ -342,13 +344,19 @@ fun BoostPillText(
     imageLoader: ImageLoader,
     fontSize: TextUnit = 11.sp,
     textColor: Color? = null,
+    frameFillColor: Color? = null,
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalForHappyPalette.current
     val disguised = LocalPrivacyStealthConfig.current.disguiseMode != AppDisguiseMode.NONE
-    val presetAccent = remember(text, palette.isDark, disguised) {
+    val presetAccent = remember(text, palette.isDark, disguised, frameFillColor) {
         val accent = boostPresetAccent(text, palette.isDark)
-        if (disguised && accent != null) palette.primary else accent
+        when {
+            accent == null -> null
+            disguised -> palette.primary
+            frameFillColor != null -> ChatBubbleCosmetics.ensureReadableForeground(accent, frameFillColor, minContrast = 4.0f)
+            else -> accent
+        }
     }
     if (presetAccent != null) {
         Text(
@@ -506,6 +514,11 @@ fun RichChatBodyView(
     rawBody: String,
     imageLoader: ImageLoader,
     textColor: Color? = null,
+    linkColor: Color? = null,
+    mutedColor: Color? = null,
+    bodyFontFamily: FontFamily? = null,
+    bodyFontWeight: FontWeight? = null,
+    bodyFontStyle: FontStyle? = null,
     isEdited: Boolean = false,
     showInlineImages: Boolean = true,
     onPostRefClick: (Long) -> Unit = {},
@@ -517,6 +530,8 @@ fun RichChatBodyView(
 ) {
     val palette = LocalForHappyPalette.current
     val effectiveTextColor = textColor ?: palette.text
+    val effectiveLinkColor = linkColor ?: palette.primary
+    val effectiveMutedColor = mutedColor ?: palette.muted
     val parsed = remember(rawBody) { ChatRichTextParser.parse(rawBody) }
 
     val onlyInlineImage = parsed.bodyImgOnly && showInlineImages && parsed.inlineImageUrls.isNotEmpty()
@@ -583,6 +598,8 @@ fun RichChatBodyView(
                                             lineHeight = 17.sp,
                                             stickerSize = 18.dp,
                                             stickerSp = 20.sp,
+                                            linkColor = palette.primary,
+                                            mutedColor = palette.muted,
                                             onPostRefClick = onPostRefClick,
                                             onHashtagClick = onHashtagClick,
                                             onLinkClick = { url ->
@@ -636,6 +653,11 @@ fun RichChatBodyView(
                                         lineHeight = 19.sp,
                                         stickerSize = 20.dp,
                                         stickerSp = 22.sp,
+                                        linkColor = effectiveLinkColor,
+                                        mutedColor = effectiveMutedColor,
+                                        fontFamily = bodyFontFamily,
+                                        fontWeight = bodyFontWeight,
+                                        fontStyle = bodyFontStyle,
                                         onPostRefClick = onPostRefClick,
                                         onHashtagClick = onHashtagClick,
                                         onLinkClick = { url ->
@@ -680,17 +702,22 @@ fun RichChatBodyView(
                                 modifier = Modifier
                                     .width(3.dp)
                                     .heightIn(min = 16.dp)
-                                    .background(palette.muted.copy(alpha = 0.5f), RoundedCornerShape(999.dp)),
+                                    .background(effectiveMutedColor.copy(alpha = 0.55f), RoundedCornerShape(999.dp)),
                             )
                             Spacer(Modifier.width(7.dp))
                             InlineTokensText(
                                 tokens = block.tokens,
                                 imageLoader = imageLoader,
-                                textColor = palette.muted,
+                                textColor = effectiveMutedColor,
                                 fontSize = 13.sp,
                                 lineHeight = 19.sp,
                                 stickerSize = 20.dp,
                                 stickerSp = 22.sp,
+                                linkColor = effectiveLinkColor,
+                                mutedColor = effectiveMutedColor,
+                                fontFamily = bodyFontFamily,
+                                fontWeight = bodyFontWeight,
+                                fontStyle = bodyFontStyle,
                                 onPostRefClick = onPostRefClick,
                                 onHashtagClick = onHashtagClick,
                                 onLinkClick = { url ->
@@ -702,21 +729,29 @@ fun RichChatBodyView(
                     }
 
                     is ChatRichTextParser.Block.Paragraph -> {
+                        val stickerCount = block.tokens.count { it is ChatRichTextParser.Token.Sticker }
                         val isSoloStickers = parsed.blocks.size == 1 &&
-                            block.tokens.count { it is ChatRichTextParser.Token.Sticker } in 1..3 &&
+                            stickerCount in 1..6 &&
                             block.tokens.all {
                                 it is ChatRichTextParser.Token.Sticker ||
                                     (it is ChatRichTextParser.Token.PlainText && it.text.isBlank())
                             }
+                        val soloSizeDp = if (stickerCount == 1) 64.dp else if (stickerCount <= 3) 48.dp else 38.dp
+                        val soloSp = if (stickerCount == 1) 66.sp else if (stickerCount <= 3) 50.sp else 40.sp
                         InlineTokensText(
                             tokens = block.tokens,
                             imageLoader = imageLoader,
                             textColor = effectiveTextColor,
                             fontSize = 14.sp,
                             lineHeight = 20.sp,
-                            stickerSize = if (isSoloStickers) 44.dp else 22.dp,
-                            stickerSp = if (isSoloStickers) 46.sp else 24.sp,
+                            stickerSize = if (isSoloStickers) soloSizeDp else 22.dp,
+                            stickerSp = if (isSoloStickers) soloSp else 24.sp,
                             appendEditedBadge = isEdited && bIdx == onlyParagraphIdx,
+                            linkColor = effectiveLinkColor,
+                            mutedColor = effectiveMutedColor,
+                            fontFamily = bodyFontFamily,
+                            fontWeight = bodyFontWeight,
+                            fontStyle = bodyFontStyle,
                             onPostRefClick = onPostRefClick,
                             onHashtagClick = onHashtagClick,
                             onLongPress = onLongPress,
@@ -733,7 +768,7 @@ fun RichChatBodyView(
         if (isEdited && onlyParagraphIdx < 0) {
             Text(
                 text = "（已编辑）",
-                color = palette.muted,
+                color = effectiveMutedColor,
                 fontSize = 11.sp,
             )
         }
@@ -768,6 +803,11 @@ private fun InlineTokensText(
     stickerSize: Dp,
     stickerSp: TextUnit,
     appendEditedBadge: Boolean = false,
+    linkColor: Color? = null,
+    mutedColor: Color? = null,
+    fontFamily: FontFamily? = null,
+    fontWeight: FontWeight? = null,
+    fontStyle: FontStyle? = null,
     onPostRefClick: (Long) -> Unit,
     onHashtagClick: (String) -> Unit,
     onLinkClick: (String) -> Unit,
@@ -776,6 +816,8 @@ private fun InlineTokensText(
     val palette = LocalForHappyPalette.current
     val disguiseMode = LocalPrivacyStealthConfig.current.disguiseMode
     val disguised = disguiseMode != AppDisguiseMode.NONE
+    val effectiveLink = linkColor ?: palette.primary
+    val effectiveMuted = mutedColor ?: palette.muted
     var revealedSpoilers by remember(tokens) { mutableStateOf(emptySet<Int>()) }
     var failedInlineKeys by remember(tokens) { mutableStateOf(emptySet<String>()) }
 
@@ -797,7 +839,7 @@ private fun InlineTokensText(
         }
     }
 
-    val annotated = remember(tokens, failedInlineKeys, textColor, palette, revealedSpoilers, appendEditedBadge, disguiseMode) {
+    val annotated = remember(tokens, failedInlineKeys, textColor, effectiveLink, effectiveMuted, palette, revealedSpoilers, appendEditedBadge, disguiseMode) {
         buildAnnotatedString {
             tokens.forEachIndexed { idx, token ->
                 when (token) {
@@ -808,7 +850,7 @@ private fun InlineTokensText(
                         } else {
                             val key = "msg_stk_$idx"
                             if (key in failedInlineKeys) {
-                                withStyle(SpanStyle(color = palette.muted)) {
+                                withStyle(SpanStyle(color = effectiveMuted)) {
                                     append("[${token.pack}:${token.name}]")
                                 }
                             } else {
@@ -822,7 +864,7 @@ private fun InlineTokensText(
                         } else {
                             val key = "msg_twe_$idx"
                             if (key in failedInlineKeys) {
-                                withStyle(SpanStyle(color = palette.muted)) {
+                                withStyle(SpanStyle(color = effectiveMuted)) {
                                     append(":${token.code}:")
                                 }
                             } else {
@@ -836,7 +878,7 @@ private fun InlineTokensText(
                         }
                     }
                     is ChatRichTextParser.Token.Strike -> {
-                        withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough, color = palette.muted)) {
+                        withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough, color = effectiveMuted)) {
                             append(token.text)
                         }
                     }
@@ -856,9 +898,9 @@ private fun InlineTokensText(
                         pushStringAnnotation("SPOILER", idx.toString())
                         withStyle(
                             if (shown) {
-                                SpanStyle(background = palette.primary.copy(alpha = 0.14f), color = textColor)
+                                SpanStyle(background = effectiveLink.copy(alpha = 0.14f), color = textColor)
                             } else {
-                                SpanStyle(background = palette.muted, color = palette.muted)
+                                SpanStyle(background = effectiveMuted, color = effectiveMuted)
                             },
                         ) {
                             append(token.text)
@@ -866,13 +908,13 @@ private fun InlineTokensText(
                         pop()
                     }
                     is ChatRichTextParser.Token.Mention -> {
-                        withStyle(SpanStyle(color = palette.primary, fontWeight = FontWeight.SemiBold)) {
+                        withStyle(SpanStyle(color = effectiveLink, fontWeight = FontWeight.SemiBold)) {
                             append("@${token.username}")
                         }
                     }
                     is ChatRichTextParser.Token.PostRef -> {
                         pushStringAnnotation("POST_REF", token.memeId.toString())
-                        val refColor = if (disguised) palette.primary else palette.gold
+                        val refColor = if (disguised) palette.primary else (linkColor ?: palette.gold)
                         val refLabel = when (disguiseMode) {
                             AppDisguiseMode.FEISHU -> "[消息链接 #${token.memeId}]"
                             AppDisguiseMode.LINUX_DO -> "#${token.memeId}"
@@ -893,7 +935,7 @@ private fun InlineTokensText(
                         pushStringAnnotation("HASHTAG", token.tag)
                         withStyle(
                             SpanStyle(
-                                color = palette.primary,
+                                color = effectiveLink,
                                 fontWeight = FontWeight.Medium,
                             ),
                         ) {
@@ -905,7 +947,7 @@ private fun InlineTokensText(
                         pushStringAnnotation("URL", token.url)
                         withStyle(
                             SpanStyle(
-                                color = palette.primary,
+                                color = effectiveLink,
                                 textDecoration = TextDecoration.Underline,
                             ),
                         ) {
@@ -917,7 +959,7 @@ private fun InlineTokensText(
                         val internalId = ChatRichTextParser.extractInternalMemeId(token.url)
                         if (internalId != null) {
                             pushStringAnnotation("POST_REF", internalId.toString())
-                            val refColor = if (disguised) palette.primary else palette.gold
+                            val refColor = if (disguised) palette.primary else (linkColor ?: palette.gold)
                             val refLabel = when (disguiseMode) {
                                 AppDisguiseMode.FEISHU -> "[消息链接 #$internalId]"
                                 AppDisguiseMode.LINUX_DO -> "#$internalId"
@@ -937,7 +979,7 @@ private fun InlineTokensText(
                             pushStringAnnotation("URL", token.url)
                             withStyle(
                                 SpanStyle(
-                                    color = palette.primary,
+                                    color = effectiveLink,
                                     textDecoration = TextDecoration.Underline,
                                 ),
                             ) {
@@ -949,7 +991,7 @@ private fun InlineTokensText(
                 }
             }
             if (appendEditedBadge) {
-                withStyle(SpanStyle(color = palette.muted, fontSize = 11.sp)) {
+                withStyle(SpanStyle(color = effectiveMuted, fontSize = 11.sp)) {
                     append("（已编辑）")
                 }
             }
@@ -963,6 +1005,9 @@ private fun InlineTokensText(
             color = textColor,
             fontSize = fontSize,
             lineHeight = lineHeight,
+            fontFamily = fontFamily,
+            fontWeight = fontWeight,
+            fontStyle = fontStyle,
         ),
         inlineContent = inlineContent,
         onTextLayout = { layoutResult = it },

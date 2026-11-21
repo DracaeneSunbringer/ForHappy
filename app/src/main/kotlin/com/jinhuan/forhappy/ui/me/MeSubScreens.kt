@@ -59,6 +59,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -82,6 +83,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.jinhuan.forhappy.core.cosmetics.BadgeAndCosmeticRegistry
+import com.jinhuan.forhappy.core.cosmetics.ChatBubbleCosmetics
 import com.jinhuan.forhappy.core.cosmetics.OwnedBadgeItem
 import com.jinhuan.forhappy.core.model.DecoConfig
 import com.jinhuan.forhappy.core.model.ForHappyJson
@@ -95,6 +97,9 @@ import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.ui.components.BadgeArtIcon
 import com.jinhuan.forhappy.ui.components.BadgeChipView
 import com.jinhuan.forhappy.ui.components.BadgePill
+import com.jinhuan.forhappy.ui.components.BoostPillText
+import com.jinhuan.forhappy.ui.components.ChatCosmeticBoostPill
+import com.jinhuan.forhappy.ui.components.ChatCosmeticBubbleBox
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
 import com.jinhuan.forhappy.ui.components.TitleChipView
 import com.jinhuan.forhappy.ui.components.parseSafeHex
@@ -950,23 +955,50 @@ fun DecoStudioDialog(
         ownedPersonals = parseOwnedPersonalTitles(pObj, allCosmetics)
     }
 
+    val cosmeticCatalogRev by BadgeAndCosmeticRegistry.catalogRevision.collectAsState()
     val previewDecoJson = remember(me.deco, config, ownedBadges) {
         BadgeAndCosmeticRegistry.buildServerDecoPayload(me.deco, config, ownedBadges)
     }
-    val previewCardIdentity = remember(previewDecoJson, me.badges, me.officialTitles) {
+    val previewCardIdentity = remember(
+        previewDecoJson,
+        me.badges,
+        me.officialTitles,
+        me.isAdmin,
+        me.isFancyGranted,
+        me.cosmeticAccess,
+        palette.isDark,
+        cosmeticCatalogRev,
+    ) {
         BadgeAndCosmeticRegistry.resolveEquippedIdentity(
             decoJson = previewDecoJson,
             badgesJson = me.badges,
             officialTitles = me.officialTitles,
             where = "card",
+            isAdmin = me.isAdmin,
+            hasFancyPermission = me.isFancyGranted,
+            cosmeticAccess = me.cosmeticAccess,
+            isDarkTheme = palette.isDark,
         )
     }
-    val previewChatIdentity = remember(previewDecoJson, me.badges, me.officialTitles) {
+    val previewChatIdentity = remember(
+        previewDecoJson,
+        me.badges,
+        me.officialTitles,
+        me.isAdmin,
+        me.isFancyGranted,
+        me.cosmeticAccess,
+        palette.isDark,
+        cosmeticCatalogRev,
+    ) {
         BadgeAndCosmeticRegistry.resolveEquippedIdentity(
             decoJson = previewDecoJson,
             badgesJson = me.badges,
             officialTitles = me.officialTitles,
             where = "chat",
+            isAdmin = me.isAdmin,
+            hasFancyPermission = me.isFancyGranted,
+            cosmeticAccess = me.cosmeticAccess,
+            isDarkTheme = palette.isDark,
         )
     }
 
@@ -1087,12 +1119,23 @@ fun DecoStudioDialog(
                 }
                 HorizontalPager(
                     state = previewPagerState,
-                    modifier = Modifier.fillMaxWidth().height(92.dp),
+                    modifier = Modifier.fillMaxWidth().height(106.dp),
                 ) { page ->
-                    val nickStyle = if (nickBrushColors != null && !config.cleanHideOthersStyles) {
-                        TextStyle(brush = Brush.horizontalGradient(nickBrushColors), fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    } else {
-                        TextStyle(color = palette.text, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    val singleNickColor = previewCardIdentity.nickGradientHexes.firstOrNull()?.let {
+                        parseSafeHex(it, palette.text)
+                    }
+                    val nickStyle = when {
+                        nickBrushColors != null && !config.cleanHideOthersNick -> TextStyle(
+                            brush = Brush.horizontalGradient(nickBrushColors),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                        )
+                        singleNickColor != null && !config.cleanHideOthersNick -> TextStyle(
+                            color = singleNickColor,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                        )
+                        else -> TextStyle(color = palette.text, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                     Surface(
                         color = palette.surface2,
@@ -1106,60 +1149,128 @@ fun DecoStudioDialog(
                                     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                             Text(me.displayName, style = nickStyle)
-                                            previewCardIdentity.title?.let { TitleChipView(title = it) }
-                                            previewCardIdentity.badge?.let {
-                                                BadgeChipView(badge = it, imageLoader = api.imageLoader, mini = false)
+                                            if (!config.cleanHideOthersStyles) {
+                                                previewCardIdentity.title?.let { TitleChipView(title = it) }
+                                            }
+                                            if (!config.cleanHideOthersBadges) {
+                                                previewCardIdentity.badge?.let {
+                                                    BadgeChipView(badge = it, imageLoader = api.imageLoader, mini = false)
+                                                }
                                             }
                                         }
                                         Text("主页与图廊卡片署名预览", color = palette.muted, fontSize = 11.sp)
                                     }
                                 }
-                                1 -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                1 -> FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
                                     Text("[群聊]", color = palette.muted, fontSize = 11.sp)
                                     Text(me.displayName, style = nickStyle)
-                                    previewChatIdentity.title?.let { TitleChipView(title = it) }
-                                    previewChatIdentity.badge?.let {
-                                        BadgeChipView(badge = it, imageLoader = api.imageLoader, mini = true)
+                                    if (!config.cleanHideOthersStyles) {
+                                        previewChatIdentity.title?.let { TitleChipView(title = it) }
+                                    }
+                                    if (!config.cleanHideOthersBadges) {
+                                        previewChatIdentity.badge?.let {
+                                            BadgeChipView(badge = it, imageLoader = api.imageLoader, mini = true)
+                                        }
                                     }
                                 }
                                 2 -> {
-                                    val bubbleName = BadgeAndCosmeticRegistry.COMMUNITY_SKINS[config.communityBubbleId]?.let { "社区·${it.name}" }
+                                    val previewBubbleStyle = remember(
+                                        previewDecoJson,
+                                        me.cosmeticAccess,
+                                        me.username,
+                                        config.cleanHideBubbles,
+                                        palette.isDark,
+                                        cosmeticCatalogRev,
+                                    ) {
+                                        ChatBubbleCosmetics.resolveBubbleFromDeco(
+                                            deco = previewDecoJson,
+                                            cosmeticAccess = me.cosmeticAccess,
+                                            userKey = me.username,
+                                            where = "chat",
+                                            frame = false,
+                                            isDarkTheme = palette.isDark,
+                                            hideBubble = config.cleanHideBubbles,
+                                        )
+                                    }
+                                    val bubbleName = BadgeAndCosmeticRegistry.resolveCommunitySkinMeta(config.communityBubbleId)?.let { "社区·${it.name}" }
                                         ?: BadgeAndCosmeticRegistry.BUBBLE_PRESETS.firstOrNull { it.first == config.bubbleSkin }?.second
                                         ?: if (config.bubbleSkin.isBlank() || config.bubbleSkin == "default") "默认" else config.bubbleSkin
-                                    val bubbleBg = when {
-                                        config.cleanHideBubbles -> palette.surface
-                                        config.communityBubbleId.isNotBlank() -> Color(0xFFEDE9FE)
-                                        config.bubbleSkin in setOf("sakura", "petal", "bunny") -> Color(0xFFFCE7F3)
-                                        config.bubbleSkin in setOf("mint", "moss") -> Color(0xFFE7F5EC)
-                                        config.bubbleSkin in setOf("aurora", "galaxy", "ocean", "cyber", "prism") -> Color(0xFFE0F2FE)
-                                        config.bubbleSkin in setOf("paper", "boba", "lemon", "gold", "warm") -> Color(0xFFFEF3C7)
-                                        config.bubbleSkin in setOf("night", "ink", "bit") -> Color(0xFFE2E8F0)
-                                        else -> palette.primaryContainer
-                                    }
-                                    Surface(color = bubbleBg, shape = RoundedCornerShape(14.dp)) {
+                                    ChatCosmeticBubbleBox(
+                                        style = previewBubbleStyle,
+                                        defaultContainerColor = palette.primary.copy(alpha = 0.14f),
+                                        defaultBorderColor = palette.primary.copy(alpha = 0.35f),
+                                        defaultShape = RoundedCornerShape(14.dp),
+                                        defaultPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                        imageLoader = api.imageLoader,
+                                    ) {
                                         Text(
-                                            "摸鱼快乐！当前气泡：$bubbleName",
-                                            color = Color(0xFF1F2937),
+                                            text = "摸鱼快乐！当前气泡：$bubbleName",
+                                            color = previewBubbleStyle?.textColor ?: palette.text,
                                             fontSize = 13.sp,
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                            fontFamily = previewBubbleStyle?.fontFamily,
+                                            fontWeight = previewBubbleStyle?.fontWeight,
+                                            fontStyle = previewBubbleStyle?.fontStyle,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
                                         )
                                     }
                                 }
-                                else -> Surface(
-                                    color = palette.surface,
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier.border(1.dp, titleColor.copy(alpha = 0.4f), RoundedCornerShape(10.dp)),
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                else -> {
+                                    val previewFrameStyle = remember(
+                                        previewDecoJson,
+                                        me.cosmeticAccess,
+                                        me.username,
+                                        config.cleanHideBubbles,
+                                        palette.isDark,
+                                        cosmeticCatalogRev,
                                     ) {
-                                        Text(me.displayName, style = nickStyle)
-                                        previewCardIdentity.badge?.let {
-                                            BadgeChipView(badge = it, imageLoader = api.imageLoader, mini = true)
+                                        ChatBubbleCosmetics.resolveBubbleFromDeco(
+                                            deco = previewDecoJson,
+                                            cosmeticAccess = me.cosmeticAccess,
+                                            userKey = me.username,
+                                            where = "chat",
+                                            frame = true,
+                                            isDarkTheme = palette.isDark,
+                                            hideBubble = config.cleanHideBubbles,
+                                        )
+                                    }
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        FlowRow(
+                                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                                            modifier = Modifier.weight(1f, fill = false),
+                                        ) {
+                                            Text(me.displayName, style = nickStyle)
+                                            previewCardIdentity.badge?.let {
+                                                BadgeChipView(badge = it, imageLoader = api.imageLoader, mini = true)
+                                            }
                                         }
-                                        Text("回应了图片：「太好看了！」", color = palette.text, fontSize = 12.sp)
+                                        ChatCosmeticBoostPill(
+                                            style = previewFrameStyle,
+                                            defaultContainerColor = palette.surface,
+                                            defaultBorderColor = titleColor.copy(alpha = 0.4f),
+                                            onClick = {},
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            ) {
+                                                ForHappyAvatar(me.displayName, me.avatar, api.imageLoader, size = 15.dp)
+                                                BoostPillText(
+                                                    text = "+1 太好看了！",
+                                                    imageLoader = api.imageLoader,
+                                                    fontSize = 11.sp,
+                                                    textColor = previewFrameStyle?.textColor,
+                                                    frameFillColor = previewFrameStyle?.fillColor,
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }

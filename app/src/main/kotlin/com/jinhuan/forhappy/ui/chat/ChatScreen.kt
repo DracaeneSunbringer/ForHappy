@@ -138,9 +138,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -149,6 +152,7 @@ import com.jinhuan.forhappy.core.chat.ChatRichTextParser
 import com.jinhuan.forhappy.core.chat.ChatSessionController
 import com.jinhuan.forhappy.core.clock.ServerClock
 import com.jinhuan.forhappy.core.cosmetics.BadgeAndCosmeticRegistry
+import com.jinhuan.forhappy.core.cosmetics.ChatBubbleCosmetics
 import com.jinhuan.forhappy.core.model.AppDisguiseMode
 import com.jinhuan.forhappy.core.model.BOOST_MAX_LEN
 import com.jinhuan.forhappy.core.model.BOOST_PRESETS
@@ -160,6 +164,7 @@ import com.jinhuan.forhappy.core.model.ChatOpenSessionRequest
 import com.jinhuan.forhappy.core.model.ChatReplyItem
 import com.jinhuan.forhappy.core.model.ChatScrollPolicy
 import com.jinhuan.forhappy.core.model.ChatUser
+import com.jinhuan.forhappy.core.model.DecoConfig
 import com.jinhuan.forhappy.core.model.DmMessage
 import com.jinhuan.forhappy.core.model.DmThread
 import com.jinhuan.forhappy.core.model.GroupMemberItem
@@ -179,6 +184,8 @@ import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
 import com.jinhuan.forhappy.ui.components.BadgeChipView
 import com.jinhuan.forhappy.ui.components.BadgePill
 import com.jinhuan.forhappy.ui.components.BoostPillText
+import com.jinhuan.forhappy.ui.components.ChatCosmeticBoostPill
+import com.jinhuan.forhappy.ui.components.ChatCosmeticBubbleBox
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
 import com.jinhuan.forhappy.ui.components.ReactionChip
 import com.jinhuan.forhappy.ui.components.RichChatBodyView
@@ -187,6 +194,7 @@ import com.jinhuan.forhappy.ui.components.boostPresetAccent
 import com.jinhuan.forhappy.ui.components.parseSafeHex
 import com.jinhuan.forhappy.ui.compose.ComposeMediaStager
 import com.jinhuan.forhappy.ui.disguise.DisguiseSanitizer
+import com.jinhuan.forhappy.ui.me.KV_DECO_CLEAN
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.theme.LocalPrivacyStealthConfig
@@ -257,11 +265,19 @@ fun ChatScreen(
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     val state by controller.uiState.collectAsState()
+    val cosmeticCatalogRev by BadgeAndCosmeticRegistry.catalogRevision.collectAsState()
     val isImeVisible = WindowInsets.isImeVisible
 
     val isDirectEmbedded = hideChannelHeader || forcedChannelMode != null
     var activePane by remember(isDirectEmbedded, forcedChannelMode) {
         mutableStateOf(if (isDirectEmbedded) (forcedChannelMode ?: "group") else "list")
+    }
+    var cleanRawPref by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(me?.id, me?.deco, state.activeGroupId, activePane) {
+        cleanRawPref = api.getPref(KV_DECO_CLEAN)
+    }
+    val cleanDecoConfig = remember(me?.deco, cleanRawPref) {
+        BadgeAndCosmeticRegistry.parseServerDecoConfig(me?.deco, cleanRawPref)
     }
     var listFilter by remember { mutableStateOf("all") }
 
@@ -1289,6 +1305,9 @@ fun ChatScreen(
                                         isContinuation = cont,
                                         highlighted = highlightedMsgId == msg.id,
                                         cleanDecoMode = state.cleanDecoMode,
+                                        cleanDecoConfig = cleanDecoConfig,
+                                        meId = me?.id ?: 0L,
+                                        cosmeticCatalogRev = cosmeticCatalogRev,
                                         api = api,
                                         onActionRedpack = { refId ->
                                             redpackFallbackMeta = null
@@ -1404,6 +1423,9 @@ fun ChatScreen(
                                             isContinuation = cont,
                                             highlighted = msg.id > 0L && highlightedMsgId == msg.id,
                                             cleanDecoMode = state.cleanDecoMode,
+                                            cleanDecoConfig = cleanDecoConfig,
+                                            meId = me?.id ?: 0L,
+                                            cosmeticCatalogRev = cosmeticCatalogRev,
                                             api = api,
                                             onActionRedpack = { refId ->
                                                 redpackFallbackMeta = null
@@ -2523,6 +2545,9 @@ private fun RenderChatItemRow(
     isContinuation: Boolean,
     highlighted: Boolean,
     cleanDecoMode: Boolean,
+    cleanDecoConfig: DecoConfig,
+    meId: Long,
+    cosmeticCatalogRev: Int,
     api: ForHappyApiClient,
     onActionRedpack: (Long) -> Unit,
     onActionGuess: (Long) -> Unit,
@@ -2559,6 +2584,9 @@ private fun RenderChatItemRow(
             isContinuation = isContinuation,
             highlighted = highlighted,
             cleanDecoMode = cleanDecoMode,
+            cleanDecoConfig = cleanDecoConfig,
+            meId = meId,
+            cosmeticCatalogRev = cosmeticCatalogRev,
             api = api,
             onSwipeReply = onSwipeReply,
             onOpenActionSheet = onOpenActionSheet,
@@ -2755,6 +2783,9 @@ private fun SwipeableChatRow(
     isContinuation: Boolean,
     highlighted: Boolean,
     cleanDecoMode: Boolean,
+    cleanDecoConfig: DecoConfig,
+    meId: Long,
+    cosmeticCatalogRev: Int,
     api: ForHappyApiClient,
     onSwipeReply: () -> Unit,
     onOpenActionSheet: () -> Unit,
@@ -2877,38 +2908,88 @@ private fun SwipeableChatRow(
             }
         }
 
+        val isDisguised = disguiseMode != AppDisguiseMode.NONE
+        val isOwn = msg.mine || (meId > 0L && msg.effectiveUserId == meId)
+        val hideAll = isDisguised || cleanDecoMode
+        val hideNick = hideAll || (!isOwn && cleanDecoConfig.cleanHideOthersNick)
+        val hideTitle = hideAll || (!isOwn && cleanDecoConfig.cleanHideOthersStyles)
+        val hideBadge = hideAll || (!isOwn && cleanDecoConfig.cleanHideOthersBadges)
+        val hideBubble = hideAll || (!isOwn && cleanDecoConfig.cleanHideBubbles)
+        val hideCss = hideTitle || hideBubble
+
         Column(
             horizontalAlignment = if (msg.mine && !isLinuxDo) Alignment.End else Alignment.Start,
             modifier = Modifier.widthIn(max = 318.dp),
         ) {
             if (!isContinuation) {
-                val chatIdentity = remember(msg.user?.deco, cleanDecoMode, disguiseMode) {
-                    if (!cleanDecoMode && disguiseMode == AppDisguiseMode.NONE) {
-                        BadgeAndCosmeticRegistry.resolveEquippedIdentity(msg.user?.deco, where = "chat")
+                val chatIdentity = remember(
+                    msg.user?.deco,
+                    msg.user?.badges,
+                    msg.user?.officialTitles,
+                    msg.user?.isAdmin,
+                    msg.user?.isFancyGranted,
+                    msg.user?.cosmeticAccess,
+                    hideAll,
+                    palette.isDark,
+                    cosmeticCatalogRev,
+                ) {
+                    if (!hideAll) {
+                        BadgeAndCosmeticRegistry.resolveEquippedIdentity(
+                            decoJson = msg.user?.deco,
+                            badgesJson = msg.user?.badges,
+                            officialTitles = msg.user?.officialTitles.orEmpty(),
+                            where = "chat",
+                            isAdmin = msg.user?.isAdmin == true,
+                            hasFancyPermission = msg.user?.isFancyGranted,
+                            cosmeticAccess = msg.user?.cosmeticAccess,
+                            isDarkTheme = palette.isDark,
+                        )
                     } else {
                         null
                     }
                 }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(
+                        5.dp,
+                        if (msg.mine && !isLinuxDo) Alignment.End else Alignment.Start,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically),
                 ) {
                     if (!msg.mine || isLinuxDo) {
-                        val gradColors = remember(chatIdentity?.nickGradientHexes, palette.muted) {
-                            chatIdentity?.nickGradientHexes?.map { parseSafeHex(it, palette.muted) }?.takeIf { it.size >= 2 }
+                        val gradColors = remember(chatIdentity?.nickGradientHexes, hideNick, palette.muted) {
+                            if (hideNick) {
+                                null
+                            } else {
+                                chatIdentity?.nickGradientHexes?.map { parseSafeHex(it, palette.muted) }?.takeIf { it.size >= 2 }
+                            }
+                        }
+                        val singleColor = remember(chatIdentity?.nickGradientHexes, hideNick, palette.muted) {
+                            if (hideNick) {
+                                null
+                            } else {
+                                chatIdentity?.nickGradientHexes?.singleOrNull()?.let { parseSafeHex(it, palette.muted) }
+                            }
                         }
                         Text(
                             text = shownAuthor,
-                            style = if (gradColors != null) {
-                                TextStyle(brush = Brush.horizontalGradient(gradColors), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                            } else {
-                                TextStyle(color = palette.muted, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                            style = when {
+                                gradColors != null -> TextStyle(
+                                    brush = Brush.horizontalGradient(gradColors),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                singleColor != null -> TextStyle(
+                                    color = singleColor,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                else -> TextStyle(color = palette.muted, fontSize = 11.sp, fontWeight = FontWeight.Medium)
                             },
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    if (!cleanDecoMode && disguiseMode == AppDisguiseMode.NONE) {
+                    if (!hideTitle) {
                         if (chatIdentity?.title != null) {
                             TitleChipView(title = chatIdentity.title)
                         } else {
@@ -2916,6 +2997,8 @@ private fun SwipeableChatRow(
                                 BadgePill(titleLabel, containerColor = palette.gold.copy(alpha = 0.16f), contentColor = palette.gold)
                             }
                         }
+                    }
+                    if (!hideBadge) {
                         chatIdentity?.badge?.let { badgeChip ->
                             BadgeChipView(badge = badgeChip, imageLoader = api.imageLoader, mini = true)
                         }
@@ -2964,78 +3047,256 @@ private fun SwipeableChatRow(
                 else -> RoundedCornerShape(15.dp)
             }
 
-            Surface(
-                color = bubbleBg,
-                shape = bubbleShape,
-                modifier = if (isLinuxDo || (isFeishu && !highlighted)) {
-                    Modifier
-                } else {
-                    Modifier.border(if (highlighted) 1.5.dp else 1.dp, bubbleBorder, bubbleShape)
-                },
-            ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
-                    verticalArrangement = Arrangement.spacedBy(5.dp),
-                ) {
-                    msg.replyTo?.let { rep ->
-                        val cleanRefText = remember(rep.resolvedText, disguiseMode) {
-                            val base = ChatRichTextParser.previewSummary(rep.resolvedText).ifBlank {
-                                if (rep.deleted) "消息已撤回" else if (rep.file != null) "[文件] ${rep.file}" else if (rep.hasImage || rep.thumb != null) "[图片]" else "…"
-                            }
-                            DisguiseSanitizer.sanitizeSummaryForDisguise(base, disguiseMode)
+            @Composable
+            fun ReplyPreviewBar(insideBubble: Boolean) {
+                msg.replyTo?.let { rep ->
+                    val cleanRefText = remember(rep.resolvedText, disguiseMode) {
+                        val base = ChatRichTextParser.previewSummary(rep.resolvedText).ifBlank {
+                            if (rep.deleted) "消息已撤回" else if (rep.file != null) "[文件] ${rep.file}" else if (rep.hasImage || rep.thumb != null) "[图片]" else "…"
                         }
-                        val repAuthor = remember(rep.id, rep.resolvedAuthor, isFeishu, stealth.feishuMemberAliasEnabled) {
-                            if (isFeishu && stealth.feishuMemberAliasEnabled) {
-                                DisguiseSanitizer.mapColleagueName(rep.id, rep.resolvedAuthor, true)
-                            } else {
-                                rep.resolvedAuthor
-                            }
+                        DisguiseSanitizer.sanitizeSummaryForDisguise(base, disguiseMode)
+                    }
+                    val repAuthor = remember(rep.id, rep.resolvedAuthor, isFeishu, stealth.feishuMemberAliasEnabled) {
+                        if (isFeishu && stealth.feishuMemberAliasEnabled) {
+                            DisguiseSanitizer.mapColleagueName(rep.id, rep.resolvedAuthor, true)
+                        } else {
+                            rep.resolvedAuthor
                         }
-                        Surface(
-                            color = palette.surface2,
-                            shape = RoundedCornerShape(if (isFeishu) 6.dp else 8.dp),
-                            modifier = Modifier.clickable(enabled = rep.id > 0L) { onQuoteClick(rep.id) },
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                if (isFeishu) {
-                                    Box(
-                                        modifier = Modifier
-                                            .width(2.dp)
-                                            .height(14.dp)
-                                            .background(palette.primary.copy(alpha = 0.7f), RoundedCornerShape(2.dp)),
-                                    )
+                    }
+                    val repNickHexes = remember(
+                        rep.deco,
+                        rep.isAdmin,
+                        rep.isFancyGranted,
+                        hideNick,
+                        palette.isDark,
+                        cosmeticCatalogRev,
+                    ) {
+                        if (hideNick || isDisguised) {
+                            emptyList()
+                        } else {
+                            BadgeAndCosmeticRegistry.resolveEquippedIdentity(
+                                decoJson = rep.deco,
+                                where = "chat",
+                                isAdmin = rep.isAdmin,
+                                hasFancyPermission = rep.isFancyGranted,
+                                isDarkTheme = palette.isDark,
+                            ).nickGradientHexes
+                        }
+                    }
+                    val repLineAnnotated = remember(repAuthor, cleanRefText, repNickHexes, palette.muted, palette.primary) {
+                        buildAnnotatedString {
+                            val grad = repNickHexes.map { parseSafeHex(it, palette.muted) }
+                            when {
+                                grad.size >= 2 -> withStyle(
+                                    SpanStyle(brush = Brush.horizontalGradient(grad), fontWeight = FontWeight.SemiBold),
+                                ) {
+                                    append(repAuthor)
                                 }
-                                Text(
-                                    text = "$repAuthor：$cleanRefText",
-                                    color = palette.muted,
-                                    fontSize = 11.sp,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f, fill = false),
+                                grad.size == 1 -> withStyle(
+                                    SpanStyle(color = grad.first(), fontWeight = FontWeight.SemiBold),
+                                ) {
+                                    append(repAuthor)
+                                }
+                                else -> append(repAuthor)
+                            }
+                            append("：$cleanRefText")
+                        }
+                    }
+                    Surface(
+                        color = if (insideBubble) palette.surface2 else palette.surface2.copy(alpha = 0.85f),
+                        shape = RoundedCornerShape(if (isFeishu) 6.dp else 9.dp),
+                        modifier = Modifier
+                            .then(
+                                if (!insideBubble) {
+                                    Modifier.border(0.8.dp, palette.line.copy(alpha = 0.7f), RoundedCornerShape(9.dp))
+                                } else {
+                                    Modifier
+                                },
+                            )
+                            .clickable(enabled = rep.id > 0L) { onQuoteClick(rep.id) },
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            if (isFeishu || !insideBubble) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(2.dp)
+                                        .height(14.dp)
+                                        .background(palette.primary.copy(alpha = 0.7f), RoundedCornerShape(2.dp)),
                                 )
-                                if (!rep.deleted && !rep.thumb.isNullOrBlank()) {
-                                    AsyncImage(
-                                        model = MediaUrlRewriter.rewriteWithExtProxy(rep.thumb),
+                            }
+                            Text(
+                                text = repLineAnnotated,
+                                color = palette.muted,
+                                fontSize = 11.sp,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                            if (!rep.deleted && !rep.thumb.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = MediaUrlRewriter.rewriteWithExtProxy(rep.thumb),
+                                    imageLoader = api.imageLoader,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.size(26.dp).clip(RoundedCornerShape(4.dp)),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (isDisguised) {
+                Surface(
+                    color = bubbleBg,
+                    shape = bubbleShape,
+                    modifier = if (isLinuxDo || (isFeishu && !highlighted)) {
+                        Modifier
+                    } else {
+                        Modifier.border(if (highlighted) 1.5.dp else 1.dp, bubbleBorder, bubbleShape)
+                    },
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
+                        verticalArrangement = Arrangement.spacedBy(5.dp),
+                    ) {
+                        ReplyPreviewBar(insideBubble = true)
+
+                        if (msg.deleted) {
+                            Text(
+                                text = "${if (msg.mine) "你" else msg.displayAuthor} 撤回了一条消息",
+                                color = palette.muted,
+                                fontSize = 13.sp,
+                            )
+                        } else {
+                            if (redpackMeta != null) {
+                                RedpackBubbleCard(meta = redpackMeta, api = api, onClick = onOpenRedpack)
+                            }
+                            if (novelExcerpt != null) {
+                                NovelExcerptCard(spec = novelExcerpt, onOpenBook = { onOpenNovelExcerpt(novelExcerpt) })
+                            } else {
+                                val isEditedMsg = msg.edited || msg.editedAt != null
+                                if (msg.body.isNotBlank() && (redpackMeta == null || redpackMeta.shared)) {
+                                    RichChatBodyView(
+                                        rawBody = msg.body,
                                         imageLoader = api.imageLoader,
-                                        contentDescription = null,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.size(26.dp).clip(RoundedCornerShape(4.dp)),
+                                        textColor = palette.text,
+                                        isEdited = isEditedMsg,
+                                        onPostRefClick = onPostRefClick,
+                                        onHashtagClick = onHashtagClick,
+                                        onLinkClick = onLinkClick,
+                                        onQuoteClick = onQuoteClick,
+                                        onInlineImageClick = onOpenImage,
+                                        onLongPress = {
+                                            if (!msg.deleted) {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                onOpenActionSheet()
+                                            }
+                                        },
                                     )
+                                } else if (isEditedMsg && redpackMeta == null) {
+                                    Text("（已编辑）", color = palette.muted, fontSize = 11.sp)
+                                }
+                            }
+
+                            if (msg.mediaExpired) {
+                                Surface(color = palette.surface2, shape = RoundedCornerShape(8.dp)) {
+                                    Text("附件已超过七天，无法查看", color = palette.muted, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                                }
+                            }
+
+                            if (redpackMeta == null || redpackMeta.shared) {
+                                val all = msg.allMedia
+                                val files = remember(all) { all.filter { it.k == "f" } }
+                                val visuals = remember(all) { all.filter { it.k != "f" } }
+
+                                if (visuals.size == 1) {
+                                    ChatVisualMediaCell(
+                                        msgId = msg.id,
+                                        media = visuals.first(),
+                                        solo = true,
+                                        api = api,
+                                        onOpenImage = onOpenImage,
+                                        onOpenVideo = onOpenVideo,
+                                    )
+                                } else if (visuals.size > 1) {
+                                    val cols = if (visuals.size == 2 || visuals.size == 4) 2 else 3
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        visuals.chunked(cols).forEach { rowItems ->
+                                            Row(modifier = Modifier.width(222.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                rowItems.forEach { media ->
+                                                    Box(modifier = Modifier.weight(1f)) {
+                                                        ChatVisualMediaCell(
+                                                            msgId = msg.id,
+                                                            media = media,
+                                                            solo = false,
+                                                            api = api,
+                                                            onOpenImage = onOpenImage,
+                                                            onOpenVideo = onOpenVideo,
+                                                        )
+                                                    }
+                                                }
+                                                repeat(cols - rowItems.size) { Spacer(Modifier.weight(1f)) }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                files.forEach { f ->
+                                    val dlUrl = MediaUrlRewriter.rewriteWithExtProxy(f.resolvedUrl)
+                                    Surface(
+                                        color = palette.surface2,
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .border(1.dp, palette.line.copy(alpha = 0.7f), RoundedCornerShape(10.dp))
+                                            .clickable(enabled = dlUrl.isNotBlank()) { onLinkClick(dlUrl) },
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        ) {
+                                            Icon(Icons.Rounded.Description, contentDescription = null, tint = palette.primary, modifier = Modifier.size(20.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(f.resolvedName ?: "附件文件", color = palette.text, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                if ((f.s ?: 0L) > 0L) Text(formatFileBytes(f.s!!), color = palette.muted, fontSize = 10.sp)
+                                            }
+                                            Icon(Icons.Rounded.Download, contentDescription = "下载", tint = palette.muted, modifier = Modifier.size(16.dp))
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
+                }
+            } else {
+                // Normal 52dmeme mode: reply bar above bubble, bubbleless stickers/solo-images, full cosmetic frames + contrast-safe text, media outside frame below
+                Column(
+                    horizontalAlignment = if (msg.mine) Alignment.End else Alignment.Start,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    if (msg.replyTo != null) {
+                        ReplyPreviewBar(insideBubble = false)
+                    }
 
                     if (msg.deleted) {
-                        Text(
-                            text = "${if (msg.mine) "你" else msg.displayAuthor} 撤回了一条消息",
-                            color = palette.muted,
-                            fontSize = 13.sp,
-                        )
+                        Surface(
+                            color = bubbleBg,
+                            shape = bubbleShape,
+                            modifier = Modifier.border(1.dp, bubbleBorder, bubbleShape),
+                        ) {
+                            Text(
+                                text = "${if (msg.mine) "你" else msg.displayAuthor} 撤回了一条消息",
+                                color = palette.muted,
+                                fontSize = 13.sp,
+                                modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
+                            )
+                        }
                     } else {
                         if (redpackMeta != null) {
                             RedpackBubbleCard(meta = redpackMeta, api = api, onClick = onOpenRedpack)
@@ -3044,25 +3305,82 @@ private fun SwipeableChatRow(
                             NovelExcerptCard(spec = novelExcerpt, onOpenBook = { onOpenNovelExcerpt(novelExcerpt) })
                         } else {
                             val isEditedMsg = msg.edited || msg.editedAt != null
+                            val stkOnly = remember(msg.body) { ChatRichTextParser.isStickerOnly(msg.body) }
+                            val bodyImgOnly = remember(msg.body) {
+                                val parsed = ChatRichTextParser.parse(msg.body)
+                                parsed.bodyImgOnly && parsed.inlineImageUrls.isNotEmpty()
+                            }
                             if (msg.body.isNotBlank() && (redpackMeta == null || redpackMeta.shared)) {
-                                RichChatBodyView(
-                                    rawBody = msg.body,
-                                    imageLoader = api.imageLoader,
-                                    textColor = palette.text,
-                                    isEdited = isEditedMsg,
-                                    onPostRefClick = onPostRefClick,
-                                    onHashtagClick = onHashtagClick,
-                                    onLinkClick = onLinkClick,
-                                    onQuoteClick = onQuoteClick,
-                                    onInlineImageClick = onOpenImage,
-                                    onLongPress = {
-                                        if (!msg.deleted) {
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            onOpenActionSheet()
-                                        }
-                                    },
-                                )
-                            } else if (isEditedMsg && redpackMeta == null) {
+                                if (stkOnly || bodyImgOnly) {
+                                    RichChatBodyView(
+                                        rawBody = msg.body,
+                                        imageLoader = api.imageLoader,
+                                        textColor = palette.text,
+                                        isEdited = isEditedMsg,
+                                        onPostRefClick = onPostRefClick,
+                                        onHashtagClick = onHashtagClick,
+                                        onLinkClick = onLinkClick,
+                                        onQuoteClick = onQuoteClick,
+                                        onInlineImageClick = onOpenImage,
+                                        onLongPress = {
+                                            if (!msg.deleted) {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                onOpenActionSheet()
+                                            }
+                                        },
+                                    )
+                                } else {
+                                    val bubbleStyle = remember(
+                                        msg.user?.deco,
+                                        msg.user?.cosmeticAccess,
+                                        msg.user?.isAdmin,
+                                        msg.id,
+                                        hideBubble,
+                                        hideCss,
+                                        palette.isDark,
+                                        cosmeticCatalogRev,
+                                    ) {
+                                        ChatBubbleCosmetics.resolveChatBubbleStyle(
+                                            user = msg.user,
+                                            messageId = msg.id.toString(),
+                                            isDarkTheme = palette.isDark,
+                                            hideBubble = hideBubble,
+                                            hideCss = hideCss,
+                                        )
+                                    }
+                                    ChatCosmeticBubbleBox(
+                                        style = bubbleStyle,
+                                        defaultContainerColor = bubbleBg,
+                                        defaultBorderColor = if (highlighted) palette.gold else bubbleBorder,
+                                        defaultShape = bubbleShape,
+                                        defaultPadding = PaddingValues(horizontal = 11.dp, vertical = 7.dp),
+                                        imageLoader = api.imageLoader,
+                                    ) {
+                                        RichChatBodyView(
+                                            rawBody = msg.body,
+                                            imageLoader = api.imageLoader,
+                                            textColor = bubbleStyle?.textColor ?: palette.text,
+                                            linkColor = bubbleStyle?.linkColor,
+                                            mutedColor = bubbleStyle?.mutedColor,
+                                            bodyFontFamily = bubbleStyle?.fontFamily,
+                                            bodyFontWeight = bubbleStyle?.fontWeight,
+                                            bodyFontStyle = bubbleStyle?.fontStyle,
+                                            isEdited = isEditedMsg,
+                                            onPostRefClick = onPostRefClick,
+                                            onHashtagClick = onHashtagClick,
+                                            onLinkClick = onLinkClick,
+                                            onQuoteClick = onQuoteClick,
+                                            onInlineImageClick = onOpenImage,
+                                            onLongPress = {
+                                                if (!msg.deleted) {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    onOpenActionSheet()
+                                                }
+                                            },
+                                        )
+                                    }
+                                }
+                            } else if (isEditedMsg && redpackMeta == null && msg.allMedia.isEmpty()) {
                                 Text("（已编辑）", color = palette.muted, fontSize = 11.sp)
                             }
                         }
@@ -3158,6 +3476,10 @@ private fun SwipeableChatRow(
                     ChatBoostsBlock(
                         boosts = msg.boosts,
                         mineAlignEnd = msg.mine,
+                        cleanDecoMode = cleanDecoMode,
+                        cleanDecoConfig = cleanDecoConfig,
+                        meId = meId,
+                        cosmeticCatalogRev = cosmeticCatalogRev,
                         api = api,
                         onTapBoost = { b ->
                             if (b.ai) return@ChatBoostsBlock
@@ -3330,12 +3652,17 @@ private fun ChatVisualMediaCell(
 private fun ChatBoostsBlock(
     boosts: List<ChatBoost>,
     mineAlignEnd: Boolean,
+    cleanDecoMode: Boolean,
+    cleanDecoConfig: DecoConfig,
+    meId: Long,
+    cosmeticCatalogRev: Int,
     api: ForHappyApiClient,
     onTapBoost: (ChatBoost) -> Unit,
 ) {
     val palette = LocalForHappyPalette.current
     val stealth = LocalPrivacyStealthConfig.current
     val disguiseMode = stealth.disguiseMode
+    val isDisguised = disguiseMode != AppDisguiseMode.NONE
     val aiBoosts = remember(boosts) { boosts.filter { it.ai } }
     val userBoosts = remember(boosts) { boosts.filter { !it.ai } }
 
@@ -3386,22 +3713,62 @@ private fun ChatBoostsBlock(
                     } else {
                         b.displayAuthor
                     }
-                    Surface(
-                        color = if (b.mine) palette.primary.copy(alpha = 0.16f) else palette.surface2,
-                        shape = RoundedCornerShape(999.dp),
-                        modifier = Modifier
-                            .then(
-                                if (disguiseMode == AppDisguiseMode.FEISHU) {
-                                    Modifier
-                                } else {
-                                    Modifier.border(1.dp, if (b.mine) palette.primary.copy(alpha = 0.50f) else palette.line.copy(alpha = 0.70f), RoundedCornerShape(999.dp))
-                                },
+                    if (isDisguised) {
+                        Surface(
+                            color = if (b.mine) palette.primary.copy(alpha = 0.16f) else palette.surface2,
+                            shape = RoundedCornerShape(999.dp),
+                            modifier = Modifier
+                                .then(
+                                    if (disguiseMode == AppDisguiseMode.FEISHU) {
+                                        Modifier
+                                    } else {
+                                        Modifier.border(1.dp, if (b.mine) palette.primary.copy(alpha = 0.50f) else palette.line.copy(alpha = 0.70f), RoundedCornerShape(999.dp))
+                                    },
+                                )
+                                .clickable { onTapBoost(b) },
+                        ) {
+                            Row(modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                ForHappyAvatar(username = bAuthor, avatarUrl = if (disguiseMode == AppDisguiseMode.FEISHU) null else b.avatar, imageLoader = api.imageLoader, size = 15.dp)
+                                BoostPillText(text = DisguiseSanitizer.sanitizeSummaryForDisguise(b.text, disguiseMode), imageLoader = api.imageLoader, fontSize = 11.sp)
+                            }
+                        }
+                    } else {
+                        val bOwn = b.mine || (meId > 0L && b.userId == meId)
+                        val hideBoostFrame = cleanDecoMode || (!bOwn && cleanDecoConfig.cleanHideBubbles)
+                        val boostStyle = remember(
+                            b.deco,
+                            b.cosmeticAccess,
+                            b.userId,
+                            hideBoostFrame,
+                            palette.isDark,
+                            cosmeticCatalogRev,
+                        ) {
+                            ChatBubbleCosmetics.resolveBoostFrameStyle(
+                                boost = b,
+                                isDarkTheme = palette.isDark,
+                                hideBubble = hideBoostFrame,
+                                hideCss = hideBoostFrame,
                             )
-                            .clickable { onTapBoost(b) },
-                    ) {
-                        Row(modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            ForHappyAvatar(username = bAuthor, avatarUrl = if (disguiseMode == AppDisguiseMode.FEISHU) null else b.avatar, imageLoader = api.imageLoader, size = 15.dp)
-                            BoostPillText(text = DisguiseSanitizer.sanitizeSummaryForDisguise(b.text, disguiseMode), imageLoader = api.imageLoader, fontSize = 11.sp)
+                        }
+                        ChatCosmeticBoostPill(
+                            style = boostStyle,
+                            defaultContainerColor = if (b.mine) palette.primary.copy(alpha = 0.16f) else palette.surface2,
+                            defaultBorderColor = if (b.mine) palette.primary.copy(alpha = 0.50f) else palette.line.copy(alpha = 0.70f),
+                            onClick = { onTapBoost(b) },
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                ForHappyAvatar(username = bAuthor, avatarUrl = b.avatar, imageLoader = api.imageLoader, size = 15.dp)
+                                BoostPillText(
+                                    text = b.text,
+                                    imageLoader = api.imageLoader,
+                                    fontSize = 11.sp,
+                                    textColor = boostStyle?.textColor,
+                                    frameFillColor = boostStyle?.fillColor,
+                                )
+                            }
                         }
                     }
                 }

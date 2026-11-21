@@ -1,11 +1,15 @@
 package com.jinhuan.forhappy.core.cosmetics
 
+import com.jinhuan.forhappy.core.clock.ServerClock
 import com.jinhuan.forhappy.core.model.DecoConfig
 import com.jinhuan.forhappy.core.model.FarmBadgeMeta
 import com.jinhuan.forhappy.core.model.ForHappyJson
 import com.jinhuan.forhappy.core.model.GrowthRewardMeta
 import com.jinhuan.forhappy.core.model.MeResponse
 import com.jinhuan.forhappy.core.model.OfficialTitleMeta
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -18,6 +22,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import java.util.concurrent.ConcurrentHashMap
 
 sealed interface BadgeArtKind {
@@ -30,6 +35,15 @@ sealed interface BadgeArtKind {
     ) : BadgeArtKind
     data class InlineOfficialSvg(val innerSvg: String) : BadgeArtKind
     data class RemoteImage(val url: String) : BadgeArtKind
+    data class RemoteSvg(val url: String, val fallbackGlyph: String = "✦") : BadgeArtKind
+    data class InlineXmlSvg(val xml: String) : BadgeArtKind
+    data class SpriteSheetCell(
+        val url: String,
+        val cols: Int,
+        val rows: Int,
+        val col: Int,
+        val row: Int,
+    ) : BadgeArtKind
     data class EmojiGlyph(val glyph: String) : BadgeArtKind
 }
 
@@ -67,6 +81,18 @@ data class CommunitySkinCatalogItem(
     val hasTitle: Boolean,
     val hasBadge: Boolean,
     val hasBubble: Boolean,
+    val hasReply: Boolean = false,
+    val bubbleImgSha: String? = null,
+    val bubbleCssSha: String? = null,
+    val bubbleSlice: IntArray? = null,
+    val titleImgSha: String? = null,
+    val titleCssSha: String? = null,
+    val titleSlice: IntArray? = null,
+    val badgeImgSha: String? = null,
+    val badgeCssSha: String? = null,
+    val replyImgSha: String? = null,
+    val replyCssSha: String? = null,
+    val replySlice: IntArray? = null,
 )
 
 data class OwnedBadgeItem(
@@ -92,6 +118,13 @@ data class ResolvedTitleChip(
     val borderHex: String = "#1F6B4F",
     val fillMode: String = "solid",
     val shape: String = "pill",
+    val secondaryBgHex: String? = null,
+    val effect: String = "none",
+    val fontKey: String = "",
+    val symbolSvgPath: String? = null,
+    val bgImageUrl: String? = null,
+    val specialKind: String = "standard",
+    val customCss: ParsedSafeCss? = null,
 ) {
     val displayLabel: String
         get() = if (levelText.isNullOrBlank()) label else "$label $levelText"
@@ -124,6 +157,37 @@ object BadgeAndCosmeticRegistry {
     private val GUIDE_BADGE_LEVELS = listOf(1, 3, 10, 30)
     private val GROWTH_BADGE_LEVELS = listOf(1, 3, 10, 30, 100)
     private val BADGE_LV_NAMES = listOf("", "铜", "银", "金", "彩虹", "传说")
+    const val TITLE_MAX_LEVEL = 5200
+    val TITLE_STAGES = listOf(1, 10, 50, 100, 300, 800, 1600, 2600, 4000, 5200)
+    val ADMIN_RAINBOW_HEXES = listOf("#e2557a", "#e3a33b", "#3bb58e", "#4b8be0")
+    val DEFAULT_FANCY_RAINBOW_HEXES = listOf("#ff4d8d", "#ffb238", "#3bd18e", "#4b9bff", "#b06bff", "#ff4d8d")
+
+    private val BUILT_IN_OFFICIAL_NAMES: Map<String, Pair<String, String>> = mapOf(
+        "serene" to ("清欢" to "云淡风轻"),
+        "gentleman" to ("绅士" to "翩翩有礼"),
+        "coder" to ("码农" to "键盘生花"),
+        "banana" to ("大蕉" to "能量拉满"),
+        "peach" to ("蜜桃" to "甜度超标"),
+        "oracle" to ("先知" to "洞察先机"),
+        "whale" to ("蓝鲸" to "深海巡游"),
+        "diver" to ("潜水" to "深潜摸鱼"),
+        "reborn" to ("重生" to "浴火归来"),
+    )
+
+    data class ActiveRaffleInfo(
+        val catalog: RaffleTitleCatalogItem,
+        val earnedLevel: Int,
+        val displayLevel: Int,
+        val stage: Int,
+    )
+
+    fun isOwner52Suit(id: String?): Boolean =
+        id == "owner-52di" || id == "owner-52b" || id == "owner52" || id == "owner52b"
+
+    fun raffleStage(level: Int): Int {
+        val capped = level.coerceIn(1, TITLE_MAX_LEVEL)
+        return TITLE_STAGES.count { it <= capped }.coerceIn(1, 10)
+    }
 
     val GROWTH_V5_IDS: Set<String> = setOf(
         "resource_respect", "card_draws", "card_wins", "card_dry",
@@ -270,8 +334,10 @@ object BadgeAndCosmeticRegistry {
     )
 
     val PERSONAL_TITLES: Map<String, PersonalTitleCatalogItem> = mapOf(
-        "owner52" to PersonalTitleCatalogItem("owner52", "尽欢主理", "站点主理专属礼装", "SSR", "owner"),
-        "owner52b" to PersonalTitleCatalogItem("owner52b", "52B典藏", "集卡典藏专属礼装", "SSR", "owner"),
+        "owner-52di" to PersonalTitleCatalogItem("owner-52di", "52帝", "站长专属", "SSR", "owner"),
+        "owner-52b" to PersonalTitleCatalogItem("owner-52b", "52B", "限定巡展", "SSR", "owner"),
+        "owner52" to PersonalTitleCatalogItem("owner52", "52帝", "站长专属", "SSR", "owner"),
+        "owner52b" to PersonalTitleCatalogItem("owner52b", "52B", "限定巡展", "SSR", "owner"),
         "p001" to PersonalTitleCatalogItem("p001", "云团猫猫", "云团与猫耳的安静午后", "normal", "v1"),
         "p002" to PersonalTitleCatalogItem("p002", "摸鱼观图员", "抱着画框的小水獭", "normal", "v1"),
         "p003" to PersonalTitleCatalogItem("p003", "星夜领航员", "星尘里的小小领航员", "normal", "v1"),
@@ -452,24 +518,133 @@ object BadgeAndCosmeticRegistry {
     )
 
     val COMMUNITY_SKINS: Map<String, CommunitySkinCatalogItem> = mapOf(
-        "aurora-preset" to CommunitySkinCatalogItem("aurora-preset", "极光流转", "qwddkxs", hasTitle = true, hasBadge = true, hasBubble = true),
-        "lanting-ink" to CommunitySkinCatalogItem("lanting-ink", "兰亭墨韵", "超时空蚂蚁", hasTitle = true, hasBadge = true, hasBubble = true),
-        "laoda-purple" to CommunitySkinCatalogItem("laoda-purple", "牢大牢大", "Earthcat", hasTitle = true, hasBadge = false, hasBubble = true),
-        "laowu-dispatch" to CommunitySkinCatalogItem("laowu-dispatch", "老吴派遣·橘", "Earthcat", hasTitle = true, hasBadge = true, hasBubble = true),
-        "laowu-dispatch-all-in" to CommunitySkinCatalogItem("laowu-dispatch-all-in", "老吴派遣·all in", "Earthcat", hasTitle = true, hasBadge = true, hasBubble = true),
-        "laowu-dispatch-black" to CommunitySkinCatalogItem("laowu-dispatch-black", "老吴派遣·黑", "Earthcat", hasTitle = true, hasBadge = false, hasBubble = true),
-        "laowu-dispatch-calico" to CommunitySkinCatalogItem("laowu-dispatch-calico", "老吴派遣·三花", "Earthcat", hasTitle = true, hasBadge = false, hasBubble = true),
-        "laowu-dispatch-gray" to CommunitySkinCatalogItem("laowu-dispatch-gray", "老吴派遣·灰", "Earthcat", hasTitle = true, hasBadge = false, hasBubble = true),
-        "laowu-dispatch-siamese" to CommunitySkinCatalogItem("laowu-dispatch-siamese", "老吴派遣·暹罗", "Earthcat", hasTitle = true, hasBadge = false, hasBubble = true),
-        "laowu-dispatch-white" to CommunitySkinCatalogItem("laowu-dispatch-white", "老吴派遣·白", "Earthcat", hasTitle = true, hasBadge = false, hasBubble = true),
-        "oiia-loaf" to CommunitySkinCatalogItem("oiia-loaf", "oiia", "Earthcat", hasTitle = true, hasBadge = false, hasBubble = true),
-        "orange-flick" to CommunitySkinCatalogItem("orange-flick", "谷恒条野", "Earthcat", hasTitle = true, hasBadge = true, hasBubble = true),
-        "round-maodie" to CommunitySkinCatalogItem("round-maodie", "圆头耄耋", "Earthcat", hasTitle = true, hasBadge = false, hasBubble = true),
-        "waibi-babu" to CommunitySkinCatalogItem("waibi-babu", "外币巴布", "Earthcat", hasTitle = true, hasBadge = false, hasBubble = true),
+        "aurora-preset" to CommunitySkinCatalogItem("aurora-preset", "极光流转", "qwddkxs", hasTitle = true, hasBadge = true, hasBubble = true, hasReply = true),
+        "lanting-ink" to CommunitySkinCatalogItem(
+            id = "lanting-ink", name = "兰亭墨韵", author = "超时空蚂蚁",
+            hasTitle = true, hasBadge = true, hasBubble = true, hasReply = true,
+            bubbleCssSha = "d2061651cc0cbcd1e369dce2101c665bb3fb3bf1c47c47ddce6706c556c9a0f8",
+            titleCssSha = "2e46a5e8bdc8c377a13fb6da7730a9569964865858ff411b7148befcf52b9de3",
+            badgeCssSha = "91f13a156701580083213711d78d3c78897e9d44186e38b21795754405f384a1",
+            replyCssSha = "977ee520dea47fd0a67265969bab90672f210a840feb3b15641b96b9bd81fca2",
+        ),
+        "laoda-purple" to CommunitySkinCatalogItem(
+            id = "laoda-purple", name = "牢大牢大", author = "Earthcat",
+            hasTitle = true, hasBadge = false, hasBubble = true,
+            bubbleCssSha = "577da4e91d9738e86786c8406c07dfe88cbdcb44e63311042b7e77026da3a0d8",
+            titleCssSha = "8af57fbe47154b322d365f9bfe185ac8bb4a6b89007c5dd2ad534b52f2c01cc8",
+        ),
+        "laowu-dispatch" to CommunitySkinCatalogItem(
+            id = "laowu-dispatch", name = "老吴派遣·橘", author = "Earthcat",
+            hasTitle = true, hasBadge = true, hasBubble = true,
+            bubbleCssSha = "0214a7c86f6aceca3aed5e860ac49af4d1c87115f03488adf08bf775e2913d3a",
+            titleCssSha = "7eb5f36f5a29e6a2aa3e2c88889202c3c9deb786ab3067caa67fd99a2fd03f8b",
+            badgeCssSha = "8308f50c2f974c616763cf22dbee4a14de2f9927bdd7d402b74ae26faeaa662b",
+        ),
+        "laowu-dispatch-all-in" to CommunitySkinCatalogItem(
+            id = "laowu-dispatch-all-in", name = "老吴派遣·all in", author = "Earthcat",
+            hasTitle = true, hasBadge = true, hasBubble = true,
+            bubbleCssSha = "c3274be65de19dc7dc4fbbffd378225d03792333ae747559675d1f0abe903a65",
+            titleCssSha = "12667bafacb0d837d7a43b50cfbcc9b296b326221b05b1da6078100e553d2067",
+            badgeImgSha = "19b1612f344bacb77ff295e1015b806caf76b8c71d573f4d6ab572e20b3ede2d",
+            badgeCssSha = "94246d3faec40ef12c0149002c8399d03334719b91f739e3c7b7b24288f1e83c",
+        ),
+        "laowu-dispatch-black" to CommunitySkinCatalogItem(
+            id = "laowu-dispatch-black", name = "老吴派遣·黑", author = "Earthcat",
+            hasTitle = true, hasBadge = false, hasBubble = true,
+            bubbleCssSha = "124cbd46081146004ff36715429e5b03dab38fad884fe3f04ee525755d96316c",
+            titleCssSha = "8cd9a254d97135f971c3ea3ec057ff5daf413d3a3f6f3f02b6dd358f131604b3",
+        ),
+        "laowu-dispatch-calico" to CommunitySkinCatalogItem(
+            id = "laowu-dispatch-calico", name = "老吴派遣·三花", author = "Earthcat",
+            hasTitle = true, hasBadge = false, hasBubble = true,
+            bubbleCssSha = "18c36ff1d9e2b4b6128e94c4015e663f0c48308c302bf704902735faab1aa0b6",
+            titleCssSha = "936a072bc83ff4af6a10f51574152e872f00aa72d81a7429f1fd5aa42d1a925a",
+        ),
+        "laowu-dispatch-gray" to CommunitySkinCatalogItem(
+            id = "laowu-dispatch-gray", name = "老吴派遣·灰", author = "Earthcat",
+            hasTitle = true, hasBadge = false, hasBubble = true,
+            bubbleCssSha = "32ca8af9fd0dbe6576e4e3df7fbf38ffb1621abf9a6f28facf9763497a62d02c",
+            titleCssSha = "8598f77b56ad49ce8023f3c7b91d739691faebc6ffc8a917c9a39e9e27c3f488",
+        ),
+        "laowu-dispatch-siamese" to CommunitySkinCatalogItem(
+            id = "laowu-dispatch-siamese", name = "老吴派遣·暹罗", author = "Earthcat",
+            hasTitle = true, hasBadge = false, hasBubble = true,
+            bubbleCssSha = "832ed7919d46f2c984116cd0125284db50246b525a01560addb9b9541c168429",
+            titleCssSha = "2f5b6dbdbf7d14d7e7db3b12ca8957b8990a56e66fd7643d23b5ff4890bf6a62",
+        ),
+        "laowu-dispatch-white" to CommunitySkinCatalogItem(
+            id = "laowu-dispatch-white", name = "老吴派遣·白", author = "Earthcat",
+            hasTitle = true, hasBadge = false, hasBubble = true,
+            bubbleCssSha = "38500ed04d5a2541e9de75951627ddd3204488245d1d338112fad40a816b5623",
+            titleCssSha = "aed3e69262739d914ec1ca2a1dce4631687df1878dd98cc41ebff18eccda4925",
+        ),
+        "oiia-loaf" to CommunitySkinCatalogItem(
+            id = "oiia-loaf", name = "oiia", author = "Earthcat",
+            hasTitle = true, hasBadge = false, hasBubble = true,
+            bubbleCssSha = "784ee18be88851697cd36bee3e1687c60f7ecc360c742aa74bffd5362ebf6892",
+            titleCssSha = "1a0c4355046715dbc8adb807df228befb2da9c2b096e6011eb509659972f591e",
+        ),
+        "orange-flick" to CommunitySkinCatalogItem(
+            id = "orange-flick", name = "谷恒条野", author = "Earthcat",
+            hasTitle = true, hasBadge = true, hasBubble = true, hasReply = true,
+            bubbleCssSha = "382c275581545f1a02f6a607f4383a77f908f28f5da89ea0c62aa751deec9ae6",
+            titleCssSha = "9f191b7cb02af0ff36f2c76cf92a6b94bbf1f7a14db4adf5e62627412830a2a2",
+            badgeCssSha = "8308f50c2f974c616763cf22dbee4a14de2f9927bdd7d402b74ae26faeaa662b",
+            replyCssSha = "0a28c9e1259604c58ee9dd7b6c88ddafda6bbbed50014f7db908bc05d762f8f6",
+        ),
+        "p3r-zero-hour-fool" to CommunitySkinCatalogItem(
+            id = "p3r-zero-hour-fool", name = "月行水上", author = "结城理",
+            hasTitle = true, hasBadge = false, hasBubble = true,
+            bubbleImgSha = "0a4fbf591d0059052bccc9baef213b050426ea90d02c154afe011e407e227245",
+            bubbleCssSha = "003a8f449e3ff91f57c2c9fbcfffc6b735c7577a2b9b5cf45b7ee905123d674d",
+            titleCssSha = "2e93383775162eabae36eb97ba3791c26073379d67b215ffe56b0fcae2c00ec8",
+        ),
+        "round-maodie" to CommunitySkinCatalogItem(
+            id = "round-maodie", name = "圆头耄耋", author = "Earthcat",
+            hasTitle = true, hasBadge = false, hasBubble = true,
+            bubbleCssSha = "9f8ae826293199307224daafce9e5d8d25c92a61777366eb6812ba460950dbd4",
+            titleCssSha = "52994e13542a3a4767edf93934919096e95e2ca441d86cf9aeac8d8a8aaf2080",
+        ),
+        "shadow-dao" to CommunitySkinCatalogItem(
+            id = "shadow-dao", name = "影道", author = "超时空蚂蚁",
+            hasTitle = true, hasBadge = true, hasBubble = true, hasReply = true,
+            bubbleImgSha = "c27d25f5af2a532894b64d7b3b067d761039e5f8a7d8b1f9bde1cc08af97e564",
+            bubbleCssSha = "4109795dce89347e35af08858127b876d4ddfc2a73560d1175a4c222b9e6f6f1",
+            bubbleSlice = intArrayOf(42, 60, 48, 64),
+            titleImgSha = "43d02ac97cee40ff1a6d5ab4b65deb45e9821122d84434dde2d3b1e91c18de3e",
+            titleCssSha = "5922d5865c0ad8231ad6300feecfda1d27c41bf99dc9bbd808e21d0cdfeba253",
+            titleSlice = intArrayOf(16, 44, 18, 52),
+            badgeImgSha = "035488c68252c293478618fae559040afa733ee1373333bd548a3da1a6143a88",
+            badgeCssSha = "301c922e3cd6fdc25d792f7a52ed4bdec4bf3abc5ef966a336cdb632cfb7da97",
+            replyImgSha = "3c8a4a9d85b7386530c543b9e16b73435257fcb42fc9168a373115fa53afbceb",
+            replyCssSha = "18f7ad0c5bd6189267927b5b8ccfe63951f5311ce81d4077af57ea69f5757a9c",
+            replySlice = intArrayOf(18, 50, 20, 56),
+        ),
+        "shadow-path" to CommunitySkinCatalogItem(
+            id = "shadow-path", name = "影径", author = "超时空蚂蚁",
+            hasTitle = true, hasBadge = true, hasBubble = true, hasReply = true,
+            bubbleImgSha = "5d34f540288f7052042513c9b5b87f3fc7ff898f7388705c37c4c832eae515bf",
+            bubbleCssSha = "e7dc6128c837836425a886cdb7cf10b42294dcea67f2487a4e321d6798b08b3d",
+            bubbleSlice = intArrayOf(42, 64, 44, 62),
+            titleImgSha = "f1253e3c6311ffd87353525341d358d0372af8c865700ccc8e78469850403bcb",
+            titleCssSha = "9e6c7d162981c10ac3bbaa3a318fde9a2a85448247ab38a7077c4a6fbe1332fb",
+            titleSlice = intArrayOf(16, 48, 16, 52),
+            badgeImgSha = "0492ab924b26e80bb4db26ed17f9e2a4b4e54e6abb00cde8a5b5bcee3d505b60",
+            badgeCssSha = "431b75b03262eba486b8489b958d3ff715e0aa715e8ca779c80bd401a4cbf62c",
+            replyImgSha = "692bfbc3d734200791fd4e66a12c1c0e349e6a4446826d81c06fdbca9a36072b",
+            replyCssSha = "3fc72637e828fa906ebdf38c59cdfc170d2ea63a3cc022342b98f4c6c6f5b24e",
+            replySlice = intArrayOf(18, 56, 18, 56),
+        ),
+        "waibi-babu" to CommunitySkinCatalogItem(
+            id = "waibi-babu", name = "外币巴布", author = "Earthcat",
+            hasTitle = true, hasBadge = false, hasBubble = true,
+            bubbleCssSha = "071f6e9dba7f15c2b6132491b34c6f2c9c889bfc004999444cef0face86572a4",
+            titleCssSha = "08af8fd3adc2847b3e82e68b55d22d63e9e48b2b93667c665ed6a1ed94b35b45",
+        ),
     )
 
     val FANCY_NICK_PRESETS: List<Pair<String, List<String>>> = listOf(
-        "默认纯色" to emptyList(),
+        "默认彩虹" to emptyList(),
         "樱粉" to listOf("#ff5fa2", "#ffb3d1", "#c86bff"),
         "海盐" to listOf("#00b4d8", "#48cae4", "#90e0ef"),
         "日落" to listOf("#ff6b35", "#f7c548", "#ff3864"),
@@ -493,17 +668,201 @@ object BadgeAndCosmeticRegistry {
         "mint" to "薄荷",
         "bunny" to "兔兔",
         "lemon" to "柠檬汽水",
+        "laowu" to "老吴",
+        "cloud" to "云朵",
+        "candy" to "糖果",
+        "neon" to "霓虹",
         "paper" to "便签",
         "ink" to "水墨",
+        "pixel" to "像素",
         "sakura" to "樱花",
-        "gold" to "鎏金",
+        "gold" to "土豪金",
         "night" to "星空",
     )
+
+    val AURORA_COMPASS_SVG: String = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+          <defs>
+            <linearGradient id="rg" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#00f0ff"/>
+              <stop offset="35%" stop-color="#8b5cf6"/>
+              <stop offset="70%" stop-color="#ff007f"/>
+              <stop offset="100%" stop-color="#ffea00"/>
+            </linearGradient>
+          </defs>
+          <polygon points="32,2 41,11 54,10 53,23 62,32 53,41 54,54 41,53 32,62 23,53 10,54 11,41 2,32 11,23 10,10 23,11" fill="#131a34" stroke="url(#rg)" stroke-width="3.5"/>
+          <circle cx="32" cy="32" r="20" fill="none" stroke="url(#rg)" stroke-width="1.5"/>
+          <path fill="#38bdf8" d="M32 10 L36 28 L54 10 L36 36 L54 54 L28 36 L10 54 L28 28 L10 10 L28 28 Z"/>
+          <path fill="#ffffff" d="M32 4 L35.5 27.5 L60 32 L35.5 36.5 L32 60 L28.5 36.5 L4 32 L28.5 27.5 Z"/>
+          <circle cx="32" cy="32" r="5" fill="#ff007f"/>
+          <circle cx="32" cy="32" r="2.5" fill="#ffffff"/>
+        </svg>
+    """.trimIndent()
+
+    val LANTING_INK_BADGE_SVG: String = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+          <defs>
+            <linearGradient id="ik" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#111827"/>
+              <stop offset="55%" stop-color="#374151"/>
+              <stop offset="100%" stop-color="#b48327"/>
+            </linearGradient>
+          </defs>
+          <circle cx="32" cy="32" r="27" fill="#f7f3e8" stroke="url(#ik)" stroke-width="4.5" stroke-linecap="round"/>
+          <circle cx="32" cy="32" r="22" fill="none" stroke="#b48327" stroke-width="1.2"/>
+          <circle cx="24" cy="22" r="8" fill="#b91c1c" opacity="0.92"/>
+          <path d="M10 41 L22 26 L34 38 L44 23 L54 40 Q32 54 10 41 Z" fill="#374151" opacity="0.65"/>
+          <path d="M14 45 L31 29 L45 41 L53 33 Q33 56 14 45 Z" fill="#111827" opacity="0.92"/>
+          <path d="M16 43 Q32 39 48 43" fill="none" stroke="#fef3c7" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
+          <circle cx="44" cy="19" r="3" fill="#dc2626"/>
+          <circle cx="49" cy="23" r="2.2" fill="#fde68a"/>
+        </svg>
+    """.trimIndent()
+
+    val ORANGE_FLICK_BADGE_SVG: String = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="ginger" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="#ffc575"/><stop offset="1" stop-color="#f3a04b"/></linearGradient><linearGradient id="wafer" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#f4d0a0"/><stop offset="1" stop-color="#d9a16a"/></linearGradient></defs><path d="M18 34.2H52L47.2 58.1Q46.8 60.8 43.9 61H26Q23.3 61 22.8 58.5Z" fill="url(#wafer)" stroke="#965737" stroke-width="1.7" stroke-linejoin="round"/><path d="M22 43.5 39.1 59M34 43.5 46.8 54.8M45.9 43.5 49 46.3M22.2 50.5 30.1 43.5M24.8 57.3 40.6 43.5M35.2 59.1 48.4 47.5" fill="none" stroke="#9d6239" stroke-width="1.25" stroke-linecap="round" opacity=".92"/><path d="M12.8 30.5Q12.2 28.5 15 28.5H51.8Q55.2 28.5 54.3 32.2L52.7 39.6Q52 42 49.1 42H18.5Q15.1 42 14.2 38.7Z" fill="url(#wafer)" stroke="#965737" stroke-width="1.7" stroke-linejoin="round"/><path d="M18.2 32.1 27.7 40.1M28.8 32.4 37.8 40.1M39.6 32.4 48.5 39.9M19.5 40 28.6 32.4M30 40 39.2 32.4M40.5 40 49.7 32.4" fill="none" stroke="#9d6239" stroke-width="1.25" stroke-linecap="round" opacity=".92"/><path d="M4.3 28.5Q3 22.4 6.9 18.8C10.1 15.5 14.1 13 19 10.9L19.6 5.6Q20.1 1.9 22.6 4.3Q24 5.5 24.6 9C31.8 6.5 39 6.9 45.6 9.1Q46.9 3.8 49.7 5.2Q52 6.4 51.5 11.7C56.9 15.4 59.1 21.5 59.2 29.9L59.4 41.9Q59.4 47.1 56 47.2Q53.3 47.2 53.3 43.1V33.2Q53.2 31.2 50.8 31.2H24.6Q22.8 31.2 21.2 33L18.1 36.3Q17 37.4 15.8 36.2L11.1 31.8Q9.7 30.4 8.3 32.2L6.9 33.8Q5.5 35.2 4.8 33.2Z" fill="url(#ginger)" stroke="#965737" stroke-width="1.65" stroke-linejoin="round"/><path d="M5.5 28.7Q7.2 25.4 12.5 25.1Q18 24.9 22.5 29.8Q21.1 31.3 17.1 35.9L11.3 31.8Q9.7 30.2 8.2 32.2L6.6 33.8Q5.9 34.1 5.5 28.7Z" fill="#fff0d3"/><path d="M20.9 8.9 21.5 5.9 23.1 8.1M47.5 8.4 49.2 6.9 49.9 10.3" fill="#f4a3a0" stroke-linejoin="round"/><path d="M26.5 9.2Q28.5 11.6 28.5 14.3M33 8.1Q34.5 10.7 34.8 14.1M39.3 8.8Q40.8 11.1 41.3 13.8M54.6 25.6Q56.8 26.2 58.4 25.6M54.4 37Q56.5 37.8 58.8 37.1" fill="none" stroke="#b86731" stroke-width="1.8" stroke-linecap="round"/><path d="M25 20.6Q25.6 15.1 27.9 15.6Q30.3 15.8 30.5 21.5M43.9 22.2Q47.3 18.5 47.3 14.9Q47.5 12.3 49.4 12.8Q51.4 13.2 51.9 18.2" fill="none" stroke="#965737" stroke-width="1.3" stroke-linecap="round" opacity=".86"/><circle cx="7.9" cy="25.5" r="1.4" fill="#512d24"/><circle cx="18.6" cy="27.2" r="1.5" fill="#512d24"/><path d="M11.5 24.8 14.2 25.4 12.6 27Z" fill="#512d24"/><path d="M21 28.8Q22.3 28.9 23.2 29.5" fill="none" stroke="#e58b86" stroke-width="1.5" stroke-linecap="round"/></svg>
+    """.trimIndent()
+
+    private val _catalogRevision = MutableStateFlow(0)
+    val catalogRevision: StateFlow<Int> = _catalogRevision.asStateFlow()
 
     private val dynamicBadges = ConcurrentHashMap<String, BadgeCatalogEntry>()
     private val dynamicGrowthById = ConcurrentHashMap<String, GrowthRewardMeta>()
     private val dynamicGrowthBySeries = ConcurrentHashMap<String, List<GrowthRewardMeta>>()
     private val dynamicOfficialTitles = ConcurrentHashMap<String, OfficialTitleMeta>()
+    private val dynamicCommunitySkins = ConcurrentHashMap<String, CommunitySkinCatalogItem>()
+
+    fun resolveCommunitySkinMeta(id: String): CommunitySkinCatalogItem? =
+        dynamicCommunitySkins[id] ?: COMMUNITY_SKINS[id]
+
+    fun resolveOfficialTitleName(
+        id: String,
+        officialTitles: List<OfficialTitleMeta> = emptyList(),
+    ): OfficialTitleMeta? {
+        officialTitles.firstOrNull { it.id == id && it.name.isNotBlank() }?.let { return it }
+        dynamicOfficialTitles[id]?.let { return it }
+        return BUILT_IN_OFFICIAL_NAMES[id]?.let { (name, mood) ->
+            OfficialTitleMeta(id = id, name = name, mood = mood)
+        }
+    }
+
+    fun resolveGrowthRewardMeta(grId: String): GrowthRewardMeta? {
+        dynamicGrowthById[grId]?.let { return it }
+        val match = Regex("""^(guess|luck_king|luck_last|rank_[a-z_]+)[_:](\d)$""").matchEntire(grId.trim())
+            ?: return null
+        val rawSeries = match.groupValues[1]
+        val lv = match.groupValues[2].toIntOrNull()?.coerceIn(1, 5) ?: 1
+        val (series, board, period) = if (rawSeries.startsWith("rank_")) {
+            val suffix = if (rawSeries.endsWith("_all")) "all" else "day"
+            val brd = rawSeries.removePrefix("rank_").removeSuffix("_all").removeSuffix("_day")
+            Triple(rawSeries, brd, suffix)
+        } else {
+            Triple(rawSeries, null, null)
+        }
+        val fallbackLabel = resolveBadgeMeta(series)?.name ?: when (series) {
+            "luck_king" -> "手气王"
+            "luck_last" -> "手气亡"
+            else -> "猜词成长"
+        }
+        return GrowthRewardMeta(
+            id = grId,
+            series = series,
+            board = board,
+            period = period,
+            level = lv,
+            name = fallbackLabel,
+            label = fallbackLabel,
+        )
+    }
+
+    fun resolveActiveRaffle(
+        decoObj: JsonObject,
+        cosmeticAccess: String? = null,
+        nowSec: Long = ServerClock.serverNowSec(),
+    ): ActiveRaffleInfo? {
+        val ftId = decoObj["ft"]?.jsonPrimitive?.contentOrNull
+            ?: decoObj["equippedRaffleId"]?.jsonPrimitive?.contentOrNull
+            ?: return null
+        val cat = RAFFLE_TITLES[ftId] ?: return null
+        val owner = cosmeticAccess == "all"
+        val fxp = decoObj["fxp"]?.jsonPrimitive?.longOrNull ?: 0L
+        val fp = decoObj["fp"]?.jsonPrimitive?.intOrNull ?: 0
+        val expired = !owner && fxp in 1L..nowSec
+        val fn = decoObj["fn"]?.jsonPrimitive?.intOrNull
+            ?: decoObj["equippedRaffleLevel"]?.jsonPrimitive?.intOrNull
+            ?: 1
+        val earnedRaw = when {
+            owner -> TITLE_MAX_LEVEL
+            expired -> fp
+            else -> fn
+        }
+        if (expired && earnedRaw <= 0) return null
+        val n = earnedRaw.coerceIn(1, TITLE_MAX_LEVEL)
+        val fl = decoObj["fl"]?.jsonPrimitive?.intOrNull ?: n
+        val displayLevel = fl.coerceIn(1, n)
+        return ActiveRaffleInfo(
+            catalog = cat,
+            earnedLevel = n,
+            displayLevel = displayLevel,
+            stage = raffleStage(displayLevel),
+        )
+    }
+
+    fun updateCommunitySkinsCatalog(rawJson: String) {
+        val root = runCatching { ForHappyJson.parseToJsonElement(rawJson).jsonObject }.getOrNull() ?: return
+        val list = ArrayList<JsonObject>()
+        root["entries"]?.let { el ->
+            runCatching { el.jsonArray }.getOrNull()?.mapNotNullTo(list) { runCatching { it.jsonObject }.getOrNull() }
+        }
+        root["archived"]?.let { el ->
+            runCatching { el.jsonArray }.getOrNull()?.mapNotNullTo(list) { runCatching { it.jsonObject }.getOrNull() }
+        }
+        for (item in list) {
+            val id = item["id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            val name = item["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            if (id.isEmpty() || name.isEmpty()) continue
+            val author = item["author"]?.jsonPrimitive?.contentOrNull ?: ""
+            val comps = runCatching { item["components"]?.jsonObject }.getOrNull()
+            fun compHash(kind: String): Triple<Boolean, String?, String?> {
+                val c = runCatching { comps?.get(kind)?.jsonObject }.getOrNull() ?: return Triple(false, null, null)
+                val type = c["type"]?.jsonPrimitive?.contentOrNull
+                val sha = c["sha256"]?.jsonPrimitive?.contentOrNull
+                val styleSha = runCatching { c["style"]?.jsonObject?.get("sha256")?.jsonPrimitive?.contentOrNull }.getOrNull()
+                return if (type == "text/css") Triple(true, null, sha) else Triple(true, sha, styleSha)
+            }
+            fun compSlice(kind: String): IntArray? {
+                val arr = runCatching { comps?.get(kind)?.jsonObject?.get("slice")?.jsonArray }.getOrNull() ?: return null
+                if (arr.size != 4) return null
+                return IntArray(4) { i -> arr[i].jsonPrimitive.intOrNull ?: 0 }
+            }
+            val (hasT, tImg, tCss) = compHash("title")
+            val (hasBd, bdImg, bdCss) = compHash("badge")
+            val (hasBb, bbImg, bbCss) = compHash("bubble")
+            val (hasRp, rpImg, rpCss) = compHash("reply")
+            val base = COMMUNITY_SKINS[id]
+            dynamicCommunitySkins[id] = CommunitySkinCatalogItem(
+                id = id,
+                name = name,
+                author = author.ifBlank { base?.author.orEmpty() },
+                hasTitle = hasT || (base?.hasTitle == true),
+                hasBadge = hasBd || (base?.hasBadge == true),
+                hasBubble = hasBb || (base?.hasBubble == true),
+                hasReply = hasRp || (base?.hasReply == true),
+                bubbleImgSha = bbImg ?: base?.bubbleImgSha,
+                bubbleCssSha = bbCss ?: base?.bubbleCssSha,
+                bubbleSlice = compSlice("bubble") ?: base?.bubbleSlice,
+                titleImgSha = tImg ?: base?.titleImgSha,
+                titleCssSha = tCss ?: base?.titleCssSha,
+                titleSlice = compSlice("title") ?: base?.titleSlice,
+                badgeImgSha = bdImg ?: base?.badgeImgSha,
+                badgeCssSha = bdCss ?: base?.badgeCssSha,
+                replyImgSha = rpImg ?: base?.replyImgSha,
+                replyCssSha = rpCss ?: base?.replyCssSha,
+                replySlice = compSlice("reply") ?: base?.replySlice,
+            )
+        }
+        _catalogRevision.value += 1
+    }
 
     fun updateFromMeResponse(resp: MeResponse) {
         resp.officialTitles.forEach { t ->
@@ -568,6 +927,7 @@ object BadgeAndCosmeticRegistry {
                 )
             }
         }
+        _catalogRevision.value += 1
     }
 
     fun resolveBadgeMeta(id: String): BadgeCatalogEntry? {
@@ -742,24 +1102,40 @@ object BadgeAndCosmeticRegistry {
      * strictly following `app.js` `uName` + `titleEl` + `badgeEl`.
      * Unequipped badges in `user.badges` are NEVER dumped into the nickname row.
      */
+    private fun blendHex(aHex: String, bHex: String, weightA: Float): String {
+        fun parseRgb(raw: String): Triple<Int, Int, Int> {
+            val clean = raw.trim().removePrefix("#")
+            val full = if (clean.length == 3) "${clean[0]}${clean[0]}${clean[1]}${clean[1]}${clean[2]}${clean[2]}" else clean.take(6)
+            val v = full.toIntOrNull(16) ?: return Triple(31, 107, 79)
+            return Triple((v shr 16) and 0xFF, (v shr 8) and 0xFF, v and 0xFF)
+        }
+        val (ar, ag, ab) = parseRgb(aHex)
+        val (br, bg, bb) = parseRgb(bHex)
+        val w = weightA.coerceIn(0f, 1f)
+        val r = (ar * w + br * (1f - w)).toInt().coerceIn(0, 255)
+        val g = (ag * w + bg * (1f - w)).toInt().coerceIn(0, 255)
+        val b = (ab * w + bb * (1f - w)).toInt().coerceIn(0, 255)
+        return "#%02x%02x%02x".format(r, g, b)
+    }
+
     fun resolveEquippedIdentity(
         decoJson: JsonElement?,
         badgesJson: JsonElement? = null,
         officialTitles: List<OfficialTitleMeta> = emptyList(),
         where: String = "card",
+        isAdmin: Boolean = false,
+        hasFancyPermission: Boolean? = null,
+        cosmeticAccess: String? = null,
+        nowSec: Long = ServerClock.serverNowSec(),
+        isDarkTheme: Boolean = false,
     ): ResolvedUserIdentity {
-        val obj = runCatching { decoJson?.jsonObject }.getOrNull() ?: return ResolvedUserIdentity()
+        val obj = runCatching { decoJson?.jsonObject }.getOrNull()
 
-        val sc = obj["sc"]?.jsonPrimitive?.contentOrNull ?: obj["decoScope"]?.jsonPrimitive?.contentOrNull ?: "all"
-        if (where != "card" && sc != "all" && sc != where) {
-            return ResolvedUserIdentity()
-        }
-
-        // 1. Nickname gradient (`fc` array or legacy `nickGradient`)
-        val fcArr = runCatching { obj["fc"]?.jsonArray }.getOrNull()
+        // 1. Nickname gradient (`app.js:1707` nameCls is independent of deco `sc` scope)
+        val fcArr = runCatching { obj?.get("fc")?.jsonArray }.getOrNull()
             ?.mapNotNull { it.jsonPrimitive.contentOrNull?.takeIf { s -> s.startsWith("#") } }
             .orEmpty()
-        val legacyGrad = when (obj["nickGradient"]?.jsonPrimitive?.contentOrNull) {
+        val legacyGrad = when (obj?.get("nickGradient")?.jsonPrimitive?.contentOrNull) {
             "pine" -> listOf("#1B7F4B", "#34A853")
             "sunset" -> listOf("#EA580C", "#EC4899")
             "aurora" -> listOf("#06B6D4", "#8B5CF6")
@@ -770,7 +1146,22 @@ object BadgeAndCosmeticRegistry {
             "blackgold" -> listOf("#111111", "#d4a017", "#fff3b0")
             else -> emptyList()
         }
-        val nickHexes = fcArr.ifEmpty { legacyGrad }
+        val rawCustomFc = fcArr.ifEmpty { legacyGrad }
+        val nickHexes = when {
+            isAdmin -> ADMIN_RAINBOW_HEXES
+            hasFancyPermission == true -> rawCustomFc.ifEmpty { DEFAULT_FANCY_RAINBOW_HEXES }
+            hasFancyPermission == false -> emptyList()
+            else -> rawCustomFc
+        }
+
+        if (obj == null) {
+            return ResolvedUserIdentity(nickGradientHexes = nickHexes)
+        }
+
+        val sc = obj["sc"]?.jsonPrimitive?.contentOrNull ?: obj["decoScope"]?.jsonPrimitive?.contentOrNull ?: "all"
+        if (where != "card" && sc != "all" && sc != where) {
+            return ResolvedUserIdentity(nickGradientHexes = nickHexes)
+        }
 
         val communityObj = runCatching { obj["community"]?.jsonObject }.getOrNull()
         val communityTitleId = communityObj?.get("title")?.jsonPrimitive?.contentOrNull
@@ -779,7 +1170,6 @@ object BadgeAndCosmeticRegistry {
             ?: obj["communityBadgeId"]?.jsonPrimitive?.contentOrNull
 
         val ptId = obj["pt"]?.jsonPrimitive?.contentOrNull ?: obj["equippedPersonalId"]?.jsonPrimitive?.contentOrNull
-        val ftId = obj["ft"]?.jsonPrimitive?.contentOrNull ?: obj["equippedRaffleId"]?.jsonPrimitive?.contentOrNull
         val otId = obj["ot"]?.jsonPrimitive?.contentOrNull ?: obj["equippedOfficialId"]?.jsonPrimitive?.contentOrNull
         val grId = obj["gr"]?.jsonPrimitive?.contentOrNull ?: obj["equippedGrowthId"]?.jsonPrimitive?.contentOrNull
         val rtId = obj["rt"]?.jsonPrimitive?.contentOrNull
@@ -790,57 +1180,187 @@ object BadgeAndCosmeticRegistry {
             ?.trim()
             .orEmpty()
 
+        val commTitleMeta = communityTitleId?.takeIf { it.isNotBlank() }?.let { resolveCommunitySkinMeta(it) }
+        val commBadgeMeta = communityBadgeId?.takeIf { it.isNotBlank() }?.let { resolveCommunitySkinMeta(it) }
+        val growthMeta = grId?.takeIf { it.isNotBlank() }?.let { resolveGrowthRewardMeta(it) }
+        val activeRaffle = resolveActiveRaffle(obj, cosmeticAccess, nowSec)
+        val officialMeta = otId?.takeIf { it.isNotBlank() }?.let { resolveOfficialTitleName(it, officialTitles) }
+
         // 2. Title resolution (`titleEl` priority order)
         val resolvedTitle: ResolvedTitleChip? = when {
-            ptId == "owner52" || ptId == "owner52b" -> {
-                val p = PERSONAL_TITLES[ptId]!!
-                ResolvedTitleChip("personal:$ptId", p.name, "SSR", "SSR", "#1E293B", "#FDE68A", "#F59E0B", "solid", "pill")
+            isOwner52Suit(ptId) -> {
+                val suitId = ptId!!
+                val p = PERSONAL_TITLES[suitId] ?: PersonalTitleCatalogItem(suitId, "52帝", "站长专属", "SSR", "owner")
+                val isB = suitId == "owner-52b" || suitId == "owner52b"
+                val artUrl = if (isB) {
+                    "https://52dmeme.com/assets/owner52-v032/title-tiger-integrated-v1.webp"
+                } else {
+                    "https://52dmeme.com/assets/owner52-v031/title-dragon-integrated-v1.webp"
+                }
+                ResolvedTitleChip(
+                    key = "personal:$suitId",
+                    label = p.name,
+                    levelText = null,
+                    rarity = "SSR",
+                    bgHex = "#1E293B",
+                    textHex = "#FDE68A",
+                    borderHex = "#F59E0B",
+                    fillMode = "grad",
+                    shape = "pill",
+                    secondaryBgHex = "#0F172A",
+                    effect = "shine",
+                    bgImageUrl = artUrl,
+                    specialKind = "owner52",
+                )
             }
-            !communityTitleId.isNullOrBlank() && COMMUNITY_SKINS[communityTitleId] != null -> {
-                val skin = COMMUNITY_SKINS[communityTitleId]!!
-                ResolvedTitleChip("community:$communityTitleId", skin.name, null, "normal", "#2D6A4F", "#FFFFFF", "#52B788", "solid", "pill")
+            commTitleMeta != null -> {
+                ChatBubbleCosmetics.resolveCommunityTitleStyle(communityTitleId!!, commTitleMeta, isDarkTheme)
             }
-            !grId.isNullOrBlank() && dynamicGrowthById[grId] != null -> {
-                val gr = dynamicGrowthById[grId]!!
-                ResolvedTitleChip("growth:$grId", gr.name, "Lv${gr.level}", "SSR", "#6D28D9", "#FFFFFF", "#A78BFA", "solid", "pill")
+            growthMeta != null -> {
+                val (bgHex, secHex, fgHex, borderHex) = when {
+                    growthMeta.series == "luck_king" -> if (isDarkTheme) {
+                        listOf("#3B2506", "#4A2E08", "#FDE68A", "#F59E0B")
+                    } else {
+                        listOf("#FEF3C7", "#FDE68A", "#92400E", "#F59E0B")
+                    }
+                    growthMeta.series == "luck_last" -> if (isDarkTheme) {
+                        listOf("#241B3B", "#312352", "#DDD6FE", "#8B5CF6")
+                    } else {
+                        listOf("#EDE9FE", "#DDD6FE", "#5B21B6", "#8B5CF6")
+                    }
+                    growthMeta.series?.startsWith("rank_") == true -> if (isDarkTheme) {
+                        listOf("#172554", "#1E3A8A", "#DBEAFE", "#60A5FA")
+                    } else {
+                        listOf("#DBEAFE", "#BFDBFE", "#1E40AF", "#60A5FA")
+                    }
+                    else -> if (isDarkTheme) {
+                        listOf("#2E1065", "#3B0764", "#F3E8FF", "#A855F7")
+                    } else {
+                        listOf("#F3E8FF", "#E9D5FF", "#6B21A8", "#A855F7")
+                    }
+                }
+                ResolvedTitleChip(
+                    key = "growth:$grId",
+                    label = growthMeta.name,
+                    levelText = "Lv${growthMeta.level}",
+                    rarity = if (growthMeta.level >= 4) "SSR" else "rare",
+                    bgHex = bgHex,
+                    textHex = fgHex,
+                    borderHex = borderHex,
+                    fillMode = "grad",
+                    shape = "pill",
+                    secondaryBgHex = secHex,
+                    effect = if (growthMeta.level >= 5) "shine" else "none",
+                    specialKind = "growth",
+                )
             }
             !ptId.isNullOrBlank() && PERSONAL_TITLES[ptId] != null -> {
                 val p = PERSONAL_TITLES[ptId]!!
-                val isSsr = p.rarity.equals("SSR", ignoreCase = true)
-                ResolvedTitleChip(
-                    key = "personal:$ptId",
-                    label = p.name,
-                    levelText = if (isSsr) "SSR" else null,
-                    rarity = p.rarity,
-                    bgHex = if (isSsr) "#7C2D12" else "#1F6B4F",
-                    textHex = if (isSsr) "#FEF3C7" else "#FFFFFF",
-                    borderHex = if (isSsr) "#F59E0B" else "#34A853",
-                )
+                if (p.art == "v2") {
+                    val isSsr = p.rarity.equals("SSR", ignoreCase = true)
+                    ResolvedTitleChip(
+                        key = "personal:$ptId",
+                        label = p.name,
+                        levelText = null,
+                        rarity = p.rarity,
+                        bgHex = if (isSsr) "#7C2D12" else "#334155",
+                        textHex = if (isSsr) "#FEF3C7" else "#FFFFFF",
+                        borderHex = if (isSsr) "#F59E0B" else "#94A3B8",
+                        fillMode = "grad",
+                        shape = "pill",
+                        secondaryBgHex = if (isSsr) "#431407" else "#1E293B",
+                        bgImageUrl = "https://52dmeme.com/assets/personal-v2/$ptId-title.webp",
+                        specialKind = "personal_v2",
+                    )
+                } else {
+                    val pal = ChatBubbleCosmetics.PERSONAL_V1_PALETTES[ptId]
+                        ?: PersonalV1PaletteSpec("#367a78", "#e0f2e9", "#f2bc72")
+                    ResolvedTitleChip(
+                        key = "personal:$ptId",
+                        label = p.name,
+                        levelText = null,
+                        rarity = p.rarity,
+                        bgHex = if (isDarkTheme) "#1E293B" else pal.paperHex,
+                        textHex = if (isDarkTheme) "#F1F5F9" else pal.inkHex,
+                        borderHex = pal.accentHex,
+                        fillMode = "solid",
+                        shape = "pill",
+                        specialKind = "personal_v1",
+                    )
+                }
             }
-            !ftId.isNullOrBlank() && RAFFLE_TITLES[ftId] != null -> {
-                val r = RAFFLE_TITLES[ftId]!!
-                val fn = obj["fn"]?.jsonPrimitive?.intOrNull ?: obj["equippedRaffleLevel"]?.jsonPrimitive?.intOrNull ?: 1
-                val fl = obj["fl"]?.jsonPrimitive?.intOrNull ?: fn
-                val dispLv = fl.coerceIn(1, maxOf(1, fn))
-                ResolvedTitleChip(
-                    key = "raffle:$ftId",
-                    label = r.name,
-                    levelText = if (dispLv > 1) "Lv$dispLv" else null,
-                    rarity = r.rarity,
-                    bgHex = r.colorHex,
-                    textHex = "#FFFFFF",
-                    borderHex = r.accentHex,
-                )
+            activeRaffle != null -> {
+                val r = activeRaffle.catalog
+                val dispLv = activeRaffle.displayLevel
+                if (r.id == "claude") {
+                    ResolvedTitleChip(
+                        key = "raffle:claude",
+                        label = "拾光司书",
+                        levelText = if (dispLv > 1) "Lv$dispLv" else null,
+                        rarity = "SSR",
+                        bgHex = "#4A2E1B",
+                        textHex = "#FBF5EA",
+                        borderHex = "#D4AF37",
+                        fillMode = "grad",
+                        shape = "ribbon",
+                        secondaryBgHex = "#2A180D",
+                        effect = if (activeRaffle.stage >= 6) "shine" else "none",
+                        specialKind = "shiguang",
+                    )
+                } else {
+                    val npBg = if (isDarkTheme) blendHex(r.colorHex, "#15202B", 0.34f) else blendHex(r.accentHex, "#FFFFFF", 0.34f)
+                    val npSec = if (isDarkTheme) blendHex(r.accentHex, "#15202B", 0.18f) else blendHex(r.colorHex, "#FFFFFF", 0.22f)
+                    val npFg = if (isDarkTheme) "#F1F5F9" else blendHex(r.colorHex, "#1E293B", 0.68f)
+                    val npBd = if (isDarkTheme) r.accentHex else blendHex(r.colorHex, "#FFFFFF", 0.68f)
+                    ResolvedTitleChip(
+                        key = "raffle:${r.id}",
+                        label = r.name,
+                        levelText = if (dispLv > 1) "Lv$dispLv" else null,
+                        rarity = r.rarity,
+                        bgHex = npBg,
+                        textHex = npFg,
+                        borderHex = npBd,
+                        fillMode = "grad",
+                        shape = "tag",
+                        secondaryBgHex = npSec,
+                        effect = if (activeRaffle.stage >= 8) "shine" else "none",
+                        symbolSvgPath = ChatBubbleCosmetics.TITLE_SYMBOL_PATHS[r.id],
+                        specialKind = "raffle_nameplate",
+                    )
+                }
             }
-            !otId.isNullOrBlank() -> {
-                val official = officialTitles.firstOrNull { it.id == otId }
-                    ?: dynamicOfficialTitles[otId]
-                official?.takeIf { it.name.isNotBlank() }?.let {
-                    ResolvedTitleChip("official:$otId", it.name, null, "SSR", "#1D4ED8", "#FFFFFF", "#60A5FA")
+            officialMeta != null -> {
+                val pal = ChatBubbleCosmetics.OFFICIAL_PALETTES[otId]
+                if (pal != null) {
+                    ResolvedTitleChip(
+                        key = "official:$otId",
+                        label = officialMeta.name,
+                        levelText = null,
+                        rarity = "SSR",
+                        bgHex = if (isDarkTheme && otId != "diver") "#1E293B" else pal.softHex,
+                        textHex = if (isDarkTheme && otId != "diver") pal.edgeHex else pal.inkHex,
+                        borderHex = pal.edgeHex,
+                        fillMode = "solid",
+                        shape = "tag",
+                        specialKind = "official",
+                    )
+                } else {
+                    ResolvedTitleChip("official:$otId", officialMeta.name, null, "SSR", "#1D4ED8", "#FFFFFF", "#60A5FA", specialKind = "official")
                 }
             }
             rtId == "guangjie" -> {
-                ResolvedTitleChip("reward:guangjie", "✿ 广结善缘", null, "rare", "#9D174D", "#FCE7F3", "#F472B6")
+                ResolvedTitleChip(
+                    key = "reward:guangjie",
+                    label = "✿ 广结善缘",
+                    levelText = null,
+                    rarity = "rare",
+                    bgHex = "#9D174D",
+                    textHex = "#FCE7F3",
+                    borderHex = "#F472B6",
+                    fillMode = "grad",
+                    shape = "pill",
+                    secondaryBgHex = "#BE185D",
+                )
             }
             customText.isNotEmpty() -> {
                 val fg = obj["c"]?.jsonPrimitive?.contentOrNull ?: obj["textHex"]?.jsonPrimitive?.contentOrNull ?: "#FFFFFF"
@@ -848,7 +1368,24 @@ object BadgeAndCosmeticRegistry {
                 val bc = obj["bc"]?.jsonPrimitive?.contentOrNull ?: obj["secondaryHex"]?.jsonPrimitive?.contentOrNull ?: bg
                 val sh = obj["sh"]?.jsonPrimitive?.contentOrNull ?: obj["titleStyle"]?.jsonPrimitive?.contentOrNull ?: "pill"
                 val fill = obj["fill"]?.jsonPrimitive?.contentOrNull ?: obj["fillMode"]?.jsonPrimitive?.contentOrNull ?: "solid"
-                ResolvedTitleChip("custom", customText, null, "normal", bg, fg, bc, fill, sh)
+                val fx = obj["fx"]?.jsonPrimitive?.contentOrNull ?: "none"
+                val fontKey = obj["f"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val csst = ChatBubbleCosmetics.parseSafeCss(obj["csst"]?.jsonPrimitive?.contentOrNull)
+                ResolvedTitleChip(
+                    key = "custom",
+                    label = customText,
+                    levelText = null,
+                    rarity = "normal",
+                    bgHex = bg,
+                    textHex = fg,
+                    borderHex = bc,
+                    fillMode = fill,
+                    shape = sh,
+                    secondaryBgHex = bc,
+                    effect = fx,
+                    fontKey = fontKey,
+                    customCss = csst,
+                )
             }
             else -> null
         }
@@ -874,7 +1411,9 @@ object BadgeAndCosmeticRegistry {
             if (targetId.isEmpty()) return null
             val meta = resolveBadgeMeta(targetId) ?: return null
             val ownedN = ownedBadges.firstOrNull { it.id == targetId }?.count
-            val bn = obj["bn"]?.jsonPrimitive?.intOrNull ?: ownedN ?: 1
+            val bn = obj["bn"]?.jsonPrimitive?.intOrNull
+                ?: ownedN
+                ?: if (cosmeticAccess == "all") 999999 else 1
             val bl = obj["bl"]?.jsonPrimitive?.intOrNull ?: computeBadgeLevel(targetId, bn).coerceAtLeast(1)
             return ResolvedBadgeChip(
                 id = targetId,
@@ -888,30 +1427,69 @@ object BadgeAndCosmeticRegistry {
         }
 
         val resolvedBadge: ResolvedBadgeChip? = when {
-            !communityBadgeId.isNullOrBlank() && COMMUNITY_SKINS[communityBadgeId] != null -> {
-                val skin = COMMUNITY_SKINS[communityBadgeId]!!
+            commBadgeMeta != null -> {
+                val cid = communityBadgeId!!
+                val badgeArt: BadgeArtKind = when {
+                    cid == "aurora-preset" -> BadgeArtKind.InlineXmlSvg(AURORA_COMPASS_SVG)
+                    cid == "lanting-ink" -> BadgeArtKind.InlineXmlSvg(LANTING_INK_BADGE_SVG)
+                    cid == "orange-flick" || cid == "laowu-dispatch" -> BadgeArtKind.InlineXmlSvg(ORANGE_FLICK_BADGE_SVG)
+                    cid == "laowu-dispatch-all-in" -> {
+                        val sheetUrl = commBadgeMeta.badgeImgSha?.let {
+                            "https://52dmeme.com/api/community-skins/image/$it"
+                        } ?: "https://52dmeme.com/api/community-skins/image/19b1612f344bacb77ff295e1015b806caf76b8c71d573f4d6ab572e20b3ede2d"
+                        BadgeArtKind.SpriteSheetCell(sheetUrl, cols = 9, rows = 5, col = 2, row = 2)
+                    }
+                    (cid == "shadow-dao" || cid == "shadow-path") && isDarkTheme && commBadgeMeta.badgeCssSha != null -> {
+                        BadgeArtKind.RemoteImage("community-css-dark:$cid:badge:${commBadgeMeta.badgeCssSha}")
+                    }
+                    commBadgeMeta.badgeImgSha != null -> {
+                        BadgeArtKind.RemoteImage("https://52dmeme.com/api/community-skins/image/${commBadgeMeta.badgeImgSha}")
+                    }
+                    commBadgeMeta.badgeCssSha != null -> {
+                        BadgeArtKind.RemoteImage("community-css:$cid:badge:${commBadgeMeta.badgeCssSha}")
+                    }
+                    else -> BadgeArtKind.EmojiGlyph("✦")
+                }
                 ResolvedBadgeChip(
-                    id = "community:$communityBadgeId",
-                    name = skin.name,
+                    id = "community:$cid",
+                    name = commBadgeMeta.name,
                     level = 1,
                     levelText = "",
                     tier = "epic",
-                    desc = "社区投稿徽章 · ${skin.author}",
-                    art = BadgeArtKind.EmojiGlyph("✦"),
+                    desc = "社区投稿徽章 · ${commBadgeMeta.author}",
+                    art = badgeArt,
                 )
             }
             badgeMode == "custom" -> buildCustomBadge(bdId)
-            !grId.isNullOrBlank() && dynamicGrowthById[grId] != null -> {
-                val gr = dynamicGrowthById[grId]!!
-                val series = gr.series ?: "guess"
+            isOwner52Suit(ptId) -> {
+                val suitId = ptId!!
+                val p = PERSONAL_TITLES[suitId] ?: PersonalTitleCatalogItem(suitId, "52帝", "站长专属", "SSR", "owner")
+                ResolvedBadgeChip(
+                    id = "pt:$suitId",
+                    name = p.name,
+                    level = 5,
+                    levelText = "SSR",
+                    tier = "legend",
+                    desc = p.mood,
+                    art = BadgeArtKind.SpriteSheetCell(
+                        url = "https://52dmeme.com/assets/owner52-v031/regalia.webp",
+                        cols = 4,
+                        rows = 2,
+                        col = 1,
+                        row = 1,
+                    ),
+                )
+            }
+            growthMeta != null -> {
+                val series = growthMeta.series ?: "guess"
                 ResolvedBadgeChip(
                     id = series,
-                    name = gr.label?.takeIf { it.isNotBlank() } ?: gr.name,
-                    level = gr.level,
-                    levelText = "Lv${gr.level}",
+                    name = growthMeta.label?.takeIf { it.isNotBlank() } ?: growthMeta.name,
+                    level = growthMeta.level,
+                    levelText = "Lv${growthMeta.level}",
                     tier = "epic",
-                    desc = gr.desc,
-                    art = resolveBadgeArt(series, gr.level),
+                    desc = growthMeta.desc,
+                    art = resolveBadgeArt(series, growthMeta.level),
                 )
             }
             !ptId.isNullOrBlank() && PERSONAL_TITLES[ptId] != null -> {
@@ -919,7 +1497,7 @@ object BadgeAndCosmeticRegistry {
                 val artKind = if (p.art == "v2") {
                     BadgeArtKind.RemoteImage("https://52dmeme.com/assets/personal-v2/$ptId-badge.webp")
                 } else {
-                    BadgeArtKind.EmojiGlyph("✦")
+                    BadgeArtKind.RemoteSvg("https://52dmeme.com/assets/personal/$ptId.svg", "✦")
                 }
                 ResolvedBadgeChip(
                     id = "pt:$ptId",
@@ -931,19 +1509,17 @@ object BadgeAndCosmeticRegistry {
                     art = artKind,
                 )
             }
-            !ftId.isNullOrBlank() && RAFFLE_TITLES[ftId] != null -> {
-                val r = RAFFLE_TITLES[ftId]!!
-                val fn = obj["fn"]?.jsonPrimitive?.intOrNull ?: obj["equippedRaffleLevel"]?.jsonPrimitive?.intOrNull ?: 1
-                val fl = obj["fl"]?.jsonPrimitive?.intOrNull ?: fn
-                val dispLv = fl.coerceIn(1, maxOf(1, fn))
-                val artKind = if (ftId == "oldfarmer") {
-                    BadgeArtKind.EmojiGlyph("🥕")
-                } else {
-                    BadgeArtKind.RemoteImage(raffleBadgeUrl(ftId))
+            activeRaffle != null -> {
+                val r = activeRaffle.catalog
+                val dispLv = activeRaffle.displayLevel
+                val artKind = when (r.id) {
+                    "claude" -> BadgeArtKind.RemoteImage("https://52dmeme.com/shiguang/assets/shiguang-sticker.webp")
+                    "oldfarmer" -> BadgeArtKind.RemoteSvg(raffleBadgeUrl("oldfarmer"), "🥕")
+                    else -> BadgeArtKind.RemoteImage(raffleBadgeUrl(r.id))
                 }
                 ResolvedBadgeChip(
-                    id = "ft:$ftId",
-                    name = r.name,
+                    id = "ft:${r.id}",
+                    name = if (r.id == "claude") "拾光司书" else r.name,
                     level = dispLv,
                     levelText = "Lv$dispLv",
                     tier = if (r.rarity == "SSR") "legend" else "rare",
@@ -951,19 +1527,16 @@ object BadgeAndCosmeticRegistry {
                     art = artKind,
                 )
             }
-            !otId.isNullOrBlank() && OFFICIAL_ART_SVG.containsKey(otId) -> {
-                val official = officialTitles.firstOrNull { it.id == otId } ?: dynamicOfficialTitles[otId]
-                official?.let {
-                    ResolvedBadgeChip(
-                        id = "ot:$otId",
-                        name = it.name,
-                        level = 5,
-                        levelText = "",
-                        tier = "legend",
-                        desc = "站长授予 · ${it.mood}",
-                        art = BadgeArtKind.InlineOfficialSvg(OFFICIAL_ART_SVG.getValue(otId)),
-                    )
-                }
+            officialMeta != null && OFFICIAL_ART_SVG.containsKey(otId) -> {
+                ResolvedBadgeChip(
+                    id = "ot:$otId",
+                    name = officialMeta.name,
+                    level = 5,
+                    levelText = "",
+                    tier = "legend",
+                    desc = "站长授予 · ${officialMeta.mood}",
+                    art = BadgeArtKind.InlineOfficialSvg(OFFICIAL_ART_SVG.getValue(otId!!)),
+                )
             }
             else -> buildCustomBadge(bdId)
         }

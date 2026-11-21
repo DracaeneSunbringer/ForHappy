@@ -51,6 +51,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -105,6 +106,7 @@ import com.jinhuan.forhappy.core.update.UpdateStatus
 import com.jinhuan.forhappy.ui.chat.ChatNotificationJump
 import com.jinhuan.forhappy.ui.chat.ChatScreen
 import com.jinhuan.forhappy.ui.components.BadgePill
+import com.jinhuan.forhappy.ui.components.LocalCosmeticHttpClient
 import com.jinhuan.forhappy.ui.compose.ComposeWorkbench
 import com.jinhuan.forhappy.ui.compose.SystemShareTargetSheet
 import com.jinhuan.forhappy.ui.disguise.BossDocScreen
@@ -314,6 +316,7 @@ fun ForHappyShell(
 
     fun bootstrapSession() {
         scope.launch {
+            launch { runCatching { api.fetchCommunitySkinsCatalog() } }
             val currentUser = api.fetchMe()
             me = currentUser
             val scanned = api.scanDynamicTopbarModules()
@@ -614,6 +617,7 @@ fun ForHappyShell(
         todayStats = null
     }
 
+    CompositionLocalProvider(LocalCosmeticHttpClient provides api.okHttpClient) {
     Box(modifier = Modifier.fillMaxSize()) {
         DoubleBackBossHandler(
             enabled = !bossKeyActive &&
@@ -1399,6 +1403,7 @@ fun ForHappyShell(
                 )
             }
         }
+    }
     }
     }
 }

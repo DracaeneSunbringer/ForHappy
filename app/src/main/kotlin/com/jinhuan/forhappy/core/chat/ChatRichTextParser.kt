@@ -402,6 +402,14 @@ object ChatRichTextParser {
         return "[novel-excerpt:v1:${spec.bookId.lowercase()}:${spec.chapter.coerceAtLeast(1)}:$safeTheme]\n$safeTitle\n$safeChapterTitle\n$safeExcerpt"
     }
 
+    fun isStickerOnly(raw: String): Boolean {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return false
+        val count = PREVIEW_STICKER_REGEX.findAll(trimmed).count()
+        if (count !in 1..6) return false
+        return PREVIEW_STICKER_REGEX.replace(trimmed, "").isBlank()
+    }
+
     fun previewSummary(raw: String): String {
         parseNovelExcerpt(raw)?.let { spec ->
             return "[书房摘录] 《${spec.title}》"

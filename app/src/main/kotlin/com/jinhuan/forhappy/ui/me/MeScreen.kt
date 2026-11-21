@@ -229,13 +229,27 @@ fun MeScreen(
         !bossKeyActive &&
         (updateState.status == UpdateStatus.AVAILABLE || updateState.status == UpdateStatus.READY_TO_INSTALL)
 
+    val cosmeticCatalogRev by BadgeAndCosmeticRegistry.catalogRevision.collectAsState()
     val decoConfig = remember(me?.deco, cleanRawPref) { parseDecoConfig(me?.deco, cleanRawPref) }
-    val equippedIdentity = remember(me?.deco, me?.badges, me?.officialTitles) {
+    val equippedIdentity = remember(
+        me?.deco,
+        me?.badges,
+        me?.officialTitles,
+        me?.isAdmin,
+        me?.isFancyGranted,
+        me?.cosmeticAccess,
+        palette.isDark,
+        cosmeticCatalogRev,
+    ) {
         BadgeAndCosmeticRegistry.resolveEquippedIdentity(
             decoJson = me?.deco,
             badgesJson = me?.badges,
             officialTitles = me?.officialTitles.orEmpty(),
             where = "card",
+            isAdmin = me?.isAdmin == true,
+            hasFancyPermission = me?.isFancyGranted,
+            cosmeticAccess = me?.cosmeticAccess,
+            isDarkTheme = palette.isDark,
         )
     }
     val ownedBadges = remember(me?.badges, me?.farmBadgeProgress) {
