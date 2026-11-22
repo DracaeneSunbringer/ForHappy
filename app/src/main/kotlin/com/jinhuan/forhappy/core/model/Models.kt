@@ -1614,7 +1614,7 @@ enum class AppIconAlias(
     val title: String,
     val subtitle: String,
 ) {
-    JINHUAN("com.jinhuan.forhappy.AliasJinhuan", "尽欢", "松绿小欢默认图标"),
+    JINHUAN("com.jinhuan.forhappy.AliasJinhuan", "尽欢", "珊瑚欢颜默认图标"),
     FEISHU("com.jinhuan.forhappy.AliasFeishu", "飞书文档", "蓝色办公伪装图标"),
     DOCS("com.jinhuan.forhappy.AliasDocs", "协作文档", "青蓝文档伪装图标"),
 }

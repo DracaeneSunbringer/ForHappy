@@ -1,0 +1,50 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Soft shadow -->
+    <path
+        android:fillColor="#181E40AF"
+        android:pathData="M28,42 L57,49 L80,34 L60,57 L74,76 L49,68 L44,79 L35,70 Z" />
+    <!-- Lower cobalt tail wing -->
+    <path
+        android:fillColor="#1D4ED8"
+        android:pathData="M34,68 L54,54 L66,64 L44,77 Z" />
+    <!-- Main soaring cobalt wing -->
+    <path android:pathData="M36,44 L58,54 L73,74 L48,66 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="36"
+                android:startY="44"
+                android:endX="73"
+                android:endY="74">
+                <item android:color="#FF3370FF" android:offset="0.0" />
+                <item android:color="#FF1E40AF" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Upper soaring aqua wing -->
+    <path android:pathData="M27,40 L56,47 L79,32 L59,56 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="27"
+                android:startY="40"
+                android:endX="79"
+                android:endY="32">
+                <item android:color="#FF00D6B9" android:offset="0.0" />
+                <item android:color="#FF0EA5E9" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Wing fold highlight edge -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#80FFFFFF"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:pathData="M36,44 L58,54 L79,32" />
+</vector>

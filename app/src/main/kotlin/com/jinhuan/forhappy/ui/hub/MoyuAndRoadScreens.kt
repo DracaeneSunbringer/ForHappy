@@ -58,7 +58,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -97,6 +96,7 @@ import com.jinhuan.forhappy.core.model.RoadItem
 import com.jinhuan.forhappy.core.model.TodayStats
 import com.jinhuan.forhappy.core.moyu.MoyuCalculator
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
+import com.jinhuan.forhappy.ui.components.ForHappyTextField
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
 import com.jinhuan.forhappy.ui.wall.DialogBackOwnerScope
@@ -512,43 +512,43 @@ fun MoyuCalendarDialog(
                     ) {
                         Text("出勤与薪资设置", color = palette.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
+                            ForHappyTextField(
                                 value = startHm,
                                 onValueChange = { startHm = it },
-                                label = { Text("上班 HH:MM") },
+                                label = "上班 HH:MM",
                                 singleLine = true,
                                 modifier = Modifier.weight(1f),
                             )
-                            OutlinedTextField(
+                            ForHappyTextField(
                                 value = offHm,
                                 onValueChange = { offHm = it },
-                                label = { Text("下班 HH:MM") },
+                                label = "下班 HH:MM",
                                 singleLine = true,
                                 modifier = Modifier.weight(1f),
                             )
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
+                            ForHappyTextField(
                                 value = payDayText,
                                 onValueChange = { payDayText = it.filter(Char::isDigit).take(2) },
-                                label = { Text("发薪日(1-31)") },
+                                label = "发薪日(1-31)",
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 modifier = Modifier.weight(1f),
                             )
-                            OutlinedTextField(
+                            ForHappyTextField(
                                 value = salaryText,
                                 onValueChange = { salaryText = it.filter { c -> c.isDigit() || c == '.' } },
-                                label = { Text("月薪(元,0隐藏)") },
+                                label = "月薪(元,0隐藏)",
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                 modifier = Modifier.weight(1f),
                             )
                         }
-                        OutlinedTextField(
+                        ForHappyTextField(
                             value = workDaysText,
                             onValueChange = { workDaysText = it.filter { c -> c.isDigit() || c == '.' } },
-                            label = { Text("月工作天数(默认 21.75)") },
+                            label = "月工作天数(默认 21.75)",
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.fillMaxWidth(),
@@ -602,18 +602,18 @@ fun MoyuCalendarDialog(
                             }
                         }
                         if (holidays.size < 20) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                OutlinedTextField(
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
+                                ForHappyTextField(
                                     value = newHolidayName,
                                     onValueChange = { newHolidayName = it },
-                                    label = { Text("假日名") },
+                                    label = "假日名",
                                     singleLine = true,
                                     modifier = Modifier.weight(1f),
                                 )
-                                OutlinedTextField(
+                                ForHappyTextField(
                                     value = newHolidayDate,
                                     onValueChange = { newHolidayDate = it },
-                                    label = { Text("YYYY-MM-DD") },
+                                    label = "YYYY-MM-DD",
                                     singleLine = true,
                                     modifier = Modifier.weight(1.2f),
                                 )
@@ -1141,17 +1141,18 @@ fun NativeRoadDialog(
                             FilterChip(selected = kind == id, onClick = { kind = id }, label = { Text(label, fontSize = 12.sp) })
                         }
                     }
-                    OutlinedTextField(
+                    ForHappyTextField(
                         value = title,
                         onValueChange = { title = it },
-                        label = { Text("简短标题") },
+                        label = "简短标题",
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    OutlinedTextField(
+                    ForHappyTextField(
                         value = body,
                         onValueChange = { body = it },
-                        label = { Text("具体说明 / 复现步骤") },
+                        label = "具体说明 / 复现步骤",
+                        singleLine = false,
                         minLines = 3,
                         maxLines = 5,
                         modifier = Modifier.fillMaxWidth(),
@@ -1329,11 +1330,12 @@ private fun RoadCommentsDialog(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    OutlinedTextField(
+                    ForHappyTextField(
                         value = draft,
                         onValueChange = { draft = it },
-                        placeholder = { Text("发表评论…") },
+                        placeholder = "发表评论…",
                         singleLine = true,
+                        minHeight = 40.dp,
                         modifier = Modifier.weight(1f),
                     )
                     IconButton(

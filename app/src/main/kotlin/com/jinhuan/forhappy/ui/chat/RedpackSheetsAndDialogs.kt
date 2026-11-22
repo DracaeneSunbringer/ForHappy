@@ -60,7 +60,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -112,6 +111,7 @@ import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
 import com.jinhuan.forhappy.ui.components.BadgePill
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
+import com.jinhuan.forhappy.ui.components.ForHappyTextField
 import com.jinhuan.forhappy.ui.disguise.DisguiseSanitizer
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
@@ -355,10 +355,11 @@ fun CreateRedpackDialog(
                                 Spacer(Modifier.width(6.dp))
                                 Text("在内置网页打开 ${platform.label}")
                             }
-                            OutlinedTextField(
+                            ForHappyTextField(
                                 value = externalLinkDraft,
                                 onValueChange = { externalLinkDraft = it },
-                                label = { Text("粘贴红包链接或口令（支持 hb.unsnow.org / hb.lafi.sh）") },
+                                label = "粘贴红包链接或口令（支持 hb.unsnow.org / hb.lafi.sh）",
+                                singleLine = false,
                                 minLines = 2,
                                 maxLines = 4,
                                 modifier = Modifier.fillMaxWidth(),
@@ -428,18 +429,20 @@ fun CreateRedpackDialog(
                                     HorizontalDivider(color = palette.line.copy(alpha = 0.6f))
                                     Text("LinuxDo Credit 授权 / 凭证", color = palette.muted, fontSize = 11.sp)
                                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        OutlinedTextField(
+                                        ForHappyTextField(
                                             value = creditIdInput,
                                             onValueChange = { creditIdInput = it },
-                                            placeholder = { Text("Client ID", fontSize = 11.sp) },
+                                            placeholder = "Client ID",
                                             singleLine = true,
+                                            minHeight = 38.dp,
                                             modifier = Modifier.weight(1f),
                                         )
-                                        OutlinedTextField(
+                                        ForHappyTextField(
                                             value = creditSecretInput,
                                             onValueChange = { creditSecretInput = it },
-                                            placeholder = { Text("Client Secret", fontSize = 11.sp) },
+                                            placeholder = "Client Secret",
                                             singleLine = true,
+                                            minHeight = 38.dp,
                                             modifier = Modifier.weight(1f),
                                         )
                                     }
@@ -459,23 +462,27 @@ fun CreateRedpackDialog(
                                     }
                                     HorizontalDivider(color = palette.line.copy(alpha = 0.6f))
                                     Text("摸鱼派 Fish API Key", color = palette.muted, fontSize = 11.sp)
-                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        OutlinedTextField(
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        ForHappyTextField(
                                             value = fishKeyInput,
                                             onValueChange = { fishKeyInput = it },
-                                            placeholder = { Text("输入 Fish API Key", fontSize = 11.sp) },
+                                            placeholder = "输入 Fish API Key",
                                             singleLine = true,
+                                            minHeight = 40.dp,
                                             modifier = Modifier.weight(1f),
                                         )
                                         Button(
                                             enabled = fishKeyInput.isNotBlank(),
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.height(40.dp),
+                                            contentPadding = PaddingValues(horizontal = 14.dp),
                                             onClick = {
                                                 scope.launch {
                                                     api.saveFishApiKey(fishKeyInput)
                                                     fishStatus = api.fetchFishFunding()
                                                 }
                                             },
-                                        ) { Text("绑定", fontSize = 11.sp) }
+                                        ) { Text("绑定", fontSize = 12.sp) }
                                     }
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         TextButton(onClick = { onOpenUrl(fishStatus?.authUrl ?: "https://hb.lafi.sh/") }) {
@@ -543,18 +550,18 @@ fun CreateRedpackDialog(
                             }
 
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                OutlinedTextField(
+                                ForHappyTextField(
                                     value = amountText,
                                     onValueChange = { amountText = it },
-                                    label = { Text(if (assetTab == "coin52") "总 D 币" else "总 LDC 金额") },
+                                    label = if (assetTab == "coin52") "总 D 币" else "总 LDC 金额",
                                     singleLine = true,
                                     modifier = Modifier.weight(1f),
                                 )
                                 if (ldcMode != "exclusive") {
-                                    OutlinedTextField(
+                                    ForHappyTextField(
                                         value = countText,
                                         onValueChange = { countText = it },
-                                        label = { Text("红包个数") },
+                                        label = "红包个数",
                                         singleLine = true,
                                         modifier = Modifier.weight(1f),
                                     )
@@ -562,17 +569,17 @@ fun CreateRedpackDialog(
                             }
 
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                OutlinedTextField(
+                                ForHappyTextField(
                                     value = promptText,
                                     onValueChange = { promptText = it },
-                                    label = { Text("红包封面/祝福语") },
+                                    label = "红包封面/祝福语",
                                     singleLine = true,
                                     modifier = Modifier.weight(1.7f),
                                 )
-                                OutlinedTextField(
+                                ForHappyTextField(
                                     value = minutesText,
                                     onValueChange = { minutesText = it },
-                                    label = { Text("有效(分)") },
+                                    label = "有效(分)",
                                     singleLine = true,
                                     modifier = Modifier.weight(1f),
                                 )
@@ -610,19 +617,19 @@ fun CreateRedpackDialog(
 
                             when (gateMode) {
                                 "phrase" -> {
-                                    OutlinedTextField(
+                                    ForHappyTextField(
                                         value = phraseInput,
                                         onValueChange = { phraseInput = it },
-                                        label = { Text("需复读的完整口令") },
+                                        label = "需复读的完整口令",
                                         singleLine = true,
                                         modifier = Modifier.fillMaxWidth(),
                                     )
                                 }
                                 "cipher" -> {
-                                    OutlinedTextField(
+                                    ForHappyTextField(
                                         value = secretInput,
                                         onValueChange = { secretInput = it },
-                                        label = { Text("谜底答案（例如：守矢神社）") },
+                                        label = "谜底答案（例如：守矢神社）",
                                         singleLine = true,
                                         modifier = Modifier.fillMaxWidth(),
                                     )
@@ -657,10 +664,10 @@ fun CreateRedpackDialog(
                                     }
                                 }
                                 "image" -> {
-                                    OutlinedTextField(
+                                    ForHappyTextField(
                                         value = secretInput,
                                         onValueChange = { secretInput = it },
-                                        label = { Text("猜图答案") },
+                                        label = "猜图答案",
                                         singleLine = true,
                                         modifier = Modifier.fillMaxWidth(),
                                     )
@@ -1509,11 +1516,14 @@ fun OpenRedpackCenteredDialog(
                                             }
                                         }
                                         mode == "cipher" || mode == "image" -> {
-                                            OutlinedTextField(
+                                            ForHappyTextField(
                                                 value = answerInput,
                                                 onValueChange = { answerInput = it },
-                                                label = { Text("输入谜底答案") },
+                                                placeholder = "输入谜底答案",
                                                 singleLine = true,
+                                                containerColor = Color(0x33000000),
+                                                contentColor = Color(0xFFFFF8E1),
+                                                placeholderColor = Color(0x99FFF8E1),
                                                 modifier = Modifier.fillMaxWidth(),
                                             )
                                             Button(

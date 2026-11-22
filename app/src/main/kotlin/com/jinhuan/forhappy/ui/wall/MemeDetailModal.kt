@@ -76,7 +76,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -139,6 +138,7 @@ import com.jinhuan.forhappy.core.seen.LocalSeenTracker
 import com.jinhuan.forhappy.ui.components.BadgePill
 import com.jinhuan.forhappy.ui.components.BoostPillText
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
+import com.jinhuan.forhappy.ui.components.ForHappyTextField
 import com.jinhuan.forhappy.ui.components.ReactionChip
 import com.jinhuan.forhappy.ui.components.RichChatBodyView
 import com.jinhuan.forhappy.ui.components.boostPresetAccent
@@ -1053,12 +1053,13 @@ fun MemeDetailModal(
                                                     )
                                                 }
 
-                                                OutlinedTextField(
+                                                ForHappyTextField(
                                                     value = commentDraft,
                                                     onValueChange = { commentDraft = it },
-                                                    placeholder = { Text("写评论…", fontSize = 13.sp) },
+                                                    placeholder = "写评论…",
                                                     singleLine = false,
                                                     maxLines = 3,
+                                                    minHeight = 38.dp,
                                                     modifier = Modifier
                                                         .weight(1f)
                                                         .focusRequester(commentFocusRequester),
@@ -1066,7 +1067,9 @@ fun MemeDetailModal(
 
                                                 Button(
                                                     enabled = commentDraft.isNotBlank() && !postingComment,
-                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    modifier = Modifier.height(38.dp),
+                                                    contentPadding = PaddingValues(horizontal = 14.dp),
                                                     colors = ButtonDefaults.buttonColors(
                                                         containerColor = palette.primary,
                                                         contentColor = palette.onPrimary,
@@ -1805,17 +1808,21 @@ private fun EmbeddedPuzzleCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    OutlinedTextField(
+                    ForHappyTextField(
                         value = answerDraft,
                         onValueChange = { answerDraft = it },
-                        placeholder = { Text("输入谜底", fontSize = 12.sp) },
+                        placeholder = "输入谜底",
                         singleLine = true,
+                        minHeight = 40.dp,
                         modifier = Modifier
                             .weight(1f)
                             .onFocusChanged { onInputFocusChanged(it.isFocused) },
                     )
                     Button(
                         enabled = !submitting && answerDraft.isNotBlank(),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.height(40.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp),
                         onClick = {
                             if (me == null) {
                                 onRequireLogin()
@@ -1920,17 +1927,22 @@ private fun QuickBoostComposerSheet(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                OutlinedTextField(
+                ForHappyTextField(
                     value = draft,
                     onValueChange = { draft = it },
-                    placeholder = { Text("自定义一句，点下方热梗直接发出", fontSize = 12.sp) },
+                    placeholder = "自定义一句，点下方热梗直接发出",
                     singleLine = true,
+                    isError = units > BOOST_MAX_LEN,
+                    minHeight = 40.dp,
                     modifier = Modifier
                         .weight(1f)
                         .onFocusChanged { draftFocused = it.isFocused },
                 )
                 Button(
                     enabled = !busy && units in 1..BOOST_MAX_LEN,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.height(40.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp),
                     onClick = { submitBoost(draft) },
                 ) {
                     Text("发送")
@@ -2311,25 +2323,26 @@ fun ComposeMemeModal(
                     )
                 }
 
-                OutlinedTextField(
+                ForHappyTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("标题 / 一句话配文（可选）") },
+                    label = "标题 / 一句话配文（可选）",
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedTextField(
+                ForHappyTextField(
                     value = content,
                     onValueChange = { content = it },
-                    label = { Text("正文 / 出处背景") },
+                    label = "正文 / 出处背景",
+                    singleLine = false,
                     minLines = 2,
                     maxLines = 4,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedTextField(
+                ForHappyTextField(
                     value = tagsRaw,
                     onValueChange = { tagsRaw = it },
-                    label = { Text("标签（空格或逗号分隔）") },
+                    label = "标签（空格或逗号分隔）",
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )

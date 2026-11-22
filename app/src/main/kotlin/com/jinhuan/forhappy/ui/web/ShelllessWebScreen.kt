@@ -63,7 +63,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -109,6 +108,7 @@ import com.jinhuan.forhappy.core.network.cookie.CookieSyncBridge
 import com.jinhuan.forhappy.core.network.cookie.PersistentCookieJar
 import com.jinhuan.forhappy.core.network.media.WebAssetCacheManager
 import com.jinhuan.forhappy.ui.chat.ChatScreen
+import com.jinhuan.forhappy.ui.components.ForHappyTextField
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -813,11 +813,16 @@ fun ShelllessWebScreen(
                     ) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text("《${spec.title}》 · ${spec.chapterTitle}", color = Color(0xFF7A7468), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                            OutlinedTextField(
+                            ForHappyTextField(
                                 value = editableExcerpt,
                                 onValueChange = { if (it.length <= 1600) editableExcerpt = it },
+                                placeholder = "编辑摘录正文…",
+                                singleLine = false,
                                 minLines = 3,
                                 maxLines = 6,
+                                containerColor = Color(0xFFF3EFE4),
+                                contentColor = Color(0xFF2C2822),
+                                placeholderColor = Color(0xFF8C8477),
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }

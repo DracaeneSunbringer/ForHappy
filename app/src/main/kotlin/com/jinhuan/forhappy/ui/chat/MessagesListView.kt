@@ -63,7 +63,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -112,6 +111,8 @@ import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
 import com.jinhuan.forhappy.ui.components.BadgeChipView
 import com.jinhuan.forhappy.ui.components.BadgePill
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
+import com.jinhuan.forhappy.ui.components.ForHappySearchField
+import com.jinhuan.forhappy.ui.components.ForHappyTextField
 import com.jinhuan.forhappy.ui.components.TitleChipView
 import com.jinhuan.forhappy.ui.components.parseSafeHex
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
@@ -956,12 +957,12 @@ private fun NewDmUserSearchSheet(
                     Icon(Icons.Rounded.Close, contentDescription = "关闭", tint = palette.text)
                 }
             }
-            OutlinedTextField(
+            ForHappySearchField(
                 value = query,
                 onValueChange = { query = it },
-                placeholder = { Text("搜索用户名或昵称…", fontSize = 13.sp) },
-                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
-                singleLine = true,
+                placeholder = "搜索用户名或昵称…",
+                height = 38.dp,
+                autoFocus = true,
                 modifier = Modifier.fillMaxWidth(),
             )
             if (loading && users.isEmpty()) {
@@ -1074,19 +1075,24 @@ private fun GlobalMessagesSearchDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .statusBarsPadding()
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                        .height(52.dp)
+                        .padding(horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    IconButton(onClick = onDismiss) {
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
                     }
-                    OutlinedTextField(
+                    ForHappySearchField(
                         value = query,
                         onValueChange = { query = it },
-                        placeholder = { Text("搜群聊、好友或聊天记录…", fontSize = 13.sp) },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
+                        placeholder = "搜群聊、好友或聊天记录…",
+                        height = 38.dp,
+                        autoFocus = true,
+                        containerColor = palette.bg,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 6.dp),
                     )
                 }
             }
@@ -1292,9 +1298,11 @@ fun GroupInfoDialog(
                                 }
                             }
                             if (editingNotice) {
-                                OutlinedTextField(
+                                ForHappyTextField(
                                     value = noticeDraft,
                                     onValueChange = { noticeDraft = it },
+                                    placeholder = "输入群公告内容…",
+                                    singleLine = false,
                                     minLines = 2,
                                     maxLines = 5,
                                     modifier = Modifier.fillMaxWidth(),
@@ -1451,12 +1459,11 @@ fun GroupInfoDialog(
 
                 // Members search & list
                 item {
-                    OutlinedTextField(
+                    ForHappySearchField(
                         value = memberQuery,
                         onValueChange = { memberQuery = it },
-                        placeholder = { Text("搜索群成员 (${members.size})…", fontSize = 13.sp) },
-                        leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
-                        singleLine = true,
+                        placeholder = "搜索群成员 (${members.size})…",
+                        height = 38.dp,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -1826,21 +1833,44 @@ fun ChatHistorySearchDialog(
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                OutlinedTextField(
-                    value = queryText,
-                    onValueChange = { queryText = it },
-                    placeholder = { Text("输入关键词，或点选下方发言人（支持多选）", fontSize = 13.sp) },
-                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text("只看包含图片的消息", color = palette.muted, fontSize = 12.sp)
-                    Switch(checked = onlyImages, onCheckedChange = { onlyImages = it })
+                    ForHappySearchField(
+                        value = queryText,
+                        onValueChange = { queryText = it },
+                        placeholder = "搜索聊天记录或 @发言人…",
+                        height = 38.dp,
+                        autoFocus = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Surface(
+                        color = if (onlyImages) palette.primary else palette.surface2,
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .height(38.dp)
+                            .border(
+                                1.dp,
+                                if (onlyImages) palette.primary else palette.line.copy(alpha = 0.7f),
+                                CircleShape,
+                            )
+                            .clip(CircleShape)
+                            .clickable { onlyImages = !onlyImages },
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                        ) {
+                            Text(
+                                text = "只看图",
+                                color = if (onlyImages) palette.onPrimary else palette.text,
+                                fontSize = 12.sp,
+                                fontWeight = if (onlyImages) FontWeight.SemiBold else FontWeight.Medium,
+                            )
+                        }
+                    }
                 }
 
                 if (members.isNotEmpty()) {

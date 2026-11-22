@@ -7,6 +7,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -39,7 +40,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.core.network.cookie.CookieSyncBridge
+import com.jinhuan.forhappy.ui.components.ForHappyTextField
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import kotlinx.coroutines.launch
 
@@ -257,13 +258,14 @@ fun LoginWebSheet(
                                 fontSize = 12.sp,
                             )
 
-                            OutlinedTextField(
+                            ForHappyTextField(
                                 value = loginInput,
                                 onValueChange = {
                                     loginInput = it
                                     loginError = null
                                 },
-                                label = { Text("登录名") },
+                                label = "登录名",
+                                placeholder = "输入用户名或邮箱",
                                 singleLine = true,
                                 enabled = !submitting,
                                 keyboardOptions = KeyboardOptions(
@@ -273,23 +275,26 @@ fun LoginWebSheet(
                                 modifier = Modifier.fillMaxWidth(),
                             )
 
-                            OutlinedTextField(
+                            ForHappyTextField(
                                 value = passwordInput,
                                 onValueChange = {
                                     passwordInput = it
                                     loginError = null
                                 },
-                                label = { Text("密码") },
+                                label = "密码",
+                                placeholder = "输入登录密码",
                                 singleLine = true,
                                 enabled = !submitting,
                                 visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
                                 trailingIcon = {
-                                    IconButton(onClick = { showPassword = !showPassword }) {
-                                        Icon(
-                                            imageVector = if (showPassword) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
-                                            contentDescription = if (showPassword) "隐藏密码" else "显示密码",
-                                        )
-                                    }
+                                    Icon(
+                                        imageVector = if (showPassword) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                                        contentDescription = if (showPassword) "隐藏密码" else "显示密码",
+                                        tint = palette.muted,
+                                        modifier = Modifier
+                                            .size(18.dp)
+                                            .clickable { showPassword = !showPassword },
+                                    )
                                 },
                                 keyboardOptions = KeyboardOptions(
                                     keyboardType = KeyboardType.Password,

@@ -1065,13 +1065,18 @@ class ForHappyApiClient(
         val qs = buildList {
             if (beforeId != null && beforeId > 0L) {
                 add("before=$beforeId")
-            } else {
+            } else if (afterId > 0L) {
                 add("after=$afterId")
                 add("since=$sinceSec")
                 add("include_total=0")
             }
         }.joinToString("&")
-        val res = executeRawJson("GET", "/api/chat/groups/$groupId/messages?$qs")
+        val path = if (qs.isEmpty()) {
+            "/api/chat/groups/$groupId/messages"
+        } else {
+            "/api/chat/groups/$groupId/messages?$qs"
+        }
+        val res = executeRawJson("GET", path)
         if (res.code !in 200..299) return null
         return decodeChatMessagesResponse(res.body)
     }

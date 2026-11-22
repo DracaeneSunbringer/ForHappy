@@ -10,8 +10,11 @@ import com.jinhuan.forhappy.core.model.ChatReaction
 import com.jinhuan.forhappy.core.model.ChatReplyPreview
 import com.jinhuan.forhappy.core.model.ChatUser
 import com.jinhuan.forhappy.ui.chat.canGroupContinuation
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -440,5 +443,106 @@ class ChatRichTextAndInflightTest {
 
         val summary = ChatRichTextParser.previewSummary("刚刚叫AI拉了一下happycoding的状态[alu:blush]")
         assertEquals("刚刚叫AI拉了一下happycoding的状态[表情]", summary)
+    }
+
+    @Test
+    fun requestLoadOlderHistorySurvivesCallerCancellationAndResetsState() = runBlocking {
+        val gate = CompletableDeferred<Unit>()
+        val controller = ChatSessionController(
+            fetchGroupsFn = { listOf(ChatGroup(id = 1L, name = "g1")) },
+            fetchMessagesFn = { _, afterId, _, beforeId ->
+                if (beforeId != null) {
+                    gate.await()
+                    ChatMessagesResponse(
+                        items = (80L..89L).map { ChatMessage(id = it, groupId = 1L, body = "old-$it", createdAt = it) },
+                        more = true,
+                    )
+                } else if (afterId == 0L) {
+                    ChatMessagesResponse(
+                        items = (90L..100L).map { ChatMessage(id = it, groupId = 1L, body = "new-$it", createdAt = it) },
+                        more = true,
+                    )
+                } else {
+                    ChatMessagesResponse()
+                }
+            },
+            sendMessageFn = { _, _, _, _ -> Result.success(null) },
+            markReadFn = { _, _ -> true },
+            toggleReactionFn = { _, _ -> true },
+            editMessageFn = { _, _ -> true },
+            deleteMessageFn = { _ -> true },
+        )
+
+        controller.pollOnce(1L)
+        assertTrue(controller.uiState.value.hasMoreOlder)
+        assertEquals(90L, controller.uiState.value.messages.first().id)
+
+        // Mimic Compose LaunchedEffect cancellation immediately after triggering load
+        val ephemeralJob = launch {
+            controller.requestLoadOlderHistory(1L)
+        }
+        ephemeralJob.join()
+        ephemeralJob.cancel()
+
+        withTimeout(1500L) {
+            while (!controller.uiState.value.isLoadingHistory) delay(10L)
+        }
+        gate.complete(Unit)
+        withTimeout(1500L) {
+            while (controller.uiState.value.isLoadingHistory) delay(10L)
+        }
+
+        assertFalse(controller.uiState.value.isLoadingHistory)
+        assertEquals(80L, controller.uiState.value.messages.first().id)
+        assertEquals(21, controller.uiState.value.messages.size)
+        assertTrue(controller.uiState.value.hasMoreOlder)
+    }
+
+    @Test
+    fun loadOlderHistoryRecoversInFinallyAfterDirectCancellationAndClearsMoreOnEmptyResult() = runBlocking {
+        val started = CompletableDeferred<Unit>()
+        val neverFinishes = CompletableDeferred<Unit>()
+        var callCount = 0
+        val controller = ChatSessionController(
+            fetchGroupsFn = { listOf(ChatGroup(id = 1L, name = "g1")) },
+            fetchMessagesFn = { _, _, _, beforeId ->
+                if (beforeId != null) {
+                    callCount++
+                    if (callCount == 1) {
+                        started.complete(Unit)
+                        neverFinishes.await()
+                    }
+                    // Empty older result even if server says more=true must end pagination cleanly
+                    ChatMessagesResponse(items = emptyList(), more = true)
+                } else {
+                    ChatMessagesResponse(
+                        items = listOf(ChatMessage(id = 50L, groupId = 1L, body = "cur", createdAt = 50L)),
+                        more = true,
+                    )
+                }
+            },
+            sendMessageFn = { _, _, _, _ -> Result.success(null) },
+            markReadFn = { _, _ -> true },
+            toggleReactionFn = { _, _ -> true },
+            editMessageFn = { _, _ -> true },
+            deleteMessageFn = { _ -> true },
+        )
+
+        controller.pollOnce(1L)
+        val canceledJob = launch {
+            controller.loadOlderHistory(1L)
+        }
+        started.await()
+        assertTrue(controller.uiState.value.isLoadingHistory)
+        canceledJob.cancel()
+        canceledJob.join()
+
+        // Must never stay stuck at isLoadingHistory = true
+        assertFalse(controller.uiState.value.isLoadingHistory)
+
+        val prepended = controller.loadOlderHistory(1L)
+        assertEquals(0, prepended)
+        assertFalse(controller.uiState.value.isLoadingHistory)
+        assertFalse(controller.uiState.value.hasMoreOlder)
     }
 }

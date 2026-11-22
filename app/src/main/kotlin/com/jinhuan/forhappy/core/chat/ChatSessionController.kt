@@ -16,6 +16,7 @@ import com.jinhuan.forhappy.core.model.GroupInputDrafts
 import com.jinhuan.forhappy.core.model.GuessRound
 import com.jinhuan.forhappy.core.model.UnifiedSessionItem
 import com.jinhuan.forhappy.core.network.scheduler.BackgroundGate
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -65,6 +66,7 @@ class ChatSessionController(
         val messages: List<ChatMessage> = emptyList(),
         val hasMoreOlder: Boolean = false,
         val isLoadingHistory: Boolean = false,
+        val olderLoadFailedByGroup: Map<Long, Boolean> = emptyMap(),
         val isPollingActive: Boolean = false,
         val lastError: String? = null,
         val replyTarget: ChatMessage? = null,
@@ -122,6 +124,7 @@ class ChatSessionController(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val stateMutex = Mutex()
     private val groupPollLocks = ConcurrentHashMap<Long, Mutex>()
+    private val loadingOlderGroupIds = ConcurrentHashMap.newKeySet<Long>()
 
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
@@ -201,6 +204,7 @@ class ChatSessionController(
                         activeGroupId = groupId,
                         messages = existing,
                         hasMoreOlder = hasMoreOlderByGroup[groupId] ?: false,
+                        isLoadingHistory = loadingOlderGroupIds.contains(groupId),
                         replyTarget = if (changedGroup) null else _uiState.value.replyTarget,
                         editTarget = if (changedGroup) null else _uiState.value.editTarget,
                         lastError = null,
@@ -232,6 +236,7 @@ class ChatSessionController(
                         activeGroupId = groupId,
                         messages = seed,
                         hasMoreOlder = hasMoreOlderByGroup[groupId] ?: (seed.isNotEmpty()),
+                        isLoadingHistory = loadingOlderGroupIds.contains(groupId),
                         replyTarget = if (changedGroup) null else _uiState.value.replyTarget,
                         editTarget = if (changedGroup) null else _uiState.value.editTarget,
                         draftsByGroup = draftsMap,
@@ -503,6 +508,25 @@ class ChatSessionController(
         if (pollJob?.isActive == true) return
         pollJob = scope.launch {
             refreshGroups()
+            val initialGid = _uiState.value.activeGroupId
+            val needsSeed = stateMutex.withLock { !messagesByGroup.containsKey(initialGid) }
+            if (needsSeed && db != null) {
+                val cached = db.loadChatMessages(initialGid)
+                if (cached.isNotEmpty()) {
+                    stateMutex.withLock {
+                        if (!messagesByGroup.containsKey(initialGid)) {
+                            messagesByGroup[initialGid] = cached
+                            hasMoreOlderByGroup.putIfAbsent(initialGid, true)
+                            if (_uiState.value.activeGroupId == initialGid && _uiState.value.messages.isEmpty()) {
+                                _uiState.value = _uiState.value.copy(
+                                    messages = cached,
+                                    hasMoreOlder = hasMoreOlderByGroup[initialGid] ?: true,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
             var pollCycle = 0
             while (isActive) {
                 val gid = _uiState.value.activeGroupId
@@ -637,7 +661,7 @@ class ChatSessionController(
                         isLiveIncremental = false,
                     )
                     val hasMore = if (hasOverlap && cachedSrv.first().id < freshSrv.first().id) {
-                        hasMoreOlderByGroup[groupId] ?: true
+                        (hasMoreOlderByGroup[groupId] ?: true) || resp.more
                     } else {
                         resp.more
                     }
@@ -780,47 +804,86 @@ class ChatSessionController(
         return moreRemaining
     }
 
-    suspend fun loadOlderHistory(): Int {
-        val gid = _uiState.value.activeGroupId
-        return pollLockFor(gid).withLock {
-            val oldestId = stateMutex.withLock {
-                (messagesByGroup[gid] ?: _uiState.value.messages).firstOrNull { it.id > 0L }?.id
-            } ?: return@withLock 0
+    /**
+     * Non-suspending history load entry point executed on controller.scope so Compose
+     * LaunchedEffect recompositions cannot cancel an in-flight page fetch.
+     */
+    fun requestLoadOlderHistory(groupId: Long = _uiState.value.activeGroupId) {
+        if (groupId <= 0L || loadingOlderGroupIds.contains(groupId)) return
+        scope.launch {
+            loadOlderHistory(groupId)
+        }
+    }
 
-            _uiState.value = _uiState.value.copy(isLoadingHistory = true)
-            val resp = fetchMessagesFn(gid, 0L, 0L, oldestId)
-            if (resp == null) {
-                _uiState.value = _uiState.value.copy(isLoadingHistory = false)
-                return@withLock 0
-            }
+    suspend fun loadOlderHistory(groupId: Long = _uiState.value.activeGroupId): Int {
+        val gid = groupId
+        if (gid <= 0L || !loadingOlderGroupIds.add(gid)) return 0
+        _uiState.update { cur ->
+            cur.copy(
+                isLoadingHistory = if (cur.activeGroupId == gid) true else cur.isLoadingHistory,
+                olderLoadFailedByGroup = cur.olderLoadFailedByGroup - gid,
+            )
+        }
+        try {
+            return pollLockFor(gid).withLock {
+                val oldestId = stateMutex.withLock {
+                    val curList = messagesByGroup[gid]
+                        ?: if (_uiState.value.activeGroupId == gid) _uiState.value.messages else emptyList()
+                    curList.firstOrNull { it.id > 0L }?.id
+                } ?: return@withLock 0
 
-            val (prependedCount, merged) = stateMutex.withLock {
-                val base = messagesByGroup[gid]
-                    ?: if (_uiState.value.activeGroupId == gid) _uiState.value.messages else emptyList()
-                val existingIds = base.asSequence().filter { it.id > 0L }.map { it.id }.toHashSet()
-                val mergedList = mergeServerDelta(
-                    current = base,
-                    newItems = resp.items,
-                    changedItems = resp.changed,
-                    isLiveIncremental = false,
-                )
-                val count = mergedList.count { it.id > 0L && it.id < oldestId && !existingIds.contains(it.id) }
-                messagesByGroup[gid] = mergedList
-                hasMoreOlderByGroup[gid] = resp.more
-                if (_uiState.value.activeGroupId == gid) {
-                    _uiState.value = _uiState.value.copy(
-                        messages = mergedList,
-                        hasMoreOlder = resp.more,
-                        isLoadingHistory = false,
-                    )
-                } else {
-                    _uiState.value = _uiState.value.copy(isLoadingHistory = false)
+                val resp = try {
+                    fetchMessagesFn(gid, 0L, 0L, oldestId)
+                } catch (ce: CancellationException) {
+                    throw ce
+                } catch (_: Throwable) {
+                    null
                 }
-                count to mergedList
-            }
+                if (resp == null) {
+                    _uiState.update { cur ->
+                        cur.copy(olderLoadFailedByGroup = cur.olderLoadFailedByGroup + (gid to true))
+                    }
+                    return@withLock 0
+                }
 
-            db?.saveChatMessages(gid, merged)
-            prependedCount
+                val (prependedCount, merged) = stateMutex.withLock {
+                    val base = messagesByGroup[gid]
+                        ?: if (_uiState.value.activeGroupId == gid) _uiState.value.messages else emptyList()
+                    val existingIds = base.asSequence().filter { it.id > 0L }.map { it.id }.toHashSet()
+                    val mergedList = mergeServerDelta(
+                        current = base,
+                        newItems = resp.items,
+                        changedItems = resp.changed,
+                        isLiveIncremental = false,
+                    )
+                    val hasOlderReturned = resp.items.any { it.id in 1L until oldestId }
+                    val count = mergedList.count { it.id > 0L && it.id < oldestId && !existingIds.contains(it.id) }
+                    val effectiveMore = resp.more && hasOlderReturned
+                    messagesByGroup[gid] = mergedList
+                    hasMoreOlderByGroup[gid] = effectiveMore
+                    _uiState.update { cur ->
+                        val clearFail = cur.olderLoadFailedByGroup - gid
+                        if (cur.activeGroupId == gid) {
+                            cur.copy(
+                                messages = mergedList,
+                                hasMoreOlder = effectiveMore,
+                                olderLoadFailedByGroup = clearFail,
+                            )
+                        } else {
+                            cur.copy(olderLoadFailedByGroup = clearFail)
+                        }
+                    }
+                    count to mergedList
+                }
+
+                db?.saveChatMessages(gid, merged)
+                prependedCount
+            }
+        } finally {
+            loadingOlderGroupIds.remove(gid)
+            _uiState.update { cur ->
+                cur.copy(isLoadingHistory = loadingOlderGroupIds.contains(cur.activeGroupId))
+            }
         }
     }
 

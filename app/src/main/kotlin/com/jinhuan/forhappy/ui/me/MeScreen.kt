@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -54,7 +55,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -76,12 +76,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.jinhuan.forhappy.R
 import com.jinhuan.forhappy.core.chat.ChatSessionController
 import com.jinhuan.forhappy.core.model.AppDisguiseMode
 import com.jinhuan.forhappy.core.model.AppIconAlias
@@ -103,6 +105,8 @@ import com.jinhuan.forhappy.core.update.UpdateStatus
 import com.jinhuan.forhappy.ui.components.BadgeChipView
 import com.jinhuan.forhappy.ui.components.BadgePill
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
+import com.jinhuan.forhappy.ui.components.ForHappySearchField
+import com.jinhuan.forhappy.ui.components.ForHappyTextField
 import com.jinhuan.forhappy.ui.components.TitleChipView
 import com.jinhuan.forhappy.ui.components.parseSafeHex
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
@@ -765,21 +769,15 @@ fun MeScreen(
                                 }
                             }
                             if (searchExpanded) {
-                                OutlinedTextField(
+                                ForHappySearchField(
                                     value = searchQuery,
                                     onValueChange = { searchQuery = it },
-                                    placeholder = { Text("搜标题/标签/正文…", fontSize = 12.sp) },
-                                    singleLine = true,
-                                    trailingIcon = {
-                                        IconButton(
-                                            onClick = {
-                                                searchQuery = ""
-                                                searchExpanded = false
-                                            },
-                                            modifier = Modifier.size(28.dp),
-                                        ) {
-                                            Icon(Icons.Rounded.Close, contentDescription = "清除", modifier = Modifier.size(16.dp))
-                                        }
+                                    placeholder = "搜标题/标签/正文…",
+                                    height = 32.dp,
+                                    autoFocus = true,
+                                    onClear = {
+                                        searchQuery = ""
+                                        searchExpanded = false
                                     },
                                     modifier = Modifier.weight(1f),
                                 )
@@ -978,10 +976,10 @@ fun MeScreen(
             textContentColor = palette.text,
             title = { Text("新建收藏夹") },
             text = {
-                OutlinedTextField(
+                ForHappyTextField(
                     value = newName,
                     onValueChange = { newName = it },
-                    label = { Text("收藏夹名称") },
+                    label = "收藏夹名称",
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -1012,10 +1010,10 @@ fun MeScreen(
             textContentColor = palette.text,
             title = { Text("管理收藏夹 · ${folder.name}") },
             text = {
-                OutlinedTextField(
+                ForHappyTextField(
                     value = editName,
                     onValueChange = { editName = it },
-                    label = { Text("重命名") },
+                    label = "重命名",
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -1341,20 +1339,55 @@ fun PrivacyStealthSettingsContent(
         HorizontalDivider(color = palette.line)
 
         Text("桌面启动器图标伪装（切换后桌面数秒内刷新）", color = palette.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             AppIconAlias.entries.forEach { alias ->
-                FilterChip(
-                    selected = activeIconAlias == alias,
-                    onClick = {
-                        switchLauncherAlias(context, alias)
-                        onChangeIconAlias(alias)
-                    },
-                    label = { Text(alias.title, fontSize = 12.sp) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = palette.primary,
-                        selectedLabelColor = palette.onPrimary,
-                    ),
-                )
+                val selected = activeIconAlias == alias
+                val iconRes = when (alias) {
+                    AppIconAlias.JINHUAN -> R.drawable.ic_launcher_jinhuan
+                    AppIconAlias.FEISHU -> R.drawable.ic_launcher_feishu
+                    AppIconAlias.DOCS -> R.drawable.ic_launcher_docs
+                }
+                Surface(
+                    color = if (selected) palette.primary.copy(alpha = 0.12f) else palette.surface2.copy(alpha = 0.72f),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .border(
+                            width = if (selected) 1.5.dp else 1.dp,
+                            color = if (selected) palette.primary else palette.line.copy(alpha = 0.6f),
+                            shape = RoundedCornerShape(12.dp),
+                        )
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable {
+                            switchLauncherAlias(context, alias)
+                            onChangeIconAlias(alias)
+                        },
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Image(
+                            painter = painterResource(iconRes),
+                            contentDescription = alias.title,
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(RoundedCornerShape(9.dp)),
+                        )
+                        Text(
+                            text = alias.title,
+                            color = if (selected) palette.primary else palette.text,
+                            fontSize = 11.5.sp,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
             }
         }
         StealthToggleRow(

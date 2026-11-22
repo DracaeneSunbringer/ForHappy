@@ -57,7 +57,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -110,6 +109,7 @@ import com.jinhuan.forhappy.ui.components.BoostPillText
 import com.jinhuan.forhappy.ui.components.ChatCosmeticBoostPill
 import com.jinhuan.forhappy.ui.components.ChatCosmeticBubbleBox
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
+import com.jinhuan.forhappy.ui.components.ForHappyTextField
 import com.jinhuan.forhappy.ui.components.TitleChipView
 import com.jinhuan.forhappy.ui.components.parseSafeHex
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
@@ -243,17 +243,18 @@ fun ProfileEditDialog(
                         Text("更换头像", fontSize = 12.sp)
                     }
                 }
-                OutlinedTextField(
+                ForHappyTextField(
                     value = nick,
                     onValueChange = { nick = it },
-                    label = { Text("昵称") },
+                    label = "昵称",
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedTextField(
+                ForHappyTextField(
                     value = bio,
                     onValueChange = { bio = it },
-                    label = { Text("个人签名 / Bio") },
+                    label = "个人签名 / Bio",
+                    singleLine = false,
                     minLines = 2,
                     maxLines = 4,
                     modifier = Modifier.fillMaxWidth(),
@@ -1712,10 +1713,11 @@ fun DecoStudioDialog(
                 thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
             )
 
-                                OutlinedTextField(
+                                ForHappyTextField(
                                     value = config.customTitle,
                                     onValueChange = { config = config.copy(customTitle = it.take(8)) },
-                                    label = { Text("自定义文字称号（最多 8 字，未穿戴套装时生效）") },
+                                    label = "自定义文字称号（最多 8 字，未穿戴套装时生效）",
+                                    placeholder = "输入自定义称号",
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
                                 )

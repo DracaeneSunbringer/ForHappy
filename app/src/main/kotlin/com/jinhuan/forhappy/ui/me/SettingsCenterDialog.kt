@@ -50,6 +50,8 @@ import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -59,7 +61,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -86,6 +87,8 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -108,6 +111,7 @@ import com.jinhuan.forhappy.core.update.AppUpdateController
 import com.jinhuan.forhappy.core.update.AppUpdateManager
 import com.jinhuan.forhappy.core.update.UpdateStatus
 import com.jinhuan.forhappy.ui.components.BadgePill
+import com.jinhuan.forhappy.ui.components.ForHappyTextField
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
@@ -955,6 +959,7 @@ private fun AiPrefsSubpage(
     var enableComment by remember { mutableStateOf(false) }
     var enableNovel by remember { mutableStateOf(false) }
     var stylePrompt by remember { mutableStateOf("") }
+    var showApiKey by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var statusBanner by remember { mutableStateOf<String?>(null) }
 
@@ -976,10 +981,51 @@ private fun AiPrefsSubpage(
                 Button(onClick = onRequireLogin) { Text("去登录") }
             } else {
                 Text("仅使用您本人填写的 API 额度（按量自费，站方不代扣）。", color = palette.muted, fontSize = 12.sp)
-                OutlinedTextField(value = baseUrl, onValueChange = { baseUrl = it }, label = { Text("API 地址 (OpenAI Compatible)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = apiKey, onValueChange = { apiKey = it }, label = { Text("API Key (保存后遮罩)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = modelName, onValueChange = { modelName = it }, label = { Text("模型名 (如 gpt-4o-mini)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = stylePrompt, onValueChange = { stylePrompt = it }, label = { Text("互动性格 / 续写风格") }, maxLines = 3, modifier = Modifier.fillMaxWidth())
+                ForHappyTextField(
+                    value = baseUrl,
+                    onValueChange = { baseUrl = it },
+                    label = "API 地址 (OpenAI Compatible)",
+                    placeholder = "https://api.openai.com/v1",
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                ForHappyTextField(
+                    value = apiKey,
+                    onValueChange = { apiKey = it },
+                    label = "API Key (保存后遮罩)",
+                    placeholder = "sk-...",
+                    singleLine = true,
+                    visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        Icon(
+                            imageVector = if (showApiKey) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                            contentDescription = if (showApiKey) "隐藏 Key" else "显示 Key",
+                            tint = palette.muted,
+                            modifier = Modifier
+                                .size(18.dp)
+                                .clickable { showApiKey = !showApiKey },
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                ForHappyTextField(
+                    value = modelName,
+                    onValueChange = { modelName = it },
+                    label = "模型名 (如 gpt-4o-mini)",
+                    placeholder = "gpt-4o-mini",
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                ForHappyTextField(
+                    value = stylePrompt,
+                    onValueChange = { stylePrompt = it },
+                    label = "互动性格 / 续写风格",
+                    placeholder = "例如：幽默简短、二次元吐槽风…",
+                    singleLine = false,
+                    minLines = 2,
+                    maxLines = 4,
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("允许参与评论互动", color = palette.text, fontSize = 13.sp)
                     Switch(checked = enableComment, onCheckedChange = { enableComment = it })
@@ -1052,22 +1098,26 @@ private fun NetworkDiagnosticsSubpage(api: ForHappyApiClient) {
                 }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                OutlinedTextField(
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ForHappyTextField(
                     value = customIpInput,
                     onValueChange = { customIpInput = it },
-                    placeholder = { Text("添加自定义优选 CF IP", fontSize = 12.sp) },
+                    placeholder = "添加自定义优选 CF IP",
                     singleLine = true,
+                    minHeight = 40.dp,
                     modifier = Modifier.weight(1f),
                 )
                 Button(
                     enabled = customIpInput.isNotBlank(),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.height(40.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp),
                     onClick = {
                         val next = netConfig.customNodes + CustomEdgeNode(ip = customIpInput.trim(), note = "手动添加")
                         api.rustNetManager.updateSettings(customNodes = next)
                         customIpInput = ""
                     },
-                ) { Text("添加", fontSize = 12.sp) }
+                ) { Text("添加", fontSize = 12.5.sp) }
             }
 
             if (netConfig.customNodes.isNotEmpty()) {
@@ -1229,16 +1279,30 @@ private fun AboutUpdateSubpage(updateController: AppUpdateController) {
                 color = palette.muted,
                 fontSize = 11.sp,
             )
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                OutlinedTextField(
-                    value = customMirrorInput,
-                    onValueChange = { customMirrorInput = it },
-                    label = { Text("自定义加速前缀 (留空自动)") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "自定义加速前缀（留空自动）",
+                    color = palette.muted,
+                    fontSize = 11.5.sp,
+                    modifier = Modifier.padding(start = 2.dp),
                 )
-                Button(onClick = { updateController.saveCustomMirrorPrefix(customMirrorInput) }) {
-                    Text("保存", fontSize = 12.sp)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ForHappyTextField(
+                        value = customMirrorInput,
+                        onValueChange = { customMirrorInput = it },
+                        placeholder = "例如 https://ghfast.top",
+                        singleLine = true,
+                        minHeight = 40.dp,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Button(
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.height(40.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp),
+                        onClick = { updateController.saveCustomMirrorPrefix(customMirrorInput) },
+                    ) {
+                        Text("保存", fontSize = 12.5.sp)
+                    }
                 }
             }
 

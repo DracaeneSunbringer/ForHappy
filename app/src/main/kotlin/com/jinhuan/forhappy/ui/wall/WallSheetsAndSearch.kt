@@ -65,7 +65,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -122,6 +121,7 @@ import com.jinhuan.forhappy.core.model.countReplyUnits
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
+import com.jinhuan.forhappy.ui.components.ForHappyTextField
 import com.jinhuan.forhappy.ui.components.ReactionEmojiView
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.theme.TABULAR_FONT_FEATURE
@@ -1479,15 +1479,19 @@ fun MemeQuickActionsSheet(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        OutlinedTextField(
+                        ForHappyTextField(
                             value = newFolderName,
                             onValueChange = { if (it.length <= 12) newFolderName = it },
-                            placeholder = { Text("＋ 新建收藏夹（≤12字）", fontSize = 12.sp) },
+                            placeholder = "＋ 新建收藏夹（≤12字）",
                             singleLine = true,
+                            minHeight = 40.dp,
                             modifier = Modifier.weight(1f),
                         )
                         Button(
                             enabled = newFolderName.isNotBlank(),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.height(40.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp),
                             onClick = {
                                 scope.launch {
                                     val (createdId, updatedFolders) = api.createFolder(newFolderName)
@@ -1551,10 +1555,10 @@ fun MemeQuickActionsSheet(
                         }
                         Text("转发到群聊", color = palette.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     }
-                    OutlinedTextField(
+                    ForHappyTextField(
                         value = forwardNote,
                         onValueChange = { forwardNote = it },
-                        placeholder = { Text("附带一句话（可选）", fontSize = 13.sp) },
+                        placeholder = "附带一句话（可选）",
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -1607,25 +1611,26 @@ fun MemeQuickActionsSheet(
                         }
                         Text("编辑帖子 No.${meme.id}", color = palette.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     }
-                    OutlinedTextField(
+                    ForHappyTextField(
                         value = editTitle,
                         onValueChange = { editTitle = it.take(80) },
-                        label = { Text("标题") },
+                        label = "标题",
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    OutlinedTextField(
+                    ForHappyTextField(
                         value = editContent,
                         onValueChange = { editContent = it },
-                        label = { Text("正文 / 说明") },
+                        label = "正文 / 说明",
+                        singleLine = false,
                         minLines = 3,
                         maxLines = 6,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    OutlinedTextField(
+                    ForHappyTextField(
                         value = editTagsRaw,
                         onValueChange = { editTagsRaw = it },
-                        label = { Text("标签（空格或逗号分隔）") },
+                        label = "标签（空格或逗号分隔）",
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -1668,13 +1673,14 @@ fun MemeQuickActionsSheet(
                         Text("写一句助推", color = palette.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     }
                     val units = countReplyUnits(customBoostDraft)
-                    OutlinedTextField(
+                    ForHappyTextField(
                         value = customBoostDraft,
                         onValueChange = { customBoostDraft = it },
-                        placeholder = { Text("12 个显示单位以内") },
+                        placeholder = "12 个显示单位以内",
                         singleLine = true,
+                        isError = units > BOOST_MAX_LEN,
                         supportingText = {
-                            Text("$units / $BOOST_MAX_LEN", color = if (units > BOOST_MAX_LEN) palette.danger else palette.muted)
+                            Text("$units / $BOOST_MAX_LEN", color = if (units > BOOST_MAX_LEN) palette.danger else palette.muted, fontSize = 11.sp)
                         },
                         modifier = Modifier.fillMaxWidth(),
                     )

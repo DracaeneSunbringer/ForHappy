@@ -76,7 +76,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -140,6 +139,7 @@ import com.jinhuan.forhappy.core.navigation.SharedIncomingPayload
 import com.jinhuan.forhappy.core.navigation.StealthExemptionGate
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
+import com.jinhuan.forhappy.ui.components.ForHappyTextField
 import com.jinhuan.forhappy.ui.components.RichChatBodyView
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
@@ -1159,7 +1159,7 @@ fun ComposeWorkbench(
                 if (genre == ComposeGenre.LINK) {
                     item(key = "link_editor") {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
+                            ForHappyTextField(
                                 value = shareRawUrl,
                                 onValueChange = {
                                     shareRawUrl = it
@@ -1167,7 +1167,8 @@ fun ComposeWorkbench(
                                         linkPreview = null
                                     }
                                 },
-                                label = { Text("粘贴 B站 / 小红书 / X / 抖音等分享链接") },
+                                label = "粘贴 B站 / 小红书 / X / 抖音等分享链接",
+                                singleLine = false,
                                 minLines = 2,
                                 maxLines = 4,
                                 modifier = Modifier.fillMaxWidth(),
@@ -1639,10 +1640,10 @@ fun ComposeWorkbench(
                 // Title & Body Editor / Preview
                 item(key = "title_and_body") {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedTextField(
+                        ForHappyTextField(
                             value = title,
                             onValueChange = { title = it.take(80) },
-                            label = { Text("标题（选填，80 字）") },
+                            label = "标题（选填，80 字）",
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -1665,18 +1666,15 @@ fun ComposeWorkbench(
                                 }
                             }
                         } else {
-                            OutlinedTextField(
+                            ForHappyTextField(
                                 value = contentField,
                                 onValueChange = { contentField = it },
-                                label = {
-                                    Text(
-                                        when (genre) {
-                                            ComposeGenre.TEXT -> "说点什么…（支持 Markdown）"
-                                            ComposeGenre.LINK -> "补充说明（选填）"
-                                            ComposeGenre.IMAGE -> "说点什么…（支持 Markdown，选填）"
-                                        },
-                                    )
+                                label = when (genre) {
+                                    ComposeGenre.TEXT -> "说点什么…（支持 Markdown）"
+                                    ComposeGenre.LINK -> "补充说明（选填）"
+                                    ComposeGenre.IMAGE -> "说点什么…（支持 Markdown，选填）"
                                 },
+                                singleLine = false,
                                 minLines = if (genre == ComposeGenre.TEXT) 8 else 3,
                                 maxLines = if (genre == ComposeGenre.TEXT) 16 else 6,
                                 modifier = Modifier.fillMaxWidth(),
@@ -2029,11 +2027,12 @@ fun ComposeWorkbench(
             containerColor = palette.surface,
             title = { Text("添加自定义标签", color = palette.text, fontWeight = FontWeight.Bold) },
             text = {
-                OutlinedTextField(
+                ForHappyTextField(
                     value = customTagDraft,
                     onValueChange = { customTagDraft = it.take(24) },
-                    label = { Text("标签名（不含 #）") },
+                    label = "标签名（不含 #）",
                     singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
                 )
             },
             confirmButton = {
@@ -2260,19 +2259,20 @@ private fun PuzzleEditorSheet(
                                 }
                             }
 
-                            OutlinedTextField(
+                            ForHappyTextField(
                                 value = layer.prompt,
                                 onValueChange = { v -> layers = layers.map { if (it.id == layer.id) it.copy(prompt = v) else it } },
-                                label = { Text("问题 / 题面") },
+                                label = "问题 / 题面",
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth(),
                             )
 
                             if (layer.kind == "quiz") {
-                                OutlinedTextField(
+                                ForHappyTextField(
                                     value = layer.optionsRaw,
                                     onValueChange = { v -> layers = layers.map { if (it.id == layer.id) it.copy(optionsRaw = v) else it } },
-                                    label = { Text("选项（每行一个，2~6 项）") },
+                                    label = "选项（每行一个，2~6 项）",
+                                    singleLine = false,
                                     minLines = 3,
                                     maxLines = 6,
                                     modifier = Modifier.fillMaxWidth(),
@@ -2292,19 +2292,19 @@ private fun PuzzleEditorSheet(
                                     }
                                 }
                             } else {
-                                OutlinedTextField(
+                                ForHappyTextField(
                                     value = layer.answer,
                                     onValueChange = { v -> layers = layers.map { if (it.id == layer.id) it.copy(answer = v) else it } },
-                                    label = { Text("答案（多答案用 | 分隔）") },
+                                    label = "答案（多答案用 | 分隔）",
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
                                 )
                             }
 
-                            OutlinedTextField(
+                            ForHappyTextField(
                                 value = layer.note,
                                 onValueChange = { v -> layers = layers.map { if (it.id == layer.id) it.copy(note = v) else it } },
-                                label = { Text("过关说明 / 下一层线索（选填）") },
+                                label = "过关说明 / 下一层线索（选填）",
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth(),
                             )
@@ -2313,10 +2313,10 @@ private fun PuzzleEditorSheet(
                 }
             }
 
-            OutlinedTextField(
+            ForHappyTextField(
                 value = hint,
                 onValueChange = { hint = it.take(300) },
-                label = { Text("总提示（选填，展示在卡片下方）") },
+                label = "总提示（选填，展示在卡片下方）",
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -2356,27 +2356,29 @@ private fun PuzzleEditorSheet(
             }
 
             if (rewardType == "codes") {
-                OutlinedTextField(
+                ForHappyTextField(
                     value = codes,
                     onValueChange = { codes = it },
-                    label = { Text("兑换码（一行一个）") },
+                    label = "兑换码（一行一个）",
+                    singleLine = false,
                     minLines = 3,
                     maxLines = 5,
                     modifier = Modifier.fillMaxWidth(),
                 )
             } else {
-                OutlinedTextField(
+                ForHappyTextField(
                     value = rewardText,
                     onValueChange = { rewardText = it },
-                    label = { Text(if (rewardType == "link") "奖励链接 (https://...)" else "奖励内容 / 口令") },
+                    label = if (rewardType == "link") "奖励链接 (https://...)" else "奖励内容 / 口令",
+                    singleLine = false,
                     minLines = 2,
                     maxLines = 4,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedTextField(
+                ForHappyTextField(
                     value = maxWinnersRaw,
                     onValueChange = { maxWinnersRaw = it.filter { ch -> ch.isDigit() }.take(5) },
-                    label = { Text("获奖名额（0 表示不限）") },
+                    label = "获奖名额（0 表示不限）",
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )

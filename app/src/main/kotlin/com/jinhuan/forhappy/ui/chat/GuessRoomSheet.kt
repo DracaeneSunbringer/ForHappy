@@ -60,7 +60,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -98,6 +97,7 @@ import com.jinhuan.forhappy.core.model.MeUser
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.ui.components.BadgePill
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
+import com.jinhuan.forhappy.ui.components.ForHappyTextField
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
@@ -631,16 +631,20 @@ fun GuessRoomSheet(
 
                                             if (round.owner && isOpen) {
                                                 Spacer(Modifier.height(4.dp))
-                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                                    OutlinedTextField(
+                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                    ForHappyTextField(
                                                         value = hintDraft,
                                                         onValueChange = { hintDraft = it },
-                                                        placeholder = { Text("出题者追加一条公开线索…", fontSize = 12.sp) },
+                                                        placeholder = "出题者追加一条公开线索…",
                                                         singleLine = true,
+                                                        minHeight = 40.dp,
                                                         modifier = Modifier.weight(1f),
                                                     )
                                                     Button(
                                                         enabled = hintDraft.isNotBlank() && !hintBusy,
+                                                        shape = RoundedCornerShape(12.dp),
+                                                        modifier = Modifier.height(40.dp),
+                                                        contentPadding = PaddingValues(horizontal = 14.dp),
                                                         onClick = {
                                                             val txt = hintDraft.trim()
                                                             hintBusy = true
@@ -1330,10 +1334,10 @@ private fun GuessWinnerTipSheet(
         ) {
             Text("打赏出题人", color = palette.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             infoText?.let { Text(it, color = palette.muted, fontSize = 12.sp) }
-            OutlinedTextField(
+            ForHappyTextField(
                 value = amount,
                 onValueChange = { amount = it },
-                label = { Text("打赏金额（如 10）") },
+                label = "打赏金额（如 10）",
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -1443,17 +1447,17 @@ private fun GuessCreateRoundSheet(
 
             if (rewardMode != "free") {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    OutlinedTextField(
+                    ForHappyTextField(
                         value = amount,
                         onValueChange = { amount = it },
-                        label = { Text(if (rewardMode == "coin52") "D币数量" else "LDC 金额") },
+                        label = if (rewardMode == "coin52") "D币数量" else "LDC 金额",
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                     )
-                    OutlinedTextField(
+                    ForHappyTextField(
                         value = count,
                         onValueChange = { count = it },
-                        label = { Text("名额") },
+                        label = "名额",
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                     )
@@ -1523,25 +1527,27 @@ private fun GuessCreateRoundSheet(
                     }
                 }
             } else {
-                OutlinedTextField(
+                ForHappyTextField(
                     value = manualWord,
                     onValueChange = { manualWord = it },
-                    label = { Text("谜底词条") },
+                    label = "谜底词条",
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedTextField(
+                ForHappyTextField(
                     value = manualHint,
                     onValueChange = { manualHint = it },
-                    label = { Text("开局公开线索（可选）") },
+                    label = "开局公开线索（可选）",
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedTextField(
+                ForHappyTextField(
                     value = manualExplain,
                     onValueChange = { manualExplain = it },
-                    label = { Text("答案释义（结束后显示，可选）") },
-                    maxLines = 2,
+                    label = "答案释义（结束后显示，可选）",
+                    singleLine = false,
+                    minLines = 2,
+                    maxLines = 3,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }

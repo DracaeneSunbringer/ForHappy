@@ -114,7 +114,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -209,6 +208,7 @@ import com.jinhuan.forhappy.ui.components.BoostPillText
 import com.jinhuan.forhappy.ui.components.ChatCosmeticBoostPill
 import com.jinhuan.forhappy.ui.components.ChatCosmeticBubbleBox
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
+import com.jinhuan.forhappy.ui.components.ForHappyTextField
 import com.jinhuan.forhappy.ui.components.ReactionChip
 import com.jinhuan.forhappy.ui.components.RichChatBodyView
 import com.jinhuan.forhappy.ui.components.TitleChipView
@@ -1795,18 +1795,19 @@ fun ChatScreen(
                                 total > 0 && lastIdx >= (total - 3).coerceAtLeast(0)
                             }
                         }
-                        LaunchedEffect(histAtTop, historyHasOlder, activeHistory.firstOrNull()?.id) {
-                            if (histAtTop && historyHasOlder && !historyLoadingOlder) {
-                                val edge = activeHistory.firstOrNull()?.id ?: return@LaunchedEffect
-                                historyLoadingOlder = true
+                        fun triggerHistOlder() {
+                            if (historyLoadingOlder || !historyHasOlder) return
+                            val edge = (historyMsgs ?: activeHistory).firstOrNull()?.id ?: return
+                            historyLoadingOlder = true
+                            scope.launch {
                                 try {
                                     val d = api.fetchChatMessagesAround(state.activeGroupId, edge)
-                                    if (d != null) {
-                                        val cur = historyMsgs ?: activeHistory
+                                    if (d != null && historyMsgs != null) {
+                                        val cur = historyMsgs ?: return@launch
                                         val have = cur.map { it.id }.toHashSet()
                                         val older = d.items.filter { it.id < edge && !have.contains(it.id) }
                                         historyMsgs = older + cur
-                                        historyHasOlder = d.more
+                                        historyHasOlder = d.more && older.isNotEmpty()
                                         if (older.isNotEmpty()) {
                                             historyListState.scrollToItem(older.size + 1)
                                         }
@@ -1816,27 +1817,66 @@ fun ChatScreen(
                                 }
                             }
                         }
-                        LaunchedEffect(histAtBottom, historyHasNewer, activeHistory.lastOrNull()?.id) {
-                            if (histAtBottom && historyHasNewer && !historyLoadingNewer) {
-                                val edge = activeHistory.lastOrNull()?.id ?: return@LaunchedEffect
-                                historyLoadingNewer = true
+                        fun triggerHistNewer() {
+                            if (historyLoadingNewer || !historyHasNewer) return
+                            val edge = (historyMsgs ?: activeHistory).lastOrNull()?.id ?: return
+                            historyLoadingNewer = true
+                            scope.launch {
                                 try {
                                     val d = api.fetchChatMessagesAround(state.activeGroupId, edge)
-                                    if (d != null) {
-                                        val cur = historyMsgs ?: activeHistory
+                                    if (d != null && historyMsgs != null) {
+                                        val cur = historyMsgs ?: return@launch
                                         val have = cur.map { it.id }.toHashSet()
                                         val newer = d.items.filter { it.id > edge && !have.contains(it.id) }
                                         historyMsgs = cur + newer
-                                        historyHasNewer = d.moreAfter
+                                        historyHasNewer = d.moreAfter && newer.isNotEmpty()
                                     }
                                 } finally {
                                     historyLoadingNewer = false
                                 }
                             }
                         }
+                        LaunchedEffect(histAtTop, historyHasOlder, activeHistory.firstOrNull()?.id) {
+                            if (histAtTop && historyHasOlder && !historyLoadingOlder) {
+                                triggerHistOlder()
+                            }
+                        }
+                        LaunchedEffect(histAtBottom, historyHasNewer, activeHistory.lastOrNull()?.id) {
+                            if (histAtBottom && historyHasNewer && !historyLoadingNewer) {
+                                triggerHistNewer()
+                            }
+                        }
+                        val latestHistHasOlder by rememberUpdatedState(historyHasOlder)
+                        val latestHistLoadingOlder by rememberUpdatedState(historyLoadingOlder)
+                        val pullHistTopNestedScroll = remember(historyListState, state.activeGroupId) {
+                            var histPullAccumPx = 0f
+                            object : NestedScrollConnection {
+                                override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                                    if (source == NestedScrollSource.UserInput && !historyListState.canScrollBackward) {
+                                        if (available.y > 0f) {
+                                            histPullAccumPx += available.y
+                                            if (histPullAccumPx >= 24f &&
+                                                latestHistHasOlder &&
+                                                !latestHistLoadingOlder
+                                            ) {
+                                                histPullAccumPx = 0f
+                                                triggerHistOlder()
+                                            }
+                                        } else if (available.y < 0f) {
+                                            histPullAccumPx = 0f
+                                        }
+                                    } else {
+                                        histPullAccumPx = 0f
+                                    }
+                                    return Offset.Zero
+                                }
+                            }
+                        }
                         LazyColumn(
                             state = historyListState,
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .nestedScroll(pullHistTopNestedScroll),
                             contentPadding = PaddingValues(
                                 start = 12.dp,
                                 end = 12.dp,
@@ -1851,28 +1891,8 @@ fun ChatScreen(
                                             if (historyLoadingOlder) {
                                                 CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = palette.primary)
                                             } else {
-                                                TextButton(onClick = {
-                                                    val edge = activeHistory.firstOrNull()?.id ?: return@TextButton
-                                                    if (!historyLoadingOlder) {
-                                                        scope.launch {
-                                                            historyLoadingOlder = true
-                                                            try {
-                                                                val d = api.fetchChatMessagesAround(state.activeGroupId, edge)
-                                                                if (d != null) {
-                                                                    val cur = historyMsgs ?: activeHistory
-                                                                    val have = cur.map { it.id }.toHashSet()
-                                                                    val older = d.items.filter { it.id < edge && !have.contains(it.id) }
-                                                                    historyMsgs = older + cur
-                                                                    historyHasOlder = d.more
-                                                                    if (older.isNotEmpty()) historyListState.scrollToItem(older.size + 1)
-                                                                }
-                                                            } finally {
-                                                                historyLoadingOlder = false
-                                                            }
-                                                        }
-                                                    }
-                                                }) {
-                                                    Text("↑ 继续上拉加载更早消息", fontSize = 12.sp, color = palette.muted)
+                                                TextButton(onClick = { triggerHistOlder() }) {
+                                                    Text("↑ 继续下拉加载更早消息", fontSize = 12.sp, color = palette.muted)
                                                 }
                                             }
                                         }
@@ -1991,12 +2011,13 @@ fun ChatScreen(
                                     val info = listState.layoutInfo
                                     val total = info.totalItemsCount
                                     val lastIdx = info.visibleItemsInfo.lastOrNull()?.index ?: -1
-                                    total > 0 && lastIdx >= (total - 4).coerceAtLeast(0)
+                                    total > 0 && lastIdx >= (total - 6).coerceAtLeast(0)
                                 }
                             }
                             val oldestServerMsgId = remember(state.messages) {
                                 state.messages.firstOrNull { it.id > 0L }?.id ?: 0L
                             }
+                            val olderLoadFailed = state.olderLoadFailedByGroup[state.activeGroupId] == true
                             val latestHasMoreOlder by rememberUpdatedState(state.hasMoreOlder)
                             val latestIsLoadingHistory by rememberUpdatedState(state.isLoadingHistory)
                             val latestOldestServerMsgId by rememberUpdatedState(oldestServerMsgId)
@@ -2006,33 +2027,43 @@ fun ChatScreen(
                                 state.hasMoreOlder,
                                 state.isLoadingHistory,
                                 oldestServerMsgId,
+                                olderLoadFailed,
                             ) {
                                 if (nearVisualTop &&
                                     state.hasMoreOlder &&
                                     !state.isLoadingHistory &&
+                                    !olderLoadFailed &&
                                     oldestServerMsgId > 0L &&
                                     autoOlderAttemptedId != oldestServerMsgId
                                 ) {
                                     autoOlderAttemptedId = oldestServerMsgId
-                                    controller.loadOlderHistory()
+                                    controller.requestLoadOlderHistory(state.activeGroupId)
                                 }
                             }
                             val pullTopHistoryNestedScroll = remember(listState, controller) {
+                                var pullDownAccumPx = 0f
                                 object : NestedScrollConnection {
-                                    override fun onPostScroll(
-                                        consumed: Offset,
+                                    override fun onPreScroll(
                                         available: Offset,
                                         source: NestedScrollSource,
                                     ): Offset {
-                                        if (source == NestedScrollSource.UserInput &&
-                                            available.y > 12f &&
-                                            !listState.canScrollForward &&
-                                            latestHasMoreOlder &&
-                                            !latestIsLoadingHistory &&
-                                            latestOldestServerMsgId > 0L
-                                        ) {
-                                            autoOlderAttemptedId = latestOldestServerMsgId
-                                            scope.launch { controller.loadOlderHistory() }
+                                        if (source == NestedScrollSource.UserInput && !listState.canScrollForward) {
+                                            if (available.y > 0f) {
+                                                pullDownAccumPx += available.y
+                                                if (pullDownAccumPx >= 24f &&
+                                                    latestHasMoreOlder &&
+                                                    !latestIsLoadingHistory &&
+                                                    latestOldestServerMsgId > 0L
+                                                ) {
+                                                    pullDownAccumPx = 0f
+                                                    autoOlderAttemptedId = latestOldestServerMsgId
+                                                    controller.requestLoadOlderHistory()
+                                                }
+                                            } else if (available.y < 0f) {
+                                                pullDownAccumPx = 0f
+                                            }
+                                        } else {
+                                            pullDownAccumPx = 0f
                                         }
                                         return Offset.Zero
                                     }
@@ -2223,7 +2254,7 @@ fun ChatScreen(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .clickable(enabled = !state.isLoadingHistory) {
-                                                    scope.launch { controller.loadOlderHistory() }
+                                                    controller.requestLoadOlderHistory(state.activeGroupId)
                                                 }
                                                 .padding(vertical = 8.dp),
                                             contentAlignment = Alignment.Center,
@@ -2232,25 +2263,51 @@ fun ChatScreen(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                             ) {
-                                                if (state.isLoadingHistory) {
-                                                    CircularProgressIndicator(
-                                                        modifier = Modifier.size(14.dp),
-                                                        strokeWidth = 2.dp,
-                                                        color = palette.primary,
-                                                    )
-                                                    Text(
-                                                        text = "正在加载更早消息…",
-                                                        color = palette.muted,
-                                                        fontSize = 12.sp,
-                                                    )
-                                                } else {
-                                                    Text(
-                                                        text = "↑ 继续下拉加载更早消息",
-                                                        color = palette.muted,
-                                                        fontSize = 11.5.sp,
-                                                    )
+                                                when {
+                                                    state.isLoadingHistory -> {
+                                                        CircularProgressIndicator(
+                                                            modifier = Modifier.size(14.dp),
+                                                            strokeWidth = 2.dp,
+                                                            color = palette.primary,
+                                                        )
+                                                        Text(
+                                                            text = "正在加载更早消息…",
+                                                            color = palette.muted,
+                                                            fontSize = 12.sp,
+                                                        )
+                                                    }
+                                                    olderLoadFailed -> {
+                                                        Text(
+                                                            text = "加载更早消息失败 · 下拉或点击重试",
+                                                            color = palette.primary,
+                                                            fontSize = 12.sp,
+                                                            fontWeight = FontWeight.Medium,
+                                                        )
+                                                    }
+                                                    else -> {
+                                                        Text(
+                                                            text = "↑ 继续下拉加载更早消息",
+                                                            color = palette.muted,
+                                                            fontSize = 11.5.sp,
+                                                        )
+                                                    }
                                                 }
                                             }
+                                        }
+                                    }
+                                } else if (state.messages.size >= 8) {
+                                    item(key = "older_end_marker") {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 8.dp),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Text(
+                                                text = "— 已加载到最早可见消息 —",
+                                                color = palette.muted.copy(alpha = 0.65f),
+                                                fontSize = 11.sp,
+                                            )
                                         }
                                     }
                                 }
@@ -5245,22 +5302,40 @@ private fun BoostComposerSheet(
         Column(modifier = Modifier.fillMaxWidth().imePadding().navigationBarsPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("给这条消息挂一句 Boost（${BOOST_MAX_LEN}字内）", color = palette.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
-                    Icon(Icons.Rounded.Close, contentDescription = "关闭", tint = palette.muted)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Surface(
+                        color = if (units > BOOST_MAX_LEN) palette.danger.copy(alpha = 0.14f) else palette.surface2,
+                        shape = CircleShape,
+                    ) {
+                        Text(
+                            text = "$units/$BOOST_MAX_LEN",
+                            color = if (units > BOOST_MAX_LEN) palette.danger else palette.muted,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        )
+                    }
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Rounded.Close, contentDescription = "关闭", tint = palette.muted)
+                    }
                 }
             }
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
+                ForHappyTextField(
                     value = text,
                     onValueChange = { text = it },
-                    placeholder = { Text("自己写一句（$BOOST_MAX_LEN 字内）", fontSize = 13.sp) },
+                    placeholder = "自己写一句（$BOOST_MAX_LEN 字内）",
                     singleLine = true,
-                    supportingText = { Text("$units/$BOOST_MAX_LEN", color = if (units > BOOST_MAX_LEN) palette.danger else palette.muted, fontSize = 11.sp) },
+                    isError = units > BOOST_MAX_LEN,
+                    minHeight = 40.dp,
                     modifier = Modifier.weight(1f),
                 )
                 Button(
                     enabled = !busy && units in 1..BOOST_MAX_LEN,
                     colors = ButtonDefaults.buttonColors(containerColor = palette.primary, contentColor = palette.onPrimary),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.height(40.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp),
                     onClick = {
                         busy = true
                         scope.launch {
