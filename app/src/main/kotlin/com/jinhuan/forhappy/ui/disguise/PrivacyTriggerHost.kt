@@ -11,9 +11,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalContext
 import com.jinhuan.forhappy.core.model.ShortcutGestureMode
 import kotlin.math.abs
@@ -69,21 +74,52 @@ class VolumeDoubleTapDetector(
 /**
  * Intercepts rapid double system-back gestures (450ms window) on root views with no open dialogs,
  * mirroring the web client's double-Esc Boss Key trigger.
+ * When [onSingleBackTimeout] is provided, a lone system-back press executes [onSingleBackTimeout]
+ * after the 450ms double-tap window so normal single-back exit/navigation is preserved.
  */
 @Composable
 fun DoubleBackBossHandler(
     enabled: Boolean,
     onTriggerBoss: () -> Unit,
+    onSingleBackTimeout: (() -> Unit)? = null,
 ) {
     val currentOnTrigger by rememberUpdatedState(onTriggerBoss)
+    val currentOnSingleTimeout by rememberUpdatedState(onSingleBackTimeout)
+    val scope = rememberCoroutineScope()
     var lastBackAt by remember { mutableLongStateOf(0L) }
+    var pendingSingleJob by remember { mutableStateOf<Job?>(null) }
+
+    DisposableEffect(enabled) {
+        if (!enabled) {
+            pendingSingleJob?.cancel()
+            pendingSingleJob = null
+            lastBackAt = 0L
+        }
+        onDispose {
+            pendingSingleJob?.cancel()
+            pendingSingleJob = null
+        }
+    }
+
     BackHandler(enabled = enabled) {
         val now = SystemClock.uptimeMillis()
         if (now - lastBackAt in 1L..450L) {
+            pendingSingleJob?.cancel()
+            pendingSingleJob = null
             lastBackAt = 0L
             currentOnTrigger()
         } else {
             lastBackAt = now
+            pendingSingleJob?.cancel()
+            if (currentOnSingleTimeout != null) {
+                pendingSingleJob = scope.launch {
+                    delay(460L)
+                    if (lastBackAt == now) {
+                        lastBackAt = 0L
+                        currentOnSingleTimeout?.invoke()
+                    }
+                }
+            }
         }
     }
 }

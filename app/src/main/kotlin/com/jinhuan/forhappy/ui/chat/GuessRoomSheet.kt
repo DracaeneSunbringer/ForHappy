@@ -1,5 +1,6 @@
 package com.jinhuan.forhappy.ui.chat
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -100,6 +101,7 @@ import com.jinhuan.forhappy.ui.components.ForHappyAvatar
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
+import com.jinhuan.forhappy.ui.wall.DialogBackOwnerScope
 import com.jinhuan.forhappy.ui.wall.FullscreenDialogProperties
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -241,10 +243,16 @@ fun GuessRoomSheet(
     }
 
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            if (subTab != "live") subTab = "live" else onDismiss()
+        },
         properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+        DialogBackOwnerScope {
+            BackHandler(enabled = subTab != "live") {
+                subTab = "live"
+            }
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -1222,6 +1230,7 @@ fun GuessRoomSheet(
                     }
                 }
             }
+        }
         }
     }
 

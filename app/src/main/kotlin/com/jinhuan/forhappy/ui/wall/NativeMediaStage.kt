@@ -12,8 +12,12 @@ import android.view.Gravity
 import android.view.Surface
 import android.view.TextureView
 import android.view.ViewGroup
-import android.view.WindowManager
 import androidx.compose.foundation.background
+import android.view.WindowManager
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
+import androidx.activity.findViewTreeOnBackPressedDispatcherOwner
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -135,6 +139,27 @@ val FullscreenDialogProperties = DialogProperties(
     usePlatformDefaultWidth = true,
     decorFitsSystemWindows = false,
 )
+
+/**
+ * Binds `LocalOnBackPressedDispatcherOwner` inside any Compose `Dialog` to the Dialog window's
+ * own [androidx.activity.ComponentDialog] ViewTree owner instead of inheriting the parent Activity.
+ * This ensures `BackHandler` composables placed inside fullscreen dialogs intercept system Back events.
+ */
+@Composable
+fun DialogBackOwnerScope(content: @Composable () -> Unit) {
+    val view = LocalView.current
+    val fallbackOwner = LocalOnBackPressedDispatcherOwner.current
+    val dialogOwner = remember(view, fallbackOwner) {
+        view.findViewTreeOnBackPressedDispatcherOwner() ?: fallbackOwner
+    }
+    if (dialogOwner != null) {
+        CompositionLocalProvider(LocalOnBackPressedDispatcherOwner provides dialogOwner) {
+            content()
+        }
+    } else {
+        content()
+    }
+}
 
 /**
  * Configures an edge-to-edge Compose [Dialog] window so Android 15 display cutouts and
@@ -1033,11 +1058,19 @@ fun ImmersiveMediaStage(
         properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = false)
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black),
-        ) {
+        DialogBackOwnerScope {
+            BackHandler(enabled = pendingBlurAllOrigConfirm || showOriginal) {
+                if (pendingBlurAllOrigConfirm) {
+                    pendingBlurAllOrigConfirm = false
+                } else {
+                    showOriginal = false
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black),
+            ) {
             HorizontalPager(
                 state = pagerState,
                 userScrollEnabled = currentZoom <= 1.02f,
@@ -1296,6 +1329,7 @@ fun ImmersiveMediaStage(
                     )
                 }
             }
+        }
         }
     }
 }

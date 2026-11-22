@@ -99,6 +99,7 @@ import com.jinhuan.forhappy.core.compose.MaskToolKind
 import com.jinhuan.forhappy.core.compose.NormPoint
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
+import com.jinhuan.forhappy.ui.wall.DialogBackOwnerScope
 import com.jinhuan.forhappy.ui.wall.FullscreenDialogProperties
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -285,13 +286,13 @@ fun ImageMaskEditorScreen(
         }
     }
 
-    BackHandler { attemptClose() }
-
     Dialog(
         onDismissRequest = { attemptClose() },
         properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = false)
+        DialogBackOwnerScope {
+            BackHandler { attemptClose() }
 
         Column(
             modifier = Modifier
@@ -914,6 +915,7 @@ fun ImageMaskEditorScreen(
                     }
                 }
             }
+        }
         }
     }
 

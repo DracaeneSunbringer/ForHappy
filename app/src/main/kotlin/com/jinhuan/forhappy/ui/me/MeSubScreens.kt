@@ -1,6 +1,7 @@
 package com.jinhuan.forhappy.ui.me
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -92,11 +94,15 @@ import com.jinhuan.forhappy.core.model.DecoConfig
 import com.jinhuan.forhappy.core.model.ForHappyJson
 import com.jinhuan.forhappy.core.model.HbKeyStatus
 import com.jinhuan.forhappy.core.model.MeUser
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
 import com.jinhuan.forhappy.core.model.Owner52bCard
+import com.jinhuan.forhappy.core.model.Owner52bPack
 import com.jinhuan.forhappy.core.model.WalletLedgerRow
 import com.jinhuan.forhappy.core.model.WalletSummary
 import com.jinhuan.forhappy.core.navigation.StealthExemptionGate
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
+import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
 import com.jinhuan.forhappy.ui.components.BadgeArtIcon
 import com.jinhuan.forhappy.ui.components.BadgeChipView
 import com.jinhuan.forhappy.ui.components.BadgePill
@@ -110,6 +116,7 @@ import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.theme.TABULAR_FONT_FEATURE
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
+import com.jinhuan.forhappy.ui.wall.DialogBackOwnerScope
 import com.jinhuan.forhappy.ui.wall.FullscreenDialogProperties
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -374,6 +381,7 @@ fun WalletDetailDialog(
         properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+        DialogBackOwnerScope {
         val navBottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         Column(
             modifier = Modifier
@@ -672,6 +680,7 @@ fun WalletDetailDialog(
                 }
             }
         }
+        }
     }
 
     if (confirmRevokeKey) {
@@ -713,165 +722,309 @@ fun WalletDetailDialog(
 @Composable
 fun Cards52bDialog(
     api: ForHappyApiClient,
-    initialCards: List<Owner52bCard>,
+    initialPacks: List<Owner52bPack>,
     onOpenWebRoute: (route: String, title: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val palette = LocalForHappyPalette.current
-    var cards by remember(initialCards) { mutableStateOf(initialCards) }
-    var loading by remember { mutableStateOf(initialCards.isEmpty()) }
+    var packs by remember(initialPacks) { mutableStateOf(initialPacks) }
+    var loading by remember { mutableStateOf(initialPacks.isEmpty()) }
+    var selectedPackIdx by remember { mutableIntStateOf(0) }
+    var detailCard by remember { mutableStateOf<Owner52bCard?>(null) }
 
     LaunchedEffect(Unit) {
-        val loaded = api.fetchOwner52bCards()
-        if (loaded.isNotEmpty()) cards = loaded
+        val loaded = api.fetchOwner52bPacks()
+        if (loaded.isNotEmpty() || packs.isEmpty()) packs = loaded
         loading = false
     }
 
-    val ownedCount = cards.count { it.owned }
+    val safeIdx = selectedPackIdx.coerceIn(0, (packs.size - 1).coerceAtLeast(0))
+    val activePack = packs.getOrNull(safeIdx)
+    val cards = activePack?.cards.orEmpty()
+    val totalCount = activePack?.let { maxOf(it.total, cards.size) } ?: 0
+    val ownedCount = activePack?.let { if (cards.isNotEmpty()) cards.count { c -> c.owned } else it.owned } ?: 0
     val ssrCards = cards.filter { it.tier.orEmpty().equals("SSR", ignoreCase = true) }
     val ssrOwned = ssrCards.count { it.owned }
 
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            if (detailCard != null) detailCard = null else onDismiss()
+        },
         properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
-        val navBottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(palette.bg),
-        ) {
-            Surface(color = palette.surface) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .height(ForHappyDimens.topBarHeight)
-                        .padding(horizontal = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
-                    }
-                    Text("52B 集卡图鉴", color = palette.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    Button(
-                        onClick = {
-                            onDismiss()
-                            onOpenWebRoute("/cards", "52B 抽卡")
-                        },
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                    ) {
-                        Text("去抽卡 →", fontSize = 12.sp)
-                    }
-                }
+        DialogBackOwnerScope {
+            BackHandler(enabled = detailCard != null) {
+                detailCard = null
             }
-            HorizontalDivider(
-                color = if (palette.isModernUi) palette.glassBorder else palette.line,
-                thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
-            )
-
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
-                    start = 14.dp,
-                    top = 14.dp,
-                    end = 14.dp,
-                    bottom = 14.dp + navBottomPad,
-                ),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+            val navBottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(palette.bg),
             ) {
-                item(key = "progress") {
-                    Surface(
-                        color = palette.surface,
-                        shape = RoundedCornerShape(16.dp),
+                Surface(color = palette.surface) {
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .then(
-                                if (palette.isModernUi && palette.cardBorder == Color.Transparent) {
-                                    Modifier
-                                } else {
-                                    Modifier.border(
-                                        1.dp,
-                                        if (palette.isModernUi) palette.cardBorder else palette.line,
-                                        RoundedCornerShape(16.dp),
-                                    )
-                                },
-                            ),
+                            .statusBarsPadding()
+                            .height(ForHappyDimens.topBarHeight)
+                            .padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("收集进度 $ownedCount / ${cards.size}", color = palette.text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                                if (ssrCards.isNotEmpty()) {
-                                    Text("SSR $ssrOwned/${ssrCards.size}", color = palette.gold, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                }
-                            }
-                            val frac = if (cards.isEmpty()) 0f else (ownedCount.toFloat() / cards.size.toFloat()).coerceIn(0f, 1f)
-                            LinearProgressIndicator(
-                                progress = { frac },
-                                modifier = Modifier.fillMaxWidth().height(7.dp).clip(RoundedCornerShape(999.dp)),
-                                color = palette.primary,
-                                trackColor = palette.surface2,
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
+                        }
+                        Text("52B 集卡图鉴", color = palette.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        Button(
+                            onClick = {
+                                onDismiss()
+                                onOpenWebRoute("/cards", "52B 抽卡")
+                            },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        ) {
+                            Text("去抽卡 →", fontSize = 12.sp)
+                        }
+                    }
+                }
+                HorizontalDivider(
+                    color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                    thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+                )
+
+                if (packs.size > 1) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        packs.forEachIndexed { idx, p ->
+                            FilterChip(
+                                selected = idx == safeIdx,
+                                onClick = { selectedPackIdx = idx },
+                                label = { Text("${p.name} (${p.owned}/${maxOf(p.total, p.cards.size)})", fontSize = 12.sp) },
                             )
                         }
                     }
                 }
 
-                if (loading) {
-                    item(key = "loading") {
-                        Box(modifier = Modifier.fillMaxWidth().padding(28.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = palette.primary)
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        start = 14.dp,
+                        top = 14.dp,
+                        end = 14.dp,
+                        bottom = 14.dp + navBottomPad,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    item(key = "progress") {
+                        Surface(
+                            color = palette.surface,
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(
+                                    if (palette.isModernUi && palette.cardBorder == Color.Transparent) {
+                                        Modifier
+                                    } else {
+                                        Modifier.border(
+                                            1.dp,
+                                            if (palette.isModernUi) palette.cardBorder else palette.line,
+                                            RoundedCornerShape(16.dp),
+                                        )
+                                    },
+                                ),
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text(
+                                        text = "${activePack?.name ?: "收集进度"} · $ownedCount / $totalCount",
+                                        color = palette.text,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                    if (ssrCards.isNotEmpty()) {
+                                        Text("SSR $ssrOwned/${ssrCards.size}", color = palette.gold, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                    }
+                                }
+                                val frac = if (totalCount <= 0) 0f else (ownedCount.toFloat() / totalCount.toFloat()).coerceIn(0f, 1f)
+                                LinearProgressIndicator(
+                                    progress = { frac },
+                                    modifier = Modifier.fillMaxWidth().height(7.dp).clip(RoundedCornerShape(999.dp)),
+                                    color = palette.primary,
+                                    trackColor = palette.surface2,
+                                )
+                            }
                         }
                     }
-                } else {
-                    items(cards.chunked(2)) { rowCards ->
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            rowCards.forEach { card ->
-                                Surface(
-                                    color = if (card.owned) palette.surface else palette.surface2.copy(alpha = 0.55f),
-                                    shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .border(
-                                            1.dp,
-                                            if (card.owned) palette.primary.copy(alpha = 0.35f) else palette.line,
-                                            RoundedCornerShape(14.dp),
-                                        ),
-                                ) {
-                                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                            Text(
-                                                text = if (card.owned) card.icon?.ifBlank { "🃏" } ?: "🃏" else "🔒",
-                                                fontSize = 20.sp,
+
+                    if (loading) {
+                        item(key = "loading") {
+                            Box(modifier = Modifier.fillMaxWidth().padding(28.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = palette.primary)
+                            }
+                        }
+                    } else if (cards.isEmpty()) {
+                        item(key = "empty") {
+                            Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                                Text("暂无卡包数据，点击右上角去抽卡试试", color = palette.muted, fontSize = 13.sp)
+                            }
+                        }
+                    } else {
+                        items(cards.chunked(2)) { rowCards ->
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                rowCards.forEach { card ->
+                                    val artUrl = card.asset?.takeIf { it.isNotBlank() }?.let { MediaUrlRewriter.rewriteMediaUrl(it) }
+                                    Surface(
+                                        color = if (card.owned) palette.surface else palette.surface2.copy(alpha = 0.55f),
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .border(
+                                                1.dp,
+                                                if (card.owned) palette.primary.copy(alpha = 0.35f) else palette.line,
+                                                RoundedCornerShape(14.dp),
                                             )
-                                            card.tier?.takeIf { it.isNotBlank() }?.let { tier ->
-                                                BadgePill(
-                                                    text = tier.uppercase(),
-                                                    containerColor = if (tier.equals("SSR", true)) palette.gold.copy(alpha = 0.2f) else palette.surface2,
-                                                    contentColor = if (tier.equals("SSR", true)) palette.gold else palette.muted,
-                                                )
+                                            .clickable { detailCard = card },
+                                    ) {
+                                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .aspectRatio(0.75f)
+                                                    .clip(RoundedCornerShape(10.dp))
+                                                    .background(palette.surface2),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                if (!artUrl.isNullOrBlank()) {
+                                                    AsyncImage(
+                                                        model = artUrl,
+                                                        imageLoader = api.imageLoader,
+                                                        contentDescription = card.name,
+                                                        contentScale = ContentScale.Crop,
+                                                        modifier = Modifier
+                                                            .fillMaxSize()
+                                                            .alpha(if (card.owned) 1f else 0.42f),
+                                                    )
+                                                } else {
+                                                    Text(
+                                                        text = if (card.owned) card.icon?.ifBlank { "🃏" } ?: "🃏" else "🔒",
+                                                        fontSize = 28.sp,
+                                                    )
+                                                }
+                                                if (!card.owned) {
+                                                    Surface(
+                                                        color = Color.Black.copy(alpha = 0.55f),
+                                                        shape = RoundedCornerShape(999.dp),
+                                                        modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp),
+                                                    ) {
+                                                        Text("待收集", color = Color.White, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp))
+                                                    }
+                                                } else if (card.count > 1) {
+                                                    Surface(
+                                                        color = palette.primary.copy(alpha = 0.88f),
+                                                        shape = RoundedCornerShape(999.dp),
+                                                        modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp),
+                                                    ) {
+                                                        Text("×${card.count}", color = palette.onPrimary, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                                    }
+                                                }
+                                                card.tier?.takeIf { it.isNotBlank() }?.let { tier ->
+                                                    Box(modifier = Modifier.align(Alignment.TopStart).padding(6.dp)) {
+                                                        BadgePill(
+                                                            text = tier.uppercase(),
+                                                            containerColor = if (tier.equals("SSR", true)) palette.gold.copy(alpha = 0.92f) else palette.surface.copy(alpha = 0.9f),
+                                                            contentColor = if (tier.equals("SSR", true)) Color(0xFF3A2400) else palette.text,
+                                                        )
+                                                    }
+                                                }
                                             }
-                                        }
-                                        Text(
-                                            text = if (card.owned) card.name else "未解锁 #${card.id}",
-                                            color = if (card.owned) palette.text else palette.muted,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                        card.desc?.takeIf { it.isNotBlank() && card.owned }?.let { desc ->
-                                            Text(desc, color = palette.muted, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                            Text(
+                                                text = card.name.ifBlank { "卡片 #${card.id}" },
+                                                color = if (card.owned) palette.text else palette.muted,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                            card.desc?.takeIf { it.isNotBlank() }?.let { desc ->
+                                                Text(desc, color = palette.muted, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                            }
                                         }
                                     }
                                 }
+                                if (rowCards.size == 1) Spacer(Modifier.weight(1f))
                             }
-                            if (rowCards.size == 1) Spacer(Modifier.weight(1f))
                         }
                     }
                 }
             }
         }
+    }
+
+    detailCard?.let { card ->
+        val artUrl = card.asset?.takeIf { it.isNotBlank() }?.let { MediaUrlRewriter.rewriteMediaUrl(it) }
+        AlertDialog(
+            onDismissRequest = { detailCard = null },
+            containerColor = palette.surface,
+            titleContentColor = palette.text,
+            textContentColor = palette.text,
+            title = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(card.name.ifBlank { "卡片详情" }, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    card.tier?.takeIf { it.isNotBlank() }?.let { tier ->
+                        BadgePill(
+                            text = tier.uppercase(),
+                            containerColor = if (tier.equals("SSR", true)) palette.gold.copy(alpha = 0.2f) else palette.surface2,
+                            contentColor = if (tier.equals("SSR", true)) palette.gold else palette.muted,
+                        )
+                    }
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!artUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            model = artUrl,
+                            imageLoader = api.imageLoader,
+                            contentDescription = card.name,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(220.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(palette.surface2),
+                        )
+                    }
+                    card.desc?.takeIf { it.isNotBlank() }?.let {
+                        Text(it, color = palette.text, fontSize = 13.sp)
+                    }
+                    Text(
+                        text = buildString {
+                            append("卡包：${card.packName.ifBlank { "52B 巡展" }}")
+                            append(" · ")
+                            append(if (card.owned) "已拥有 ${card.count} 张" else "尚未获得")
+                        },
+                        color = palette.muted,
+                        fontSize = 12.sp,
+                    )
+                    card.firstAt?.takeIf { it > 0L }?.let { ts ->
+                        val dateText = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(Date(ts * 1000L))
+                        Text("首次获得：$dateText", color = palette.muted, fontSize = 11.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { detailCard = null }) { Text("关闭") }
+            },
+        )
     }
 }
 
@@ -1071,6 +1224,7 @@ fun DecoStudioDialog(
         properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+        DialogBackOwnerScope {
         val navBottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         Column(
             modifier = Modifier
@@ -1712,6 +1866,7 @@ fun DecoStudioDialog(
             }
         }
     }
+    }
 }
 
 @Composable
@@ -1885,6 +2040,7 @@ fun InviteCodesDialog(
         properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+        DialogBackOwnerScope {
         val navBottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         Column(
             modifier = Modifier
@@ -2029,6 +2185,7 @@ fun InviteCodesDialog(
                     }
                 }
             }
+        }
         }
     }
 }

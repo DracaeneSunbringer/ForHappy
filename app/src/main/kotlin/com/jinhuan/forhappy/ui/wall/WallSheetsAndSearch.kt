@@ -1,5 +1,6 @@
 package com.jinhuan.forhappy.ui.wall
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -864,6 +865,8 @@ fun WallSearchScreen(
         properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+        DialogBackOwnerScope {
+            BackHandler(onBack = onDismiss)
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -1233,6 +1236,7 @@ fun WallSearchScreen(
                 }
             }
         }
+        }
     }
 
     if (showSeriesDialog) {
@@ -1289,6 +1293,8 @@ fun SeriesIndexDialog(
         properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+        DialogBackOwnerScope {
+            BackHandler(onBack = onDismiss)
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -1387,6 +1393,7 @@ fun SeriesIndexDialog(
                     }
                 }
             }
+        }
         }
     }
 }

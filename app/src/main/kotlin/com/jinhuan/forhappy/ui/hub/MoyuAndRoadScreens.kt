@@ -1,5 +1,6 @@
 package com.jinhuan.forhappy.ui.hub
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -98,6 +99,7 @@ import com.jinhuan.forhappy.core.moyu.MoyuCalculator
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
+import com.jinhuan.forhappy.ui.wall.DialogBackOwnerScope
 import com.jinhuan.forhappy.ui.wall.FullscreenDialogProperties
 import com.jinhuan.forhappy.ui.wall.saveImageBytesToSystemGallery
 import kotlinx.coroutines.Dispatchers
@@ -218,6 +220,8 @@ fun MoyuCalendarDialog(
         properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+        DialogBackOwnerScope {
+            BackHandler(onBack = onDismiss)
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -653,6 +657,7 @@ fun MoyuCalendarDialog(
                 Spacer(Modifier.navigationBarsPadding())
             }
         }
+        }
     }
 
     if (showGroupPicker) {
@@ -814,6 +819,8 @@ fun NativeRoadDialog(
         properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+        DialogBackOwnerScope {
+            BackHandler(onBack = onDismiss)
         val navBottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         Column(
             modifier = Modifier
@@ -1109,6 +1116,7 @@ fun NativeRoadDialog(
                 }
             }
         }
+        }
     }
 
     if (showCreateDialog) {
@@ -1227,6 +1235,8 @@ private fun RoadCommentsDialog(
         properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+        DialogBackOwnerScope {
+            BackHandler(onBack = onDismiss)
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -1349,6 +1359,7 @@ private fun RoadCommentsDialog(
                     }
                 }
             }
+        }
         }
     }
 }

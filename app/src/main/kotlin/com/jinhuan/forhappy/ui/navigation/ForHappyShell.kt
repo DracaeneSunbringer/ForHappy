@@ -1,6 +1,8 @@
 package com.jinhuan.forhappy.ui.navigation
 
+import android.app.Activity
 import android.content.Intent
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -135,6 +137,7 @@ import com.jinhuan.forhappy.ui.theme.ForHappyPalette
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.theme.TABULAR_FONT_FEATURE
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
+import com.jinhuan.forhappy.ui.wall.DialogBackOwnerScope
 import com.jinhuan.forhappy.ui.wall.FullscreenDialogProperties
 import com.jinhuan.forhappy.ui.wall.FullscreenMediaOverlay
 import com.jinhuan.forhappy.ui.wall.MemeDetailModal
@@ -643,9 +646,10 @@ fun ForHappyShell(
 
     CompositionLocalProvider(LocalCosmeticHttpClient provides api.okHttpClient) {
     Box(modifier = Modifier.fillMaxSize()) {
-        DoubleBackBossHandler(
+        BackHandler(
             enabled = !bossKeyActive &&
-                privacyConfig.bossDoubleBack &&
+                effectiveDisguise == AppDisguiseMode.NONE &&
+                activeTab != "wall" &&
                 !showNotifsSheet &&
                 shellDetailMemeId == null &&
                 shellFullscreenImgUrl == null &&
@@ -655,7 +659,30 @@ fun ForHappyShell(
                 !showDiscoverQuickRing &&
                 activeComposeRequest == null &&
                 activeSharePayload == null,
-            onTriggerBoss = { onSetBossKeyActive(true) },
+        ) {
+            activeTab = "wall"
+        }
+
+        DoubleBackBossHandler(
+            enabled = !bossKeyActive &&
+                (effectiveDisguise != AppDisguiseMode.NONE || activeTab == "wall") &&
+                !WindowInsets.isImeVisible &&
+                !showNotifsSheet &&
+                shellDetailMemeId == null &&
+                shellFullscreenImgUrl == null &&
+                !showLoginModal &&
+                webLinkModalUrl == null &&
+                !showPrivacySettingsSheet &&
+                !showDiscoverQuickRing &&
+                activeComposeRequest == null &&
+                activeSharePayload == null,
+            onTriggerBoss = {
+                if (privacyConfig.bossDoubleBack) onSetBossKeyActive(true)
+                else (context as? Activity)?.moveTaskToBack(true)
+            },
+            onSingleBackTimeout = {
+                (context as? Activity)?.moveTaskToBack(true)
+            },
         )
 
         when (effectiveDisguise) {
@@ -713,10 +740,12 @@ fun ForHappyShell(
 
             AppDisguiseMode.NONE -> {
             var wallScrollDockHidden by remember { mutableStateOf(false) }
+            var chatDockHidden by remember { mutableStateOf(false) }
 
             LaunchedEffect(activeTab) {
                 if (activeTab != "messages") {
                     chatController.isChatForegroundAtBottom = false
+                    chatDockHidden = false
                 }
                 if (activeTab != "wall") {
                     wallScrollDockHidden = false
@@ -828,6 +857,7 @@ fun ForHappyShell(
                         controller = chatController,
                         me = me,
                         hasFloatingDock = palette.isModernUi,
+                        onDockHideChanged = { hidden -> chatDockHidden = hidden },
                         initialJump = pendingChatJump,
                         onConsumeInitialJump = { pendingChatJump = null },
                         onNavigateToMeme = { id ->
@@ -979,7 +1009,7 @@ fun ForHappyShell(
             }
 
             if (palette.isModernUi) {
-                val showDock = !isImeVisible && !wallScrollDockHidden
+                val showDock = !isImeVisible && !wallScrollDockHidden && !(activeTab == "messages" && chatDockHidden)
                 val netFail = !netStatus.running && !netStatus.lastError.isNullOrBlank()
                 Box(
                     modifier = Modifier
@@ -1072,8 +1102,8 @@ fun ForHappyShell(
                             shadowElevation = if (palette.isDark) 16.dp else 10.dp,
                             modifier = Modifier
                                 .navigationBarsPadding()
-                                .padding(horizontal = 24.dp, vertical = 10.dp)
-                                .widthIn(max = 360.dp)
+                                .padding(horizontal = 16.dp, vertical = 10.dp)
+                                .widthIn(max = 400.dp)
                                 .fillMaxWidth()
                                 .height(58.dp)
                                 .border(1.dp, palette.glassBorder, CircleShape),
@@ -1534,14 +1564,16 @@ fun ForHappyShell(
             properties = FullscreenDialogProperties,
         ) {
             ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
-            LoginWebSheet(
-                api = api,
-                onAuthenticated = {
-                    showLoginModal = false
-                    bootstrapSession()
-                },
-                onDismiss = { showLoginModal = false },
-            )
+            DialogBackOwnerScope {
+                LoginWebSheet(
+                    api = api,
+                    onAuthenticated = {
+                        showLoginModal = false
+                        bootstrapSession()
+                    },
+                    onDismiss = { showLoginModal = false },
+                )
+            }
         }
     }
 
@@ -1600,26 +1632,28 @@ fun ForHappyShell(
             properties = FullscreenDialogProperties,
         ) {
             ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
-            Box(modifier = Modifier.fillMaxSize().background(palette.bg)) {
-                ShelllessWebScreen(
-                    route = url,
-                    title = url.removePrefix("https://").removePrefix("http://"),
-                    cookieJar = api.cookieJar,
-                    assetCache = api.webAssetCache,
-                    showCompactBar = false,
-                    floatingCapsule = true,
-                    pausedOverlay = currentBossActive,
-                    onExit = { webLinkModalUrl = null },
-                    api = api,
-                    chatController = chatController,
-                    me = me,
-                    onRequireLogin = { showLoginModal = true },
-                    onJumpToGroupChat = { gid ->
-                        webLinkModalUrl = null
-                        chatOpenRequest = ChatOpenSessionRequest(mode = "group", groupId = gid)
-                        activeTab = "messages"
-                    },
-                )
+            DialogBackOwnerScope {
+                Box(modifier = Modifier.fillMaxSize().background(palette.bg)) {
+                    ShelllessWebScreen(
+                        route = url,
+                        title = url.removePrefix("https://").removePrefix("http://"),
+                        cookieJar = api.cookieJar,
+                        assetCache = api.webAssetCache,
+                        showCompactBar = false,
+                        floatingCapsule = true,
+                        pausedOverlay = currentBossActive,
+                        onExit = { webLinkModalUrl = null },
+                        api = api,
+                        chatController = chatController,
+                        me = me,
+                        onRequireLogin = { showLoginModal = true },
+                        onJumpToGroupChat = { gid ->
+                            webLinkModalUrl = null
+                            chatOpenRequest = ChatOpenSessionRequest(mode = "group", groupId = gid)
+                            activeTab = "messages"
+                        },
+                    )
+                }
             }
         }
     }

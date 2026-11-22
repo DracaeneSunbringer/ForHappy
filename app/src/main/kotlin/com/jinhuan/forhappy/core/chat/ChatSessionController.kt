@@ -824,9 +824,9 @@ class ChatSessionController(
         }
     }
 
-    suspend fun sendOrEditMessage(rawBody: String) {
+    suspend fun sendOrEditMessage(rawBody: String): ChatMessage? {
         val body = rawBody.trim()
-        if (body.isEmpty()) return
+        if (body.isEmpty()) return null
         val editing = _uiState.value.editTarget
         if (editing != null) {
             val ok = editMessageFn(editing.id, body)
@@ -836,7 +836,7 @@ class ChatSessionController(
             } else {
                 _uiState.value = _uiState.value.copy(lastError = "编辑失败")
             }
-            return
+            return null
         }
 
         val gid = _uiState.value.activeGroupId
@@ -874,7 +874,7 @@ class ChatSessionController(
                 )
             }
         }
-        sendInternal(gid, optimistic, retry = false)
+        return sendInternal(gid, optimistic, retry = false)
     }
 
     suspend fun retryFailedMessage(localId: String) {
@@ -892,10 +892,12 @@ class ChatSessionController(
         sendInternal(gid, target, retry = true)
     }
 
-    private suspend fun sendInternal(gid: Long, inflight: ChatMessage, retry: Boolean) {
+    private suspend fun sendInternal(gid: Long, inflight: ChatMessage, retry: Boolean): ChatMessage? {
         val result = sendMessageFn(gid, inflight.body, inflight.replyTo?.id, retry)
+        var confirmedMessage: ChatMessage? = null
         result.fold(
             onSuccess = { confirmed ->
+                confirmedMessage = confirmed
                 if (confirmed != null) {
                     stateMutex.withLock {
                         val base = messagesByGroup[gid]
@@ -937,6 +939,7 @@ class ChatSessionController(
                 }
             },
         )
+        return confirmedMessage
     }
 
     suspend fun applyUpdatedServerMessage(updated: ChatMessage) {

@@ -1,5 +1,6 @@
 package com.jinhuan.forhappy.ui.wall
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -341,10 +342,24 @@ fun MemeDetailModal(
     }
 
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            if (commentEditing || showCommentStickers) {
+                commentEditing = false
+                showCommentStickers = false
+                showMentionSuggestions = false
+            } else {
+                onDismiss()
+            }
+        },
         properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = topBarSolid && !palette.isDark)
+        DialogBackOwnerScope {
+            BackHandler(enabled = commentEditing || showCommentStickers) {
+                commentEditing = false
+                showCommentStickers = false
+                showMentionSuggestions = false
+            }
         AnimatedVisibility(
             visible = entered,
             enter = fadeIn(tween(280)) + scaleIn(initialScale = 0.94f, animationSpec = tween(280)),
@@ -1154,6 +1169,7 @@ fun MemeDetailModal(
                     }
                 }
             }
+        }
         }
     }
 
@@ -2256,7 +2272,9 @@ fun ComposeMemeModal(
     }
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
+        DialogBackOwnerScope {
+            BackHandler(onBack = onDismiss)
+            Surface(
             color = palette.bg,
             shape = RoundedCornerShape(22.dp),
             modifier = Modifier
@@ -2375,6 +2393,7 @@ fun ComposeMemeModal(
                     Text(if (submitting) "正在上传并发布…" else "发布到图廊")
                 }
             }
+        }
         }
     }
 }

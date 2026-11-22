@@ -8,6 +8,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -45,8 +46,11 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -135,11 +139,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
@@ -149,6 +158,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -220,8 +230,15 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -269,6 +286,7 @@ fun ChatScreen(
     onNavigateToAuthor: (String) -> Unit = {},
     onOpenDiscoverRoute: ((String) -> Unit)? = null,
     hasFloatingDock: Boolean = false,
+    onDockHideChanged: (Boolean) -> Unit = {},
 ) {
     val palette = LocalForHappyPalette.current
     val stealth = LocalPrivacyStealthConfig.current
@@ -350,6 +368,12 @@ fun ChatScreen(
     var showRedpackArchiveSheet by remember { mutableStateOf(false) }
     var showGuessSheet by remember { mutableStateOf(false) }
     var guessInitialMid by remember { mutableStateOf<Long?>(null) }
+    var sessionClaimedOrEndedPacketIds by remember(state.activeGroupId, me?.id) { mutableStateOf<Set<Long>>(emptySet()) }
+    var serverHasAvailableRedpack by remember(state.activeGroupId) { mutableStateOf(false) }
+    var seenRedpackMatchTriggerIds by remember(state.activeGroupId, me?.id) { mutableStateOf<Set<Long>>(emptySet()) }
+    var autoOlderAttemptedId by remember(state.activeGroupId) { mutableLongStateOf(0L) }
+    var historyLoadingOlder by remember { mutableStateOf(false) }
+    var historyLoadingNewer by remember { mutableStateOf(false) }
 
     // History `around` jump mode state
     var historyMsgs by remember { mutableStateOf<List<ChatMessage>?>(null) }
@@ -389,22 +413,24 @@ fun ChatScreen(
         }
     }
 
-    // System Back inside Level-1 Group/DM returns to Level-0 Unified Session List
+    // System Back closes composer edit/trays/jump mode, then returns Level-1 Group/DM to Level-0 Session List
     BackHandler(
-        enabled = !isDirectEmbedded && (
+        enabled = state.editTarget != null ||
+            dmEditTarget != null ||
             showStickerTray ||
-                showAttachmentTray ||
-                historyMsgs != null ||
-                (activePane != "list" && !bypassSessionList)
-            ),
+            showAttachmentTray ||
+            historyMsgs != null ||
+            (!isDirectEmbedded && activePane != "list" && !bypassSessionList),
     ) {
-        if (showStickerTray || showAttachmentTray) {
-            showStickerTray = false
-            showAttachmentTray = false
-        } else if (historyMsgs != null) {
-            historyMsgs = null
-        } else if (!bypassSessionList) {
-            activePane = "list"
+        when {
+            state.editTarget != null -> controller.setEditTarget(null)
+            dmEditTarget != null -> dmEditTarget = null
+            showStickerTray || showAttachmentTray -> {
+                showStickerTray = false
+                showAttachmentTray = false
+            }
+            historyMsgs != null -> historyMsgs = null
+            !isDirectEmbedded && !bypassSessionList -> activePane = "list"
         }
     }
 
@@ -575,6 +601,7 @@ fun ChatScreen(
         controller.startPolling()
         onDispose {
             controller.isChatForegroundAtBottom = false
+            onDockHideChanged(false)
             controller.stopPolling()
         }
     }
@@ -838,6 +865,58 @@ fun ChatScreen(
         onConsumeOpenSessionRequest()
     }
 
+    suspend fun claimSinglePacketMsg(
+        pktMsg: ChatMessage,
+        phraseAnswer: String?,
+    ): Pair<Boolean, String?> {
+        val rp = pktMsg.redpack
+        val coin52 = runCatching { rp?.get("coin52")?.jsonObject }.getOrNull()
+        val ldc = runCatching { rp?.get("ldc")?.jsonObject }.getOrNull()
+        val mode = rp?.get("mode")?.jsonPrimitive?.contentOrNull ?: "open"
+        val res = when {
+            coin52 != null -> api.claimCoin52Redpack(pktMsg.id, phraseAnswer)
+            ldc != null && mode == "open" -> api.postLdcRedpackAction(pktMsg.id, "claim", phraseAnswer)
+            else -> api.openRedpack(pktMsg.id, phraseAnswer)
+        }
+        val err = res["error"]?.jsonPrimitive?.contentOrNull
+        if (!err.isNullOrBlank()) {
+            if (err.contains("领完") || err.contains("抢光") || err.contains("过期") || err.contains("已经") || err.contains("自己")) {
+                sessionClaimedOrEndedPacketIds = sessionClaimedOrEndedPacketIds + pktMsg.id
+            }
+            return false to err
+        }
+        var finalMsg = res["msg"]?.jsonPrimitive?.contentOrNull
+        val openedReward = runCatching { res["packet"]?.jsonObject?.get("reward")?.jsonObject }.getOrNull()
+        if (openedReward != null &&
+            openedReward["owner"]?.jsonPrimitive?.booleanOrNull != true &&
+            (openedReward["mine"] == null || openedReward["mine"] is JsonNull) &&
+            openedReward["state"]?.jsonPrimitive?.contentOrNull == "open" &&
+            (openedReward["claimed_count"]?.jsonPrimitive?.intOrNull ?: 0) < (openedReward["count"]?.jsonPrimitive?.intOrNull ?: 1)
+        ) {
+            val rRes = api.postLdcRedpackAction(pktMsg.id, "claim")
+            val rAmt = runCatching { rRes["ldc"]?.jsonObject?.get("mine")?.jsonObject?.get("amount")?.jsonPrimitive?.contentOrNull }.getOrNull()
+            if (!rAmt.isNullOrBlank()) finalMsg = "奖励 $rAmt"
+        }
+        sessionClaimedOrEndedPacketIds = sessionClaimedOrEndedPacketIds + pktMsg.id
+        return true to finalMsg
+    }
+
+    suspend fun autoMatchSentMessageRedpacks(confirmed: ChatMessage?) {
+        if (confirmed == null || confirmed.id <= 0L || confirmed.id in seenRedpackMatchTriggerIds) return
+        seenRedpackMatchTriggerIds = seenRedpackMatchTriggerIds + confirmed.id
+        val matches = api.fetchRedpackMatches(state.activeGroupId, confirmed.id)
+        if (matches.isEmpty()) return
+        var opened = 0
+        for (pkt in matches) {
+            val (ok, _) = claimSinglePacketMsg(pkt, confirmed.body.trim())
+            if (ok) opened++
+        }
+        if (opened > 0) {
+            chatStatusBanner = "口令匹配自动拆开 $opened 个红包！"
+        }
+        controller.pollOnce(state.activeGroupId)
+    }
+
     fun submitActiveDraft() {
         if (me == null) {
             onRequireLogin()
@@ -890,7 +969,8 @@ fun ChatScreen(
             showStickerTray = false
             showAttachmentTray = false
             scope.launch {
-                controller.sendOrEditMessage(txt)
+                val confirmed = controller.sendOrEditMessage(txt)
+                autoMatchSentMessageRedpacks(confirmed)
             }
         } else if (activePane == "dm") {
             val editing = dmEditTarget
@@ -934,6 +1014,34 @@ fun ChatScreen(
         }
     }
 
+    val shouldHideShellDock = remember(
+        isDirectEmbedded,
+        activePane,
+        bypassSessionList,
+        isNearBottom,
+        historyMsgs,
+        showStickerTray,
+        showAttachmentTray,
+    ) {
+        if (isDirectEmbedded) {
+            false
+        } else {
+            when (activePane) {
+                "list" -> false
+                "dm" -> true
+                "group" -> if (!bypassSessionList) {
+                    true
+                } else {
+                    !isNearBottom || historyMsgs != null || showStickerTray || showAttachmentTray
+                }
+                else -> false
+            }
+        }
+    }
+    LaunchedEffect(shouldHideShellDock) {
+        onDockHideChanged(shouldHideShellDock)
+    }
+
     // Level-0 Unified `消息` Session List
     if (activePane == "list" && !isDirectEmbedded) {
         MessagesListView(
@@ -975,150 +1083,367 @@ fun ChatScreen(
 
     val activeGroup = state.groups.firstOrNull { it.id == state.activeGroupId }
     val activeRedpackMsg = remember(state.messages) { state.messages.lastOrNull { it.redpack != null && !it.deleted } }
+    val endedRedpackRefIds = remember(state.messages) {
+        state.messages.asSequence()
+            .filter {
+                it.systemKind in setOf(
+                    "redpack_result",
+                    "redpack_draw",
+                    "redpack_due",
+                    "ldc_winner",
+                    "ldc_cancel",
+                    "ldc_expired",
+                )
+            }
+            .mapNotNull { it.systemRef?.takeIf { ref -> ref.isNotBlank() } }
+            .toHashSet()
+    }
+    val unclaimedRedpackMsgs = remember(state.messages, sessionClaimedOrEndedPacketIds, endedRedpackRefIds) {
+        state.messages.filter { msg ->
+            if (msg.deleted || msg.id <= 0L || msg.redpack == null) return@filter false
+            if (msg.id in sessionClaimedOrEndedPacketIds) return@filter false
+            if (msg.id.toString() in endedRedpackRefIds) return@filter false
+            val meta = msg.parseRedpackMeta() ?: return@filter false
+            !meta.isGuessGame &&
+                !meta.solved &&
+                !meta.snapshotClaimed &&
+                meta.snapshotState !in setOf("ended", "settled", "exhausted", "expired", "cancelled", "drawn")
+        }
+    }
+    LaunchedEffect(state.activeGroupId, activePane, state.messages.size, me?.id) {
+        serverHasAvailableRedpack = if (activePane == "group" && me != null && state.activeGroupId > 0L) {
+            api.fetchRedpacksAvailable(state.activeGroupId)
+        } else {
+            false
+        }
+    }
+    val hasLiveRedpack = unclaimedRedpackMsgs.isNotEmpty() || serverHasAvailableRedpack
+
+    suspend fun claimPhraseBatch(phrase: String, primaryMsgId: Long): PhraseBatchClaimResult {
+        val clean = phrase.trim()
+        if (clean.isEmpty()) return PhraseBatchClaimResult(error = "口令不能为空")
+        val nowSec = ServerClock.serverNowSec()
+        val recentOwnMatch = state.messages.lastOrNull { m ->
+            m.mine && !m.deleted && m.id > 0L && m.body.trim() == clean && (nowSec - m.createdAt) <= 120L
+        }
+        val sentMsg = recentOwnMatch ?: controller.sendOrEditMessage(clean)
+        val extraMatches = if (sentMsg != null && sentMsg.id > 0L) {
+            seenRedpackMatchTriggerIds = seenRedpackMatchTriggerIds + sentMsg.id
+            api.fetchRedpackMatches(state.activeGroupId, sentMsg.id)
+        } else {
+            emptyList()
+        }
+        val localSamePhrase = unclaimedRedpackMsgs.filter { m ->
+            val rp = m.redpack ?: return@filter false
+            val mMode = rp["mode"]?.jsonPrimitive?.contentOrNull
+            val mPhrase = rp["phrase"]?.jsonPrimitive?.contentOrNull?.trim()
+            mMode == "phrase" && mPhrase == clean
+        }
+        val richById = (extraMatches + localSamePhrase + listOfNotNull(state.messages.firstOrNull { it.id == primaryMsgId }))
+            .associateBy { it.id }
+        val resolvedPrimary = richById[primaryMsgId] ?: ChatMessage(id = primaryMsgId, groupId = state.activeGroupId)
+        val targets = (listOf(resolvedPrimary) + extraMatches + localSamePhrase).distinctBy { it.id }
+
+        var openedCount = 0
+        val rewards = mutableListOf<String>()
+        var firstErr: String? = null
+        for (pkt in targets) {
+            val (ok, msgOrErr) = claimSinglePacketMsg(pkt, clean)
+            if (ok) {
+                openedCount++
+                msgOrErr?.takeIf { it.isNotBlank() }?.let { rewards += it }
+            } else if (firstErr == null) {
+                firstErr = msgOrErr
+            }
+        }
+        controller.pollOnce(state.activeGroupId)
+        return PhraseBatchClaimResult(
+            openedCount = openedCount,
+            totalTargetCount = targets.size,
+            rewardText = rewards.distinct().joinToString(" · ").ifBlank { null },
+            error = firstErr,
+        )
+    }
+    val hasLiveGuess = activeRound != null
     val canSwipeSwitchGroups = disguiseMode == AppDisguiseMode.NONE &&
         activePane == "group" &&
         state.swipeSwitchGroups &&
         joinedGroups.size >= 2 &&
         historyMsgs == null
+    val activeHistory = historyMsgs
+    val isModernCleanMode = palette.isModernUi && disguiseMode == AppDisguiseMode.NONE
+    val effectiveDockVisible = hasFloatingDock && !shouldHideShellDock && !isImeVisible
+    val targetModernBottomPad = when {
+        isImeVisible -> 8.dp
+        effectiveDockVisible -> navBottomPad + 76.dp
+        isDirectEmbedded -> navBottomPad + 8.dp
+        else -> navBottomPad + 10.dp
+    }
+    val modernBottomComposerPad by animateDpAsState(
+        targetValue = targetModernBottomPad,
+        animationSpec = tween(durationMillis = 220),
+        label = "modernBottomComposerPad",
+    )
+    var expandedSystemGroupIds by remember(state.activeGroupId) { mutableStateOf<Set<Long>>(emptySet()) }
+    val listTopPad = if (isModernCleanMode) 8.dp else 6.dp
+    val listBottomPad = if (isModernCleanMode) 10.dp else 6.dp
 
-    Column(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(palette.bg),
     ) {
-        // Level-1 Compact 48dp / Modern 52dp Chat / DM Top Bar (hidden when inside FeishuDisguiseScreen)
-        if (!hideChannelHeader) {
-            Surface(color = if (palette.isModernUi) palette.glassSurface else palette.surface) {
-                Column(
-                    modifier = if (palette.isModernUi && !isDirectEmbedded) Modifier.statusBarsPadding() else Modifier,
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(if (palette.isModernUi) 52.dp else ForHappyDimens.topBarHeight)
-                            .padding(horizontal = if (palette.isModernUi) 10.dp else 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(if (palette.isModernUi) 4.dp else 2.dp),
-                    ) {
-                        if (!bypassSessionList) {
-                            IconButton(
-                                onClick = { activePane = "list" },
-                                modifier = Modifier.size(36.dp),
-                            ) {
-                                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回消息列表", tint = palette.text)
-                            }
-                        } else {
-                            Spacer(Modifier.width(8.dp))
-                        }
+        val maxGuessHeightDp = (maxHeight * 0.50f).coerceAtLeast(160.dp)
 
-                        if (activePane == "group") {
-                            val showTopGroupPills = disguiseMode == AppDisguiseMode.NONE &&
-                                joinedGroups.size >= 2 &&
-                                (state.swipeSwitchGroups || bypassSessionList)
-                            if (showTopGroupPills) {
-                                Row(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .horizontalScroll(rememberScrollState())
-                                        .padding(end = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                ) {
-                                    joinedGroups.forEach { grp ->
-                                        val selected = grp.id == state.activeGroupId
-                                        val badgeCnt = (if (grp.muted) grp.atMe else grp.unread).coerceAtLeast(0)
-                                        val pillBg = when {
-                                            palette.isModernUi && selected -> palette.primary
-                                            selected -> palette.primaryContainer
-                                            else -> palette.surface2
-                                        }
-                                        val pillFg = when {
-                                            palette.isModernUi && selected -> palette.onPrimary
-                                            selected -> palette.primary
-                                            else -> palette.text
-                                        }
-                                        Surface(
-                                            color = pillBg,
-                                            shape = RoundedCornerShape(999.dp),
-                                            modifier = Modifier
-                                                .then(
-                                                    if (palette.isModernUi) {
-                                                        Modifier
-                                                    } else {
-                                                        Modifier.border(
-                                                            1.dp,
-                                                            if (selected) palette.primary else palette.line,
-                                                            RoundedCornerShape(999.dp),
-                                                        )
-                                                    },
-                                                )
-                                                .clip(RoundedCornerShape(999.dp))
-                                                .clickable {
-                                                    if (selected) {
-                                                        showGroupInfoDialog = true
-                                                    } else {
-                                                        historyMsgs = null
-                                                        controller.setActiveGroup(grp.id)
-                                                    }
-                                                },
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                            ) {
-                                                Text(
-                                                    text = grp.name,
-                                                    color = pillFg,
-                                                    fontSize = 12.sp,
-                                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                )
-                                                if (selected && grp.memberCount > 0) {
-                                                    Text(
-                                                        text = "(${grp.memberCount})",
-                                                        color = pillFg.copy(alpha = 0.78f),
-                                                        fontSize = 10.sp,
-                                                        maxLines = 1,
+        @Composable
+        fun RenderTopBarAndBanners() {
+            // Level-1 Compact 48dp / Modern 52dp Chat / DM Top Bar (hidden when inside FeishuDisguiseScreen)
+            if (!hideChannelHeader) {
+                Surface(color = if (palette.isModernUi) palette.bg else palette.surface) {
+                    Column(
+                        modifier = if (palette.isModernUi && !isDirectEmbedded) Modifier.statusBarsPadding() else Modifier,
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(if (palette.isModernUi) 52.dp else ForHappyDimens.topBarHeight)
+                                .padding(horizontal = if (palette.isModernUi) 12.dp else 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(if (palette.isModernUi) 6.dp else 2.dp),
+                        ) {
+                            if (!bypassSessionList) {
+                                if (palette.isModernUi && disguiseMode == AppDisguiseMode.NONE) {
+                                    ModernChatHeaderIconButton(
+                                        icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                                        contentDescription = "返回消息列表",
+                                        onClick = { activePane = "list" },
+                                    )
+                                } else {
+                                    IconButton(
+                                        onClick = { activePane = "list" },
+                                        modifier = Modifier.size(36.dp),
+                                    ) {
+                                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回消息列表", tint = palette.text)
+                                    }
+                                }
+                            } else {
+                                Spacer(Modifier.width(if (palette.isModernUi) 4.dp else 8.dp))
+                            }
+
+                            if (activePane == "group") {
+                                val showTopGroupPills = disguiseMode == AppDisguiseMode.NONE &&
+                                    joinedGroups.size >= 2 &&
+                                    (state.swipeSwitchGroups || bypassSessionList)
+                                if (showTopGroupPills) {
+                                    Row(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .horizontalScroll(rememberScrollState())
+                                            .padding(end = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        joinedGroups.forEach { grp ->
+                                            val selected = grp.id == state.activeGroupId
+                                            val badgeCnt = (if (grp.muted) grp.atMe else grp.unread).coerceAtLeast(0)
+                                            val pillBg = when {
+                                                palette.isModernUi && selected -> palette.primary
+                                                selected -> palette.primaryContainer
+                                                else -> palette.surface2
+                                            }
+                                            val pillFg = when {
+                                                palette.isModernUi && selected -> palette.onPrimary
+                                                selected -> palette.primary
+                                                else -> palette.text
+                                            }
+                                            Surface(
+                                                color = pillBg,
+                                                shape = RoundedCornerShape(999.dp),
+                                                modifier = Modifier
+                                                    .then(
+                                                        if (palette.isModernUi) {
+                                                            Modifier
+                                                        } else {
+                                                            Modifier.border(
+                                                                1.dp,
+                                                                if (selected) palette.primary else palette.line,
+                                                                RoundedCornerShape(999.dp),
+                                                            )
+                                                        },
                                                     )
-                                                }
-                                                if (!selected && badgeCnt > 0) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .clip(RoundedCornerShape(999.dp))
-                                                            .background(if (grp.atMe > 0) palette.danger else palette.badge)
-                                                            .padding(horizontal = 5.dp, vertical = 1.dp),
-                                                    ) {
+                                                    .clip(RoundedCornerShape(999.dp))
+                                                    .clickable {
+                                                        if (selected) {
+                                                            showGroupInfoDialog = true
+                                                        } else {
+                                                            historyMsgs = null
+                                                            controller.setActiveGroup(grp.id)
+                                                        }
+                                                    },
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                ) {
+                                                    Text(
+                                                        text = grp.name,
+                                                        color = pillFg,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                    )
+                                                    if (selected && grp.memberCount > 0) {
                                                         Text(
-                                                            text = when {
-                                                                grp.atMe > 0 -> "@$badgeCnt"
-                                                                badgeCnt > 99 -> "99+"
-                                                                else -> badgeCnt.toString()
-                                                            },
-                                                            color = Color.White,
-                                                            fontSize = 9.sp,
-                                                            fontWeight = FontWeight.Bold,
+                                                            text = "(${grp.memberCount})",
+                                                            color = pillFg.copy(alpha = 0.78f),
+                                                            fontSize = 10.sp,
+                                                            maxLines = 1,
                                                         )
+                                                    }
+                                                    if (!selected && badgeCnt > 0) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .clip(RoundedCornerShape(999.dp))
+                                                                .background(if (grp.atMe > 0) palette.danger else palette.badge)
+                                                                .padding(horizontal = 5.dp, vertical = 1.dp),
+                                                        ) {
+                                                            Text(
+                                                                text = when {
+                                                                    grp.atMe > 0 -> "@$badgeCnt"
+                                                                    badgeCnt > 99 -> "99+"
+                                                                    else -> badgeCnt.toString()
+                                                                },
+                                                                color = Color.White,
+                                                                fontSize = 9.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                            )
+                                                        }
                                                     }
                                                 }
                                             }
                                         }
                                     }
+                                } else {
+                                    Column(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { if (activeGroup != null) showGroupInfoDialog = true }
+                                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                                    ) {
+                                        Text(
+                                            text = buildString {
+                                                append(activeGroup?.name ?: "群聊")
+                                                if ((activeGroup?.memberCount ?: 0) > 0) append(" (${activeGroup!!.memberCount})")
+                                            },
+                                            color = palette.text,
+                                            fontSize = if (palette.isModernUi) 17.sp else 15.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                }
+                                if (palette.isModernUi && disguiseMode == AppDisguiseMode.NONE) {
+                                    ModernChatHeaderIconButton(
+                                        icon = Icons.Rounded.Search,
+                                        contentDescription = "搜索记录",
+                                        onClick = { showSearchDialog = true },
+                                    )
+                                    ModernChatHeaderIconButton(
+                                        icon = Icons.Rounded.CardGiftcard,
+                                        contentDescription = "红包",
+                                        tint = if (hasLiveRedpack) palette.redpacket else palette.text.copy(alpha = 0.86f),
+                                        containerColor = if (hasLiveRedpack) palette.redpacket.copy(alpha = 0.14f) else palette.surface2.copy(alpha = 0.78f),
+                                        showDot = hasLiveRedpack,
+                                        dotColor = palette.redpacket,
+                                        onClick = {
+                                            val targetRp = unclaimedRedpackMsgs.firstOrNull()
+                                            if (targetRp != null) {
+                                                redpackFallbackMeta = targetRp.parseRedpackMeta()
+                                                redpackSenderName = targetRp.displayAuthor
+                                                redpackDialogMsgId = targetRp.id
+                                            } else {
+                                                showRedpackArchiveSheet = true
+                                            }
+                                        },
+                                    )
+                                    ModernChatHeaderIconButton(
+                                        icon = Icons.Rounded.AutoAwesome,
+                                        contentDescription = "欢欢猜词屋",
+                                        tint = if (hasLiveGuess) palette.gold else palette.text.copy(alpha = 0.86f),
+                                        containerColor = if (hasLiveGuess) palette.gold.copy(alpha = 0.16f) else palette.surface2.copy(alpha = 0.78f),
+                                        showDot = hasLiveGuess,
+                                        dotColor = palette.gold,
+                                        onClick = {
+                                            guessInitialMid = activeRound?.messageId
+                                                ?: activeRedpackMsg?.takeIf { it.parseRedpackMeta()?.isGuessGame == true }?.id
+                                            showGuessSheet = true
+                                        },
+                                    )
+                                    ModernChatHeaderIconButton(
+                                        icon = Icons.Rounded.People,
+                                        contentDescription = "群信息与成员",
+                                        onClick = { if (activeGroup != null) showGroupInfoDialog = true },
+                                    )
+                                } else {
+                                    IconButton(onClick = { showSearchDialog = true }, modifier = Modifier.size(34.dp)) {
+                                        Icon(Icons.Rounded.Search, contentDescription = "搜索记录", tint = palette.text, modifier = Modifier.size(19.dp))
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            val targetRp = unclaimedRedpackMsgs.firstOrNull()
+                                            if (targetRp != null) {
+                                                redpackFallbackMeta = targetRp.parseRedpackMeta()
+                                                redpackSenderName = targetRp.displayAuthor
+                                                redpackDialogMsgId = targetRp.id
+                                            } else {
+                                                showRedpackArchiveSheet = true
+                                            }
+                                        },
+                                        modifier = Modifier.size(34.dp),
+                                    ) {
+                                        Icon(Icons.Rounded.CardGiftcard, contentDescription = "红包", tint = palette.redpacket, modifier = Modifier.size(19.dp))
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            guessInitialMid = activeRound?.messageId
+                                                ?: activeRedpackMsg?.takeIf { it.parseRedpackMeta()?.isGuessGame == true }?.id
+                                            showGuessSheet = true
+                                        },
+                                        modifier = Modifier.size(34.dp),
+                                    ) {
+                                        Icon(Icons.Rounded.AutoAwesome, contentDescription = "欢欢猜词屋", tint = palette.gold, modifier = Modifier.size(19.dp))
+                                    }
+                                    IconButton(
+                                        onClick = { if (activeGroup != null) showGroupInfoDialog = true },
+                                        modifier = Modifier.size(34.dp),
+                                    ) {
+                                        Icon(Icons.Rounded.People, contentDescription = "群信息与成员", tint = palette.text, modifier = Modifier.size(19.dp))
+                                    }
                                 }
                             } else {
-                                Column(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .clickable { if (activeGroup != null) showGroupInfoDialog = true }
-                                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                                val dmMeta = activeDmMeta ?: state.dmThreads.firstOrNull { it.id == activeDmId }
+                                val dmTitle = dmMeta?.peerName?.takeIf { it.isNotBlank() }
+                                    ?: dmMeta?.peerUsername
+                                    ?: newDmPeer?.displayName
+                                    ?: "私信"
+                                val dmMuted = dmMeta != null && (dmMeta.muted || dmMeta.id in state.mutedDmIds)
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
+                                    ForHappyAvatar(
+                                        username = dmTitle,
+                                        avatarUrl = dmMeta?.peerAvatar ?: newDmPeer?.avatar,
+                                        imageLoader = api.imageLoader,
+                                        size = 28.dp,
+                                    )
                                     Text(
-                                        text = buildString {
-                                            append(activeGroup?.name ?: "群聊")
-                                            if ((activeGroup?.memberCount ?: 0) > 0) append(" (${activeGroup!!.memberCount})")
-                                        },
+                                        text = dmTitle,
                                         color = palette.text,
                                         fontSize = if (palette.isModernUi) 17.sp else 15.sp,
                                         fontWeight = FontWeight.Bold,
@@ -1126,126 +1451,270 @@ fun ChatScreen(
                                         overflow = TextOverflow.Ellipsis,
                                     )
                                 }
-                            }
-                            IconButton(onClick = { showSearchDialog = true }, modifier = Modifier.size(34.dp)) {
-                                Icon(Icons.Rounded.Search, contentDescription = "搜索记录", tint = palette.text, modifier = Modifier.size(19.dp))
-                            }
-                            IconButton(
-                                onClick = {
-                                    if (activeRedpackMsg != null && activeRedpackMsg.parseRedpackMeta()?.isGuessGame != true) {
-                                        redpackFallbackMeta = activeRedpackMsg.parseRedpackMeta()
-                                        redpackSenderName = activeRedpackMsg.displayAuthor
-                                        redpackDialogMsgId = activeRedpackMsg.id
+                                if (dmMeta != null) {
+                                    if (palette.isModernUi && disguiseMode == AppDisguiseMode.NONE) {
+                                        ModernChatHeaderIconButton(
+                                            icon = if (dmMuted) Icons.Rounded.NotificationsOff else Icons.Rounded.Notifications,
+                                            contentDescription = "免打扰开关",
+                                            tint = if (dmMuted) palette.muted else palette.text.copy(alpha = 0.86f),
+                                            onClick = { controller.setDmMutedLocal(dmMeta.id, !dmMuted) },
+                                        )
                                     } else {
-                                        showRedpackArchiveSheet = true
+                                        IconButton(
+                                            onClick = { controller.setDmMutedLocal(dmMeta.id, !dmMuted) },
+                                            modifier = Modifier.size(34.dp),
+                                        ) {
+                                            Icon(
+                                                imageVector = if (dmMuted) Icons.Rounded.NotificationsOff else Icons.Rounded.Notifications,
+                                                contentDescription = "免打扰开关",
+                                                tint = if (dmMuted) palette.muted else palette.text,
+                                                modifier = Modifier.size(18.dp),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        HorizontalDivider(
+                            color = if (palette.isModernUi) palette.line else palette.line.copy(alpha = 0.7f),
+                            thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+                        )
+                    }
+                }
+            }
+
+            chatStatusBanner?.let { banner ->
+                Surface(color = palette.primaryContainer) {
+                    Text(
+                        text = banner,
+                        color = palette.primary,
+                        fontSize = 12.sp,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp),
+                    )
+                }
+            }
+
+            if (activePane == "group" && activeHistory == null) {
+                if (activeRaffles.isNotEmpty()) {
+                    val raffle = activeRaffles.first()
+                    val raffleAccent = if (disguiseMode == AppDisguiseMode.NONE) palette.gold else palette.primary
+                    val raffleLabel = if (disguiseMode == AppDisguiseMode.NONE) {
+                        "头衔抽奖「${raffle.resolvedTitleName}」· ${raffle.resolvedParticipantCount}人已报名"
+                    } else {
+                        "群内抽签「${DisguiseSanitizer.sanitizeSummaryForDisguise(raffle.resolvedTitleName, disguiseMode)}」· ${raffle.resolvedParticipantCount}人已登记"
+                    }
+                    Surface(color = if (isModernCleanMode) palette.surface else raffleAccent.copy(alpha = 0.12f)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(Icons.Rounded.EmojiEvents, contentDescription = null, tint = raffleAccent, modifier = Modifier.size(16.dp))
+                            Text(
+                                text = raffleLabel,
+                                color = palette.text,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Surface(
+                                color = if (raffle.joined) palette.surface2 else raffleAccent,
+                                shape = RoundedCornerShape(999.dp),
+                                modifier = Modifier.clickable(enabled = !raffle.joined) {
+                                    if (me == null) {
+                                        onRequireLogin()
+                                    } else {
+                                        scope.launch {
+                                            chatStatusBanner = api.joinActiveTitleRaffle(raffle.id)
+                                            activeRaffles = api.fetchActiveTitleRaffles(state.activeGroupId)
+                                        }
                                     }
                                 },
-                                modifier = Modifier.size(34.dp),
                             ) {
-                                Icon(Icons.Rounded.CardGiftcard, contentDescription = "红包", tint = palette.redpacket, modifier = Modifier.size(19.dp))
-                            }
-                            IconButton(
-                                onClick = {
-                                    guessInitialMid = activeRound?.messageId
-                                        ?: activeRedpackMsg?.takeIf { it.parseRedpackMeta()?.isGuessGame == true }?.id
-                                    showGuessSheet = true
-                                },
-                                modifier = Modifier.size(34.dp),
-                            ) {
-                                Icon(Icons.Rounded.AutoAwesome, contentDescription = "欢欢猜词屋", tint = palette.gold, modifier = Modifier.size(19.dp))
-                            }
-                            IconButton(
-                                onClick = { if (activeGroup != null) showGroupInfoDialog = true },
-                                modifier = Modifier.size(34.dp),
-                            ) {
-                                Icon(Icons.Rounded.People, contentDescription = "群信息与成员", tint = palette.text, modifier = Modifier.size(19.dp))
-                            }
-                        } else {
-                            val dmMeta = activeDmMeta ?: state.dmThreads.firstOrNull { it.id == activeDmId }
-                            val dmTitle = dmMeta?.peerName?.takeIf { it.isNotBlank() }
-                                ?: dmMeta?.peerUsername
-                                ?: newDmPeer?.displayName
-                                ?: "私信"
-                            val dmMuted = dmMeta != null && (dmMeta.muted || dmMeta.id in state.mutedDmIds)
-                            Row(
-                                modifier = Modifier.weight(1f),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                ForHappyAvatar(
-                                    username = dmTitle,
-                                    avatarUrl = dmMeta?.peerAvatar ?: newDmPeer?.avatar,
-                                    imageLoader = api.imageLoader,
-                                    size = 28.dp,
-                                )
                                 Text(
-                                    text = dmTitle,
-                                    color = palette.text,
-                                    fontSize = if (palette.isModernUi) 17.sp else 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
+                                    text = if (raffle.joined) (if (disguiseMode == AppDisguiseMode.NONE) "已报名" else "已登记") else (if (disguiseMode == AppDisguiseMode.NONE) "一键报名" else "立即登记"),
+                                    color = if (raffle.joined) palette.muted else Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp),
                                 )
                             }
-                            if (dmMeta != null) {
-                                IconButton(
-                                    onClick = { controller.setDmMutedLocal(dmMeta.id, !dmMuted) },
-                                    modifier = Modifier.size(34.dp),
+                        }
+                    }
+                    HorizontalDivider(color = if (isModernCleanMode) palette.line else palette.line.copy(alpha = 0.5f), thickness = if (isModernCleanMode) 0.5.dp else 1.dp)
+                }
+
+                if (activeRound != null) {
+                    if (!isGuessExpanded || isImeVisible) {
+                        GuessStatusStrip(
+                            round = activeRound,
+                            nowTickSec = guessNowTickSec,
+                            onExpand = {
+                                isGuessExpanded = true
+                                wasGuessExpandedBeforeIme = true
+                            },
+                            onOpenFullPanel = {
+                                guessInitialMid = activeRound.messageId
+                                showGuessSheet = true
+                            },
+                        )
+                    } else {
+                        GuessIntelBoard(
+                            round = activeRound,
+                            overview = guessOverview,
+                            nowTickSec = guessNowTickSec,
+                            boardHeightDp = guessBoardHeightDp,
+                            maxHeightDp = maxGuessHeightDp,
+                            onHeightChangeDp = { guessBoardHeightDp = it },
+                            hintBusy = guessHintBusy,
+                            closeVoteBusy = guessCloseBusy,
+                            onCollapse = {
+                                isGuessExpanded = false
+                                wasGuessExpandedBeforeIme = false
+                            },
+                            onOpenFullPanel = {
+                                guessInitialMid = activeRound.messageId
+                                showGuessSheet = true
+                            },
+                            onPrefillGuessWord = { word ->
+                                inputMode = ChatInputMode.GUESS
+                                draft = word
+                                controller.updateGroupDraft(state.activeGroupId, ChatInputMode.GUESS, word)
+                            },
+                            onRequestAiHint = {
+                                if (me == null) {
+                                    onRequireLogin()
+                                    return@GuessIntelBoard
+                                }
+                                guessHintBusy = true
+                                scope.launch {
+                                    val res = api.submitGuessInput(activeRound.messageId, "@欢欢 线索")
+                                    guessHintBusy = false
+                                    res.onSuccess { eid ->
+                                        guessReceiptBanner = "已向欢欢要线索…"
+                                        val ov = api.fetchGuessOverview(state.activeGroupId, activeRound.messageId, receiptId = eid)
+                                        guessOverview = ov
+                                    }.onFailure { err ->
+                                        guessReceiptBanner = err.message ?: "要线索失败"
+                                    }
+                                }
+                            },
+                            onVoteCloseRound = { actionKey ->
+                                if (me == null) {
+                                    onRequireLogin()
+                                    return@GuessIntelBoard
+                                }
+                                guessCloseBusy = true
+                                scope.launch {
+                                    val res = api.postGuessCloseAction(activeRound.messageId, actionKey)
+                                    guessCloseBusy = false
+                                    res.onSuccess {
+                                        guessReceiptBanner = "已提交表决"
+                                        val ov = api.fetchGuessOverview(state.activeGroupId, activeRound.messageId)
+                                        guessOverview = ov
+                                        controller.updateActiveGuessRound(state.activeGroupId, ov?.round)
+                                    }.onFailure { err ->
+                                        guessReceiptBanner = err.message ?: "表决失败"
+                                    }
+                                }
+                            },
+                        )
+                    }
+                }
+
+                if (!isModernCleanMode) {
+                    val boundaryId = state.unreadEntryBoundaryByGroup[state.activeGroupId]
+                    if (boundaryId != null && boundaryId > 0L) {
+                        val firstUnreadMsg = remember(state.messages, boundaryId) {
+                            state.messages.firstOrNull { it.id > boundaryId && !it.mine && !it.deleted }
+                        }
+                        if (firstUnreadMsg != null) {
+                            Surface(color = palette.primaryContainer) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            controller.clearUnreadBoundary(state.activeGroupId)
+                                            jumpToMessage(firstUnreadMsg.id, state.activeGroupId)
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 5.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    Icon(
-                                        imageVector = if (dmMuted) Icons.Rounded.NotificationsOff else Icons.Rounded.Notifications,
-                                        contentDescription = "免打扰开关",
-                                        tint = if (dmMuted) palette.muted else palette.text,
-                                        modifier = Modifier.size(18.dp),
+                                    Text(
+                                        text = "── 离开期间新增未读消息 · 跳到第一条未读 ──",
+                                        color = palette.primary,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
                                     )
                                 }
                             }
                         }
                     }
-                    HorizontalDivider(
-                        color = if (palette.isModernUi) palette.glassBorder else palette.line.copy(alpha = 0.7f),
-                        thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
-                    )
+                }
+            }
+
+            if (activePane == "group" && activeHistory != null) {
+                Surface(color = if (isModernCleanMode) palette.surface else palette.gold.copy(alpha = 0.14f)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("正在查看定位上下文", color = palette.gold, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                        Surface(
+                            color = palette.primary,
+                            shape = RoundedCornerShape(999.dp),
+                            modifier = Modifier.clickable { historyMsgs = null },
+                        ) {
+                            Text(
+                                text = "↓ 回到最新",
+                                color = palette.onPrimary,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            )
+                        }
+                    }
+                }
+                if (isModernCleanMode) {
+                    HorizontalDivider(color = palette.line, thickness = 0.5.dp)
                 }
             }
         }
 
-        chatStatusBanner?.let { banner ->
-            Surface(color = palette.primaryContainer) {
-                Text(
-                    text = banner,
-                    color = palette.primary,
-                    fontSize = 12.sp,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp),
-                )
-            }
-        }
+        @Composable
+        fun RenderMessagesViewport(viewportModifier: Modifier) {
+            if (activePane == "group") {
+                val swipeAnimHaptic = LocalHapticFeedback.current
+                var swipeDragOffsetPx by remember { mutableFloatStateOf(0f) }
+                val slideEntryOffsetPx = remember { Animatable(0f) }
+                val layoutDir = LocalLayoutDirection.current
+                val sysGestures = WindowInsets.systemGestures
+                val baseEdgeGuardPx = with(density) { 36.dp.toPx() }
+                val leftEdgeGuardPx = maxOf(baseEdgeGuardPx, sysGestures.getLeft(density, layoutDir).toFloat())
+                val rightEdgeGuardPx = maxOf(baseEdgeGuardPx, sysGestures.getRight(density, layoutDir).toFloat())
+                val swipeThresholdPx = with(density) { 56.dp.toPx() }
+                val swipeVelocityThresholdPx = with(density) { 650.dp.toPx() }
+                val minVelDistancePx = with(density) { 24.dp.toPx() }
+                val entryShiftPx = with(density) { 72.dp.toPx() }
+                val latestJoinedGroups by rememberUpdatedState(joinedGroups)
+                val latestActiveGroupId by rememberUpdatedState(state.activeGroupId)
 
-        // Main Chat / DM Viewport
-        if (activePane == "group") {
-            val activeHistory = historyMsgs
-            val swipeAnimHaptic = LocalHapticFeedback.current
-            var swipeDragOffsetPx by remember { mutableFloatStateOf(0f) }
-            val slideEntryOffsetPx = remember { Animatable(0f) }
-            val edgeGuardPx = with(density) { 32.dp.toPx() }
-            val swipeThresholdPx = with(density) { 56.dp.toPx() }
-            val swipeVelocityThresholdPx = with(density) { 650.dp.toPx() }
-            val minVelDistancePx = with(density) { 24.dp.toPx() }
-            val entryShiftPx = with(density) { 72.dp.toPx() }
-            val latestJoinedGroups by rememberUpdatedState(joinedGroups)
-            val latestActiveGroupId by rememberUpdatedState(state.activeGroupId)
-
-            BoxWithConstraints(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .clipToBounds()
+                Box(
+                    modifier = viewportModifier
+                        .clipToBounds()
                     .then(
                         if (canSwipeSwitchGroups) {
-                            Modifier.pointerInput(canSwipeSwitchGroups) {
+                            Modifier.pointerInput(canSwipeSwitchGroups, leftEdgeGuardPx, rightEdgeGuardPx) {
                                 awaitEachGesture {
                                     val down = awaitFirstDown(requireUnconsumed = false)
-                                    if (down.position.x < edgeGuardPx || down.position.x > size.width - edgeGuardPx) {
+                                    if (down.position.x < leftEdgeGuardPx || down.position.x > size.width - rightEdgeGuardPx) {
                                         return@awaitEachGesture
                                     }
                                     var rawDragPx = 0f
@@ -1306,226 +1775,105 @@ fun ChatScreen(
                         },
                     ),
             ) {
-                val maxGuessHeightDp = (maxHeight * 0.50f).coerceAtLeast(160.dp)
-                Column(
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {
                             translationX = swipeDragOffsetPx + slideEntryOffsetPx.value
                         },
                 ) {
-                    // Active Title Raffle banner (top of group)
-                    if (activeHistory == null && activeRaffles.isNotEmpty()) {
-                        val raffle = activeRaffles.first()
-                        val raffleAccent = if (disguiseMode == AppDisguiseMode.NONE) palette.gold else palette.primary
-                        val raffleLabel = if (disguiseMode == AppDisguiseMode.NONE) {
-                            "头衔抽奖「${raffle.resolvedTitleName}」· ${raffle.resolvedParticipantCount}人已报名"
-                        } else {
-                            "群内抽签「${DisguiseSanitizer.sanitizeSummaryForDisguise(raffle.resolvedTitleName, disguiseMode)}」· ${raffle.resolvedParticipantCount}人已登记"
-                        }
-                        Surface(color = raffleAccent.copy(alpha = 0.12f)) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                Icon(Icons.Rounded.EmojiEvents, contentDescription = null, tint = raffleAccent, modifier = Modifier.size(16.dp))
-                                Text(
-                                    text = raffleLabel,
-                                    color = palette.text,
-                                    fontSize = 12.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                Surface(
-                                    color = if (raffle.joined) palette.surface2 else raffleAccent,
-                                    shape = RoundedCornerShape(999.dp),
-                                    modifier = Modifier.clickable(enabled = !raffle.joined) {
-                                        if (me == null) {
-                                            onRequireLogin()
-                                        } else {
-                                            scope.launch {
-                                                chatStatusBanner = api.joinActiveTitleRaffle(raffle.id)
-                                                activeRaffles = api.fetchActiveTitleRaffles(state.activeGroupId)
-                                            }
-                                        }
-                                    },
-                                ) {
-                                    Text(
-                                        text = if (raffle.joined) (if (disguiseMode == AppDisguiseMode.NONE) "已报名" else "已登记") else (if (disguiseMode == AppDisguiseMode.NONE) "一键报名" else "立即登记"),
-                                        color = if (raffle.joined) palette.muted else Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp),
-                                    )
-                                }
-                            }
-                        }
-                        HorizontalDivider(color = palette.line.copy(alpha = 0.5f))
-                    }
-
-                    // Co-Screen Squeezed Guess Room Strip / Board
-                    if (activeRound != null && activeHistory == null) {
-                        if (!isGuessExpanded || isImeVisible) {
-                            GuessStatusStrip(
-                                round = activeRound,
-                                nowTickSec = guessNowTickSec,
-                                onExpand = {
-                                    isGuessExpanded = true
-                                    wasGuessExpandedBeforeIme = true
-                                },
-                                onOpenFullPanel = {
-                                    guessInitialMid = activeRound.messageId
-                                    showGuessSheet = true
-                                },
-                            )
-                        } else {
-                            GuessIntelBoard(
-                                round = activeRound,
-                                overview = guessOverview,
-                                nowTickSec = guessNowTickSec,
-                                boardHeightDp = guessBoardHeightDp,
-                                maxHeightDp = maxGuessHeightDp,
-                                onHeightChangeDp = { guessBoardHeightDp = it },
-                                hintBusy = guessHintBusy,
-                                closeVoteBusy = guessCloseBusy,
-                                onCollapse = {
-                                    isGuessExpanded = false
-                                    wasGuessExpandedBeforeIme = false
-                                },
-                                onOpenFullPanel = {
-                                    guessInitialMid = activeRound.messageId
-                                    showGuessSheet = true
-                                },
-                                onPrefillGuessWord = { word ->
-                                    inputMode = ChatInputMode.GUESS
-                                    draft = word
-                                    controller.updateGroupDraft(state.activeGroupId, ChatInputMode.GUESS, word)
-                                },
-                                onRequestAiHint = {
-                                    if (me == null) {
-                                        onRequireLogin()
-                                        return@GuessIntelBoard
-                                    }
-                                    guessHintBusy = true
-                                    scope.launch {
-                                        val res = api.submitGuessInput(activeRound.messageId, "@欢欢 线索")
-                                        guessHintBusy = false
-                                        res.onSuccess { eid ->
-                                            guessReceiptBanner = "已向欢欢要线索…"
-                                            val ov = api.fetchGuessOverview(state.activeGroupId, activeRound.messageId, receiptId = eid)
-                                            guessOverview = ov
-                                        }.onFailure { err ->
-                                            guessReceiptBanner = err.message ?: "要线索失败"
-                                        }
-                                    }
-                                },
-                                onVoteCloseRound = { actionKey ->
-                                    if (me == null) {
-                                        onRequireLogin()
-                                        return@GuessIntelBoard
-                                    }
-                                    guessCloseBusy = true
-                                    scope.launch {
-                                        val res = api.postGuessCloseAction(activeRound.messageId, actionKey)
-                                        guessCloseBusy = false
-                                        res.onSuccess {
-                                            guessReceiptBanner = "已提交表决"
-                                            val ov = api.fetchGuessOverview(state.activeGroupId, activeRound.messageId)
-                                            guessOverview = ov
-                                            controller.updateActiveGuessRound(state.activeGroupId, ov?.round)
-                                        }.onFailure { err ->
-                                            guessReceiptBanner = err.message ?: "表决失败"
-                                        }
-                                    }
-                                },
-                            )
-                        }
-                    }
-
-                    // Unread entry boundary banner (`>= 5` unread messages when entering)
-                    val boundaryId = state.unreadEntryBoundaryByGroup[state.activeGroupId]
-                    if (activeHistory == null && boundaryId != null && boundaryId > 0L) {
-                        val firstUnreadMsg = remember(state.messages, boundaryId) {
-                            state.messages.firstOrNull { it.id > boundaryId && !it.mine && !it.deleted }
-                        }
-                        if (firstUnreadMsg != null) {
-                            Surface(color = palette.primaryContainer) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            controller.clearUnreadBoundary(state.activeGroupId)
-                                            jumpToMessage(firstUnreadMsg.id, state.activeGroupId)
-                                        }
-                                        .padding(horizontal = 12.dp, vertical = 5.dp),
-                                    horizontalArrangement = Arrangement.Center,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        text = "── 离开期间新增未读消息 · 跳到第一条未读 ──",
-                                        color = palette.primary,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                    )
-                                }
-                            }
-                        }
-                    }
-
                     // History `around` Overlay vs Live `reverseLayout = true` Stream
                     if (activeHistory != null) {
-                        Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                            Surface(color = palette.gold.copy(alpha = 0.14f)) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text("正在查看定位上下文", color = palette.gold, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                                    Surface(
-                                        color = palette.primary,
-                                        shape = RoundedCornerShape(999.dp),
-                                        modifier = Modifier.clickable { historyMsgs = null },
-                                    ) {
-                                        Text(
-                                            text = "↓ 回到最新",
-                                            color = palette.onPrimary,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                        )
+                        val histAtTop by remember {
+                            derivedStateOf { historyListState.firstVisibleItemIndex <= 1 }
+                        }
+                        val histAtBottom by remember {
+                            derivedStateOf {
+                                val info = historyListState.layoutInfo
+                                val total = info.totalItemsCount
+                                val lastIdx = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+                                total > 0 && lastIdx >= (total - 3).coerceAtLeast(0)
+                            }
+                        }
+                        LaunchedEffect(histAtTop, historyHasOlder, activeHistory.firstOrNull()?.id) {
+                            if (histAtTop && historyHasOlder && !historyLoadingOlder) {
+                                val edge = activeHistory.firstOrNull()?.id ?: return@LaunchedEffect
+                                historyLoadingOlder = true
+                                try {
+                                    val d = api.fetchChatMessagesAround(state.activeGroupId, edge)
+                                    if (d != null) {
+                                        val cur = historyMsgs ?: activeHistory
+                                        val have = cur.map { it.id }.toHashSet()
+                                        val older = d.items.filter { it.id < edge && !have.contains(it.id) }
+                                        historyMsgs = older + cur
+                                        historyHasOlder = d.more
+                                        if (older.isNotEmpty()) {
+                                            historyListState.scrollToItem(older.size + 1)
+                                        }
                                     }
+                                } finally {
+                                    historyLoadingOlder = false
                                 }
                             }
-                            LazyColumn(
-                                state = historyListState,
-                                modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
-                            ) {
+                        }
+                        LaunchedEffect(histAtBottom, historyHasNewer, activeHistory.lastOrNull()?.id) {
+                            if (histAtBottom && historyHasNewer && !historyLoadingNewer) {
+                                val edge = activeHistory.lastOrNull()?.id ?: return@LaunchedEffect
+                                historyLoadingNewer = true
+                                try {
+                                    val d = api.fetchChatMessagesAround(state.activeGroupId, edge)
+                                    if (d != null) {
+                                        val cur = historyMsgs ?: activeHistory
+                                        val have = cur.map { it.id }.toHashSet()
+                                        val newer = d.items.filter { it.id > edge && !have.contains(it.id) }
+                                        historyMsgs = cur + newer
+                                        historyHasNewer = d.moreAfter
+                                    }
+                                } finally {
+                                    historyLoadingNewer = false
+                                }
+                            }
+                        }
+                        LazyColumn(
+                            state = historyListState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(
+                                start = 12.dp,
+                                end = 12.dp,
+                                top = listTopPad,
+                                bottom = listBottomPad,
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
                                 if (historyHasOlder) {
-                                    item {
-                                        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                            TextButton(onClick = {
-                                                val edge = activeHistory.firstOrNull()?.id ?: return@TextButton
-                                                scope.launch {
-                                                    val d = api.fetchChatMessagesAround(state.activeGroupId, edge)
-                                                    if (d != null) {
-                                                        val have = activeHistory.map { it.id }.toHashSet()
-                                                        val older = d.items.filter { it.id < edge && !have.contains(it.id) }
-                                                        historyMsgs = older + activeHistory
-                                                        historyHasOlder = d.more
-                                                        if (older.isNotEmpty()) historyListState.scrollToItem(older.size + 1)
+                                    item(key = "hist_older_indicator") {
+                                        Box(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
+                                            if (historyLoadingOlder) {
+                                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = palette.primary)
+                                            } else {
+                                                TextButton(onClick = {
+                                                    val edge = activeHistory.firstOrNull()?.id ?: return@TextButton
+                                                    if (!historyLoadingOlder) {
+                                                        scope.launch {
+                                                            historyLoadingOlder = true
+                                                            try {
+                                                                val d = api.fetchChatMessagesAround(state.activeGroupId, edge)
+                                                                if (d != null) {
+                                                                    val cur = historyMsgs ?: activeHistory
+                                                                    val have = cur.map { it.id }.toHashSet()
+                                                                    val older = d.items.filter { it.id < edge && !have.contains(it.id) }
+                                                                    historyMsgs = older + cur
+                                                                    historyHasOlder = d.more
+                                                                    if (older.isNotEmpty()) historyListState.scrollToItem(older.size + 1)
+                                                                }
+                                                            } finally {
+                                                                historyLoadingOlder = false
+                                                            }
+                                                        }
                                                     }
+                                                }) {
+                                                    Text("↑ 继续上拉加载更早消息", fontSize = 12.sp, color = palette.muted)
                                                 }
-                                            }) {
-                                                Text("↑ 加载更早消息")
                                             }
                                         }
                                     }
@@ -1629,64 +1977,202 @@ fun ChatScreen(
                                     }
                                 }
                             }
-                        }
-                    } else {
-                        // Live `reverseLayout = true` chat list: prepending older history causes zero viewport jump!
-                        val reversedMsgs = remember(state.messages) { state.messages.asReversed() }
-                        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                            LazyColumn(
-                                state = listState,
-                                reverseLayout = true,
-                                modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                verticalArrangement = Arrangement.spacedBy(3.dp),
+                        } else {
+                            // Live `reverseLayout = true` chat list: prepending older history causes zero viewport jump!
+                            val streamEntries = remember(state.messages, isModernCleanMode, expandedSystemGroupIds) {
+                                buildReversedChatStreamEntries(
+                                    chronologicalMessages = state.messages,
+                                    enableSystemFolding = isModernCleanMode,
+                                    expandedGroupIds = expandedSystemGroupIds,
+                                )
+                            }
+                            val nearVisualTop by remember {
+                                derivedStateOf {
+                                    val info = listState.layoutInfo
+                                    val total = info.totalItemsCount
+                                    val lastIdx = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+                                    total > 0 && lastIdx >= (total - 4).coerceAtLeast(0)
+                                }
+                            }
+                            val oldestServerMsgId = remember(state.messages) {
+                                state.messages.firstOrNull { it.id > 0L }?.id ?: 0L
+                            }
+                            val latestHasMoreOlder by rememberUpdatedState(state.hasMoreOlder)
+                            val latestIsLoadingHistory by rememberUpdatedState(state.isLoadingHistory)
+                            val latestOldestServerMsgId by rememberUpdatedState(oldestServerMsgId)
+                            LaunchedEffect(
+                                nearVisualTop,
+                                state.activeGroupId,
+                                state.hasMoreOlder,
+                                state.isLoadingHistory,
+                                oldestServerMsgId,
                             ) {
-                                itemsIndexed(
-                                    reversedMsgs,
-                                    key = { _, m -> if (m.id > 0L) "srv_${m.id}" else "loc_${m.localId ?: m.createdAt}" },
-                                ) { revIdx, msg ->
-                                    val prevChrono = reversedMsgs.getOrNull(revIdx + 1)
-                                    val cont = canGroupContinuation(prevChrono, msg)
-                                    Column {
-                                        if (!cont && revIdx < reversedMsgs.lastIndex) {
-                                            Spacer(Modifier.height(5.dp))
+                                if (nearVisualTop &&
+                                    state.hasMoreOlder &&
+                                    !state.isLoadingHistory &&
+                                    oldestServerMsgId > 0L &&
+                                    autoOlderAttemptedId != oldestServerMsgId
+                                ) {
+                                    autoOlderAttemptedId = oldestServerMsgId
+                                    controller.loadOlderHistory()
+                                }
+                            }
+                            val pullTopHistoryNestedScroll = remember(listState, controller) {
+                                object : NestedScrollConnection {
+                                    override fun onPostScroll(
+                                        consumed: Offset,
+                                        available: Offset,
+                                        source: NestedScrollSource,
+                                    ): Offset {
+                                        if (source == NestedScrollSource.UserInput &&
+                                            available.y > 12f &&
+                                            !listState.canScrollForward &&
+                                            latestHasMoreOlder &&
+                                            !latestIsLoadingHistory &&
+                                            latestOldestServerMsgId > 0L
+                                        ) {
+                                            autoOlderAttemptedId = latestOldestServerMsgId
+                                            scope.launch { controller.loadOlderHistory() }
                                         }
-                                        RenderChatItemRow(
-                                            msg = msg,
-                                            isContinuation = cont,
-                                            highlighted = msg.id > 0L && highlightedMsgId == msg.id,
-                                            cleanDecoMode = state.cleanDecoMode,
-                                            cleanDecoConfig = cleanDecoConfig,
-                                            meId = me?.id ?: 0L,
-                                            cosmeticCatalogRev = cosmeticCatalogRev,
-                                            api = api,
-                                            enableSwipeReply = !canSwipeSwitchGroups,
-                                            onActionRedpack = { refId ->
-                                                redpackFallbackMeta = null
-                                                redpackSenderName = null
-                                                redpackDialogMsgId = refId
-                                            },
-                                            onActionGuess = { refId ->
-                                                guessInitialMid = refId
-                                                showGuessSheet = true
-                                            },
-                                            onActionRaffle = { refId ->
-                                                scope.launch { chatStatusBanner = api.joinActiveTitleRaffle(refId) }
-                                            },
-                                            onJumpMessage = { jumpToMessage(it) },
-                                            onSwipeReply = { controller.setReplyTarget(msg) },
-                                            onOpenActionSheet = { actionSheetMsg = msg },
-                                            onOpenBoostComposer = {
-                                                if (me == null) onRequireLogin() else boostComposerMsg = msg
-                                            },
-                                            onQuickBoost = { txt ->
-                                                if (me == null) onRequireLogin() else scope.launch { controller.sendBoost(msg.id, txt) }
-                                            },
-                                            onReaction = { emoji ->
-                                                if (me == null) onRequireLogin() else scope.launch { controller.toggleReaction(msg.id, emoji) }
-                                            },
-                                            onRetrySend = {
-                                                msg.localId?.let { lid -> scope.launch { controller.retryFailedMessage(lid) } }
+                                        return Offset.Zero
+                                    }
+                                }
+                            }
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                LazyColumn(
+                                    state = listState,
+                                    reverseLayout = true,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .nestedScroll(pullTopHistoryNestedScroll),
+                                    contentPadding = PaddingValues(
+                                        start = 12.dp,
+                                        end = 12.dp,
+                                        top = listTopPad,
+                                        bottom = listBottomPad,
+                                    ),
+                                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                                ) {
+                                itemsIndexed(
+                                    streamEntries,
+                                    key = { _, e -> e.stableKey },
+                                ) { revIdx, entry ->
+                                    when (entry) {
+                                        is ChatStreamEntry.FoldedSystemGroup -> {
+                                            val allRedpack = entry.messages.all { m ->
+                                                m.systemKind in setOf("redpack_result", "redpack_draw", "redpack_due", "ldc_winner", "ldc_cancel", "ldc_expired")
+                                            }
+                                            Box(
+                                                modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Surface(
+                                                    color = palette.surface2.copy(alpha = if (palette.isDark) 0.72f else 0.85f),
+                                                    shape = CircleShape,
+                                                    modifier = Modifier
+                                                        .clip(CircleShape)
+                                                        .clickable {
+                                                            expandedSystemGroupIds = expandedSystemGroupIds + entry.groupKeyId
+                                                        },
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = if (allRedpack) Icons.Rounded.CardGiftcard else Icons.Rounded.AutoAwesome,
+                                                            contentDescription = null,
+                                                            tint = if (allRedpack) palette.redpacket.copy(alpha = 0.85f) else palette.gold,
+                                                            modifier = Modifier.size(13.dp),
+                                                        )
+                                                        Text(
+                                                            text = if (allRedpack) {
+                                                                "已折叠 ${entry.messages.size} 条红包结算播报"
+                                                            } else {
+                                                                "已折叠 ${entry.messages.size} 条系统播报"
+                                                            },
+                                                            color = palette.muted,
+                                                            fontSize = 11.sp,
+                                                            maxLines = 1,
+                                                        )
+                                                        Text(
+                                                            text = "展开 ▾",
+                                                            color = palette.primary,
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        is ChatStreamEntry.CollapseSystemGroupHandle -> {
+                                            Box(
+                                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Surface(
+                                                    color = palette.surface2.copy(alpha = if (palette.isDark) 0.72f else 0.85f),
+                                                    shape = CircleShape,
+                                                    modifier = Modifier
+                                                        .clip(CircleShape)
+                                                        .clickable {
+                                                            expandedSystemGroupIds = expandedSystemGroupIds - entry.groupKeyId
+                                                        },
+                                                ) {
+                                                    Text(
+                                                        text = "收起 ${entry.count} 条播报 ▴",
+                                                        color = palette.primary,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        is ChatStreamEntry.MessageItem -> {
+                                            val msg = entry.message
+                                            val cont = entry.isContinuation
+                                            Column {
+                                                if (!cont && revIdx < streamEntries.lastIndex) {
+                                                    Spacer(Modifier.height(5.dp))
+                                                }
+                                                RenderChatItemRow(
+                                                    msg = msg,
+                                                    isContinuation = cont,
+                                                    highlighted = msg.id > 0L && highlightedMsgId == msg.id,
+                                                    cleanDecoMode = state.cleanDecoMode,
+                                                    cleanDecoConfig = cleanDecoConfig,
+                                                    meId = me?.id ?: 0L,
+                                                    cosmeticCatalogRev = cosmeticCatalogRev,
+                                                    api = api,
+                                                    enableSwipeReply = !canSwipeSwitchGroups,
+                                                    onActionRedpack = { refId ->
+                                                        redpackFallbackMeta = null
+                                                        redpackSenderName = null
+                                                        redpackDialogMsgId = refId
+                                                    },
+                                                    onActionGuess = { refId ->
+                                                        guessInitialMid = refId
+                                                        showGuessSheet = true
+                                                    },
+                                                    onActionRaffle = { refId ->
+                                                        scope.launch { chatStatusBanner = api.joinActiveTitleRaffle(refId) }
+                                                    },
+                                                    onJumpMessage = { jumpToMessage(it) },
+                                                    onSwipeReply = { controller.setReplyTarget(msg) },
+                                                    onOpenActionSheet = { actionSheetMsg = msg },
+                                                    onOpenBoostComposer = {
+                                                        if (me == null) onRequireLogin() else boostComposerMsg = msg
+                                                    },
+                                                    onQuickBoost = { txt ->
+                                                        if (me == null) onRequireLogin() else scope.launch { controller.sendBoost(msg.id, txt) }
+                                                    },
+                                                    onReaction = { emoji ->
+                                                        if (me == null) onRequireLogin() else scope.launch { controller.toggleReaction(msg.id, emoji) }
+                                                    },
+                                                    onRetrySend = {
+                                                        msg.localId?.let { lid -> scope.launch { controller.retryFailedMessage(lid) } }
                                             },
                                             onOpenImage = { url -> fullscreenImg = url },
                                             onOpenVideo = { poster, vid -> fullscreenVideoPair = poster to vid },
@@ -1726,86 +2212,227 @@ fun ChatScreen(
                                             },
                                         )
                                     }
+                                        }
+                                    }
                                 }
 
                                 // Visual TOP of reverseLayout LazyColumn
                                 if (state.hasMoreOlder) {
                                     item(key = "older_header") {
-                                        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                            TextButton(
-                                                enabled = !state.isLoadingHistory,
-                                                onClick = { scope.launch { controller.loadOlderHistory() } },
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable(enabled = !state.isLoadingHistory) {
+                                                    scope.launch { controller.loadOlderHistory() }
+                                                }
+                                                .padding(vertical = 8.dp),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
                                             ) {
-                                                Icon(Icons.Rounded.KeyboardArrowUp, contentDescription = null)
-                                                Text(if (state.isLoadingHistory) "加载更早消息中…" else "查看更早消息", fontSize = 12.sp)
+                                                if (state.isLoadingHistory) {
+                                                    CircularProgressIndicator(
+                                                        modifier = Modifier.size(14.dp),
+                                                        strokeWidth = 2.dp,
+                                                        color = palette.primary,
+                                                    )
+                                                    Text(
+                                                        text = "正在加载更早消息…",
+                                                        color = palette.muted,
+                                                        fontSize = 12.sp,
+                                                    )
+                                                } else {
+                                                    Text(
+                                                        text = "↑ 继续下拉加载更早消息",
+                                                        color = palette.muted,
+                                                        fontSize = 11.5.sp,
+                                                    )
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
 
-                            // Floating jump-to-latest pill
-                            if (!isNearBottom && state.messages.isNotEmpty()) {
-                                Surface(
-                                    color = palette.primary,
-                                    shape = RoundedCornerShape(999.dp),
-                                    shadowElevation = 4.dp,
-                                    modifier = Modifier
-                                        .align(Alignment.BottomEnd)
-                                        .padding(end = 12.dp, bottom = 10.dp)
-                                        .clickable {
-                                            scope.launch {
-                                                listState.animateScrollToItem(0)
-                                                pendingNewCount = 0
-                                                controller.acknowledgeGroupRead(state.activeGroupId)
-                                            }
-                                        },
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                // Subtle bottom gradient fade cleanly into composer deck
+                                if (isModernCleanMode) {
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomCenter)
+                                            .fillMaxWidth()
+                                            .height(10.dp)
+                                            .background(
+                                                Brush.verticalGradient(
+                                                    colors = listOf(Color.Transparent, palette.bg),
+                                                ),
+                                            ),
+                                    )
+                                }
+
+                                // Floating compact unread pill (Modern UI)
+                                val boundaryId = state.unreadEntryBoundaryByGroup[state.activeGroupId]
+                                val firstUnreadMsg = if (isModernCleanMode && boundaryId != null && boundaryId > 0L) {
+                                    remember(state.messages, boundaryId) {
+                                        state.messages.firstOrNull { it.id > boundaryId && !it.mine && !it.deleted }
+                                    }
+                                } else {
+                                    null
+                                }
+                                if (firstUnreadMsg != null) {
+                                    Surface(
+                                        color = if (palette.isDark) palette.surface2 else palette.surface,
+                                        shape = CircleShape,
+                                        shadowElevation = if (palette.isDark) 6.dp else 3.dp,
+                                        modifier = Modifier
+                                            .align(Alignment.TopCenter)
+                                            .padding(top = 8.dp)
+                                            .border(1.dp, palette.primary.copy(alpha = 0.35f), CircleShape)
+                                            .clip(CircleShape)
+                                            .clickable {
+                                                controller.clearUnreadBoundary(state.activeGroupId)
+                                                jumpToMessage(firstUnreadMsg.id, state.activeGroupId)
+                                            },
                                     ) {
-                                        Icon(Icons.Rounded.ArrowDownward, contentDescription = null, tint = palette.onPrimary, modifier = Modifier.size(14.dp))
-                                        Text(
-                                            text = if (pendingNewCount > 0) "↓ $pendingNewCount 回到最新" else "回到最新",
-                                            color = palette.onPrimary,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                        )
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        ) {
+                                            Icon(Icons.Rounded.KeyboardArrowUp, contentDescription = null, tint = palette.primary, modifier = Modifier.size(15.dp))
+                                            Text(
+                                                text = "有新未读消息 · 点击定位",
+                                                color = palette.primary,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                            )
+                                            Icon(
+                                                Icons.Rounded.Close,
+                                                contentDescription = "关闭未读提示",
+                                                tint = palette.muted,
+                                                modifier = Modifier
+                                                    .size(15.dp)
+                                                    .clip(CircleShape)
+                                                    .clickable { controller.clearUnreadBoundary(state.activeGroupId) },
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // Floating multi-redpack queue chip when >=2 unclaimed packets are loaded
+                                if (unclaimedRedpackMsgs.size >= 2 && disguiseMode == AppDisguiseMode.NONE) {
+                                    Surface(
+                                        color = Color(0xFFB71C1C),
+                                        shape = CircleShape,
+                                        shadowElevation = 5.dp,
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .padding(
+                                                top = if (firstUnreadMsg != null) 44.dp else 8.dp,
+                                                end = 12.dp,
+                                            )
+                                            .border(1.dp, Color(0xFFFFD54F).copy(alpha = 0.85f), CircleShape)
+                                            .clip(CircleShape)
+                                            .clickable {
+                                                val first = unclaimedRedpackMsgs.firstOrNull() ?: return@clickable
+                                                redpackFallbackMeta = first.parseRedpackMeta()
+                                                redpackSenderName = first.displayAuthor
+                                                redpackDialogMsgId = first.id
+                                            },
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                        ) {
+                                            Icon(
+                                                Icons.Rounded.CardGiftcard,
+                                                contentDescription = null,
+                                                tint = Color(0xFFFFD54F),
+                                                modifier = Modifier.size(14.dp),
+                                            )
+                                            Text(
+                                                text = "待拆红包 ×${unclaimedRedpackMsgs.size} · 连拆",
+                                                color = Color(0xFFFFF8E1),
+                                                fontSize = 11.5.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // Floating jump-to-latest pill
+                                if (!isNearBottom && state.messages.isNotEmpty()) {
+                                    Surface(
+                                        color = palette.primary,
+                                        shape = RoundedCornerShape(999.dp),
+                                        shadowElevation = 4.dp,
+                                        modifier = Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .padding(
+                                                end = 16.dp,
+                                                bottom = if (isModernCleanMode) 12.dp else 10.dp,
+                                            )
+                                            .clickable {
+                                                scope.launch {
+                                                    listState.animateScrollToItem(0)
+                                                    pendingNewCount = 0
+                                                    controller.acknowledgeGroupRead(state.activeGroupId)
+                                                }
+                                            },
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        ) {
+                                            Icon(Icons.Rounded.ArrowDownward, contentDescription = null, tint = palette.onPrimary, modifier = Modifier.size(14.dp))
+                                            Text(
+                                                text = if (pendingNewCount > 0) "↓ $pendingNewCount 回到最新" else "回到最新",
+                                                color = palette.onPrimary,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
-        } else {
-            // Active 1:1 Direct Message Pane (`UTC+8` date dividers + read receipts + edit/recall)
-            val dmMeta = activeDmMeta ?: state.dmThreads.firstOrNull { it.id == activeDmId }
-            val peerLastReadId = dmMeta?.peerLastRead ?: 0L
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                if (me == null) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Button(onClick = onRequireLogin) { Text("登录后查看私信") }
-                    }
-                } else if (dmMessages.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = if (newDmPeer != null) "给 ${newDmPeer!!.displayName} 发一句打招呼吧" else "暂无私信消息",
-                            color = palette.muted,
-                            fontSize = 13.sp,
-                        )
-                    }
-                } else {
-                    val reversedDms = remember(dmMessages) { dmMessages.asReversed() }
-                    LazyColumn(
-                        state = dmListState,
-                        reverseLayout = true,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
+            } else {
+                // Active 1:1 Direct Message Pane (`UTC+8` date dividers + read receipts + edit/recall)
+                val dmMeta = activeDmMeta ?: state.dmThreads.firstOrNull { it.id == activeDmId }
+                val peerLastReadId = dmMeta?.peerLastRead ?: 0L
+                Box(modifier = viewportModifier) {
+                    if (me == null) {
+                        Box(
+                            modifier = Modifier.fillMaxSize().padding(top = listTopPad, bottom = listBottomPad),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Button(onClick = onRequireLogin) { Text("登录后查看私信") }
+                        }
+                    } else if (dmMessages.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxSize().padding(top = listTopPad, bottom = listBottomPad),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = if (newDmPeer != null) "给 ${newDmPeer!!.displayName} 发一句打招呼吧" else "暂无私信消息",
+                                color = palette.muted,
+                                fontSize = 13.sp,
+                            )
+                        }
+                    } else {
+                        val reversedDms = remember(dmMessages) { dmMessages.asReversed() }
+                        LazyColumn(
+                            state = dmListState,
+                            reverseLayout = true,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
                         itemsIndexed(reversedDms, key = { _, d -> "dm_${d.id}" }) { revIdx, dm ->
                             val isMine = dm.senderId == me.id
                             val olderDm = reversedDms.getOrNull(revIdx + 1)
@@ -1834,19 +2461,24 @@ fun ChatScreen(
                                     val dmShape = when {
                                         isFeishuDm && isMine -> RoundedCornerShape(topStart = 10.dp, topEnd = 2.dp, bottomEnd = 10.dp, bottomStart = 10.dp)
                                         isFeishuDm -> RoundedCornerShape(topStart = 2.dp, topEnd = 10.dp, bottomEnd = 10.dp, bottomStart = 10.dp)
+                                        palette.isModernUi && isMine -> RoundedCornerShape(topStart = 18.dp, topEnd = 5.dp, bottomEnd = 18.dp, bottomStart = 18.dp)
+                                        palette.isModernUi -> RoundedCornerShape(topStart = 5.dp, topEnd = 18.dp, bottomEnd = 18.dp, bottomStart = 18.dp)
                                         else -> RoundedCornerShape(15.dp)
                                     }
                                     Column(horizontalAlignment = if (isMine) Alignment.End else Alignment.Start) {
                                         Surface(
                                             color = if (isMine) palette.bubbleSelf else palette.surface,
                                             shape = dmShape,
+                                            shadowElevation = if (palette.isModernUi && !isFeishuDm && !palette.isDark) 0.5.dp else 0.dp,
                                             modifier = Modifier
                                                 .widthIn(max = 286.dp)
                                                 .then(
-                                                    if (isFeishuDm) {
-                                                        Modifier
-                                                    } else {
-                                                        Modifier.border(
+                                                    when {
+                                                        isFeishuDm -> Modifier
+                                                        palette.isModernUi -> if (palette.cardBorder != Color.Transparent) {
+                                                            Modifier.border(0.5.dp, palette.cardBorder, dmShape)
+                                                        } else Modifier
+                                                        else -> Modifier.border(
                                                             1.dp,
                                                             if (isMine) palette.primary.copy(alpha = 0.35f) else palette.line,
                                                             dmShape,
@@ -1920,75 +2552,145 @@ fun ChatScreen(
                         }
                     }
                 }
+                    if (isModernCleanMode) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .height(10.dp)
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(Color.Transparent, palette.bg),
+                                    ),
+                                ),
+                        )
+                    }
             }
         }
+        }
 
-        // Reply / Edit target bar
-        val reply = state.replyTarget
-        val edit = state.editTarget
-        if ((activePane == "group" && (reply != null || edit != null)) || (activePane == "dm" && dmEditTarget != null)) {
-            Surface(color = palette.surface2) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 5.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
+        @Composable
+        fun RenderBottomComposerOverlay() {
+            // Reply / Edit target bar
+            val reply = state.replyTarget
+            val edit = state.editTarget
+            if ((activePane == "group" && (reply != null || edit != null)) || (activePane == "dm" && dmEditTarget != null)) {
+                val isModernFloatingReply = palette.isModernUi && disguiseMode == AppDisguiseMode.NONE
+                val replyShape = if (isModernFloatingReply) RoundedCornerShape(16.dp) else RoundedCornerShape(0.dp)
+                Surface(
+                    color = if (isModernFloatingReply) palette.bg else palette.surface2,
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(
-                        text = when {
-                            dmEditTarget != null -> "编辑私信：${dmEditTarget!!.body}"
-                            edit != null -> "编辑消息：${edit.body}"
-                            else -> "回复 ${reply?.displayAuthor}：${reply?.body}"
+                    Surface(
+                        color = if (isModernFloatingReply) {
+                            if (palette.isDark) palette.surface2 else palette.surface
+                        } else palette.surface2,
+                        shape = replyShape,
+                        shadowElevation = if (isModernFloatingReply && !palette.isDark) 2.dp else 0.dp,
+                        modifier = if (isModernFloatingReply) {
+                            Modifier
+                                .padding(horizontal = 16.dp, vertical = 3.dp)
+                                .widthIn(max = 400.dp)
+                                .fillMaxWidth()
+                                .border(1.dp, palette.glassBorder, replyShape)
+                        } else {
+                            Modifier.fillMaxWidth()
                         },
-                        color = palette.muted,
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    IconButton(
-                        onClick = {
-                            if (dmEditTarget != null) {
-                                dmEditTarget = null
-                                draft = ""
-                            } else {
-                                controller.setReplyTarget(null)
-                                controller.setEditTarget(null)
-                                if (edit != null) draft = ""
-                            }
-                        },
-                        modifier = Modifier.size(26.dp),
                     ) {
-                        Icon(Icons.Rounded.Close, contentDescription = "取消", tint = palette.muted, modifier = Modifier.size(16.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = if (isModernFloatingReply) 7.dp else 5.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = when {
+                                    dmEditTarget != null -> "编辑私信：${dmEditTarget!!.body}"
+                                    edit != null -> "编辑消息：${edit.body}"
+                                    else -> "回复 ${reply?.displayAuthor}：${reply?.body}"
+                                },
+                                color = palette.muted,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            IconButton(
+                                onClick = {
+                                    if (dmEditTarget != null) {
+                                        dmEditTarget = null
+                                        draft = ""
+                                    } else {
+                                        controller.setReplyTarget(null)
+                                        controller.setEditTarget(null)
+                                        if (edit != null) draft = ""
+                                    }
+                                },
+                                modifier = Modifier.size(26.dp),
+                            ) {
+                                Icon(Icons.Rounded.Close, contentDescription = "取消", tint = palette.muted, modifier = Modifier.size(16.dp))
+                            }
+                        }
                     }
                 }
             }
-        }
 
-        // `[聊天 | 猜 | 问]` input mode bar when active Guess Room round runs
-        if (activePane == "group" && activeRound != null && state.editTarget == null) {
-            GuessInputModeBar(
-                activeMode = inputMode,
-                canPlay = activeRound.canPlay,
-                receiptBanner = guessReceiptBanner,
-                onSelectMode = { next ->
-                    controller.updateGroupDraft(state.activeGroupId, inputMode, draft)
-                    inputMode = next
-                    draft = controller.draftForGroup(state.activeGroupId, next)
-                },
-            )
-        }
+            // `[聊天 | 猜 | 问]` input mode bar when active Guess Room round runs
+            if (activePane == "group" && activeRound != null && state.editTarget == null) {
+                Surface(color = palette.bg, modifier = Modifier.fillMaxWidth()) {
+                    Box(
+                        modifier = if (isModernCleanMode) {
+                            Modifier
+                                .padding(horizontal = 16.dp, vertical = 3.dp)
+                                .widthIn(max = 400.dp)
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                        } else {
+                            Modifier.fillMaxWidth()
+                        },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        GuessInputModeBar(
+                            activeMode = inputMode,
+                            canPlay = activeRound.canPlay,
+                            receiptBanner = guessReceiptBanner,
+                            onSelectMode = { next ->
+                                controller.updateGroupDraft(state.activeGroupId, inputMode, draft)
+                                inputMode = next
+                                draft = controller.draftForGroup(state.activeGroupId, next)
+                            },
+                        )
+                    }
+                }
+            }
 
-        // Sticker tray (Group & DM!)
-        if (showStickerTray) {
-            Surface(
-                color = palette.surface,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(210.dp)
-                    .border(1.dp, palette.line),
-            ) {
+            // Sticker tray (Group & DM!)
+            if (showStickerTray) {
+                val isModernTray = palette.isModernUi && disguiseMode == AppDisguiseMode.NONE
+                val stickerShape = if (isModernTray) RoundedCornerShape(22.dp) else RoundedCornerShape(0.dp)
+                Surface(
+                    color = if (isModernTray) palette.bg else palette.surface,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Surface(
+                        color = palette.surface,
+                        shape = stickerShape,
+                        shadowElevation = if (isModernTray && !palette.isDark) 4.dp else 0.dp,
+                        modifier = if (isModernTray) {
+                            Modifier
+                                .padding(horizontal = 12.dp, vertical = 4.dp)
+                                .widthIn(max = 408.dp)
+                                .fillMaxWidth()
+                                .height(210.dp)
+                                .border(1.dp, palette.glassBorder, stickerShape)
+                        } else {
+                            Modifier
+                                .fillMaxWidth()
+                                .height(210.dp)
+                                .border(1.dp, palette.line)
+                        },
+                    ) {
                 if (disguiseMode != AppDisguiseMode.NONE) {
                     val safeEmojis = remember {
                         listOf("👍", "😂", "✅", "🎉", "👏", "🤔", "❤️", "🔥", "👌", "🙌", "💡", "📌", "🤝", "☕", "🚀", "👀", "😊", "🙏")
@@ -2121,29 +2823,48 @@ fun ChatScreen(
                     }
                 }
                 }
+                    }
+                }
             }
-        }
 
-        // `[＋]` Attachment Tray (`相册`, `文件`, `发红包`, `欢欢猜词`)
-        AnimatedVisibility(visible = showAttachmentTray) {
-            val trayShape = if (palette.isModernUi) {
-                RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
-            } else {
-                RoundedCornerShape(0.dp)
-            }
-            Surface(
-                color = if (palette.isModernUi) palette.surfaceRaised else palette.surface,
-                shape = trayShape,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .then(
-                        if (palette.isModernUi) {
-                            if (palette.cardBorder != Color.Transparent) Modifier.border(1.dp, palette.cardBorder, trayShape) else Modifier
-                        } else {
-                            Modifier.border(1.dp, palette.line.copy(alpha = 0.7f))
+            // `[＋]` Attachment Tray (`相册`, `文件`, `发红包`, `欢欢猜词`)
+            AnimatedVisibility(visible = showAttachmentTray) {
+                val isModernTray = palette.isModernUi && disguiseMode == AppDisguiseMode.NONE
+                val trayShape = when {
+                    isModernTray -> RoundedCornerShape(22.dp)
+                    palette.isModernUi -> RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+                    else -> RoundedCornerShape(0.dp)
+                }
+                Surface(
+                    color = if (isModernTray) palette.bg else Color.Transparent,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Surface(
+                        color = when {
+                            isModernTray -> if (palette.isDark) palette.surface2 else palette.surface
+                            palette.isModernUi -> palette.surfaceRaised
+                            else -> palette.surface
                         },
-                    ),
-            ) {
+                        shape = trayShape,
+                        shadowElevation = if (isModernTray && !palette.isDark) 4.dp else 0.dp,
+                        modifier = Modifier.then(
+                            when {
+                                isModernTray -> Modifier
+                                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                                    .widthIn(max = 408.dp)
+                                    .fillMaxWidth()
+                                    .border(1.dp, palette.glassBorder, trayShape)
+                                palette.isModernUi -> Modifier
+                                    .fillMaxWidth()
+                                    .then(
+                                        if (palette.cardBorder != Color.Transparent) Modifier.border(1.dp, palette.cardBorder, trayShape) else Modifier,
+                                    )
+                                else -> Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, palette.line.copy(alpha = 0.7f))
+                            },
+                        ),
+                    ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2203,17 +2924,12 @@ fun ChatScreen(
                     }
                 }
             }
-        }
+                }
+            }
 
         // Slim Composer Capsule (`Emoji` + Input + `[＋]` + `Send`; modern floating pill when palette.isModernUi; authentic Feishu 7.x bar in FEISHU mode)
         val isFeishuComposer = disguiseMode == AppDisguiseMode.FEISHU
         val swipeThresholdPx = with(density) { 48.dp.toPx() }
-        val modernBottomComposerPad = when {
-            isImeVisible -> 6.dp
-            hasFloatingDock -> navBottomPad + 74.dp
-            isDirectEmbedded -> navBottomPad + 6.dp
-            else -> 6.dp
-        }
         val composerRowContent = @Composable { rowModifier: Modifier ->
             Row(
                 modifier = rowModifier,
@@ -2430,30 +3146,36 @@ fun ChatScreen(
         }
 
         if (palette.isModernUi && !isFeishuComposer) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .imePadding()
-                    .padding(
-                        start = 10.dp,
-                        end = 10.dp,
-                        top = 4.dp,
-                        bottom = modernBottomComposerPad,
-                    ),
+            Surface(
+                color = palette.bg,
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                Surface(
-                    color = palette.surfaceRaised,
-                    shape = RoundedCornerShape(26.dp),
-                    shadowElevation = if (palette.isDark) 8.dp else 3.dp,
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, palette.glassBorder, RoundedCornerShape(26.dp)),
+                        .padding(
+                            start = 16.dp,
+                            end = 16.dp,
+                            top = 4.dp,
+                            bottom = modernBottomComposerPad,
+                        ),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    composerRowContent(
-                        Modifier
+                    Surface(
+                        color = if (palette.isDark) palette.surface2 else palette.surface,
+                        shape = CircleShape,
+                        shadowElevation = if (palette.isDark) 6.dp else 3.dp,
+                        modifier = Modifier
+                            .widthIn(max = 400.dp)
                             .fillMaxWidth()
-                            .padding(horizontal = 6.dp, vertical = 5.dp),
-                    )
+                            .border(1.dp, palette.glassBorder, CircleShape),
+                    ) {
+                        composerRowContent(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 5.dp),
+                        )
+                    }
                 }
             }
         } else {
@@ -2466,10 +3188,23 @@ fun ChatScreen(
                     composerRowContent(
                         Modifier
                             .fillMaxWidth()
-                            .imePadding()
                             .padding(horizontal = if (isFeishuComposer) 10.dp else 8.dp, vertical = if (isFeishuComposer) 7.dp else 5.dp),
                     )
                 }
+            }
+        }
+        }
+
+        Column(modifier = Modifier.fillMaxSize()) {
+            RenderTopBarAndBanners()
+            RenderMessagesViewport(viewportModifier = Modifier.weight(1f).fillMaxWidth())
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .imePadding(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                RenderBottomComposerOverlay()
             }
         }
     }
@@ -2753,6 +3488,11 @@ fun ChatScreen(
                 redpackSenderName = null
                 redpackDialogMsgId = mid
             },
+            onSelectGuessMsgId = { mid ->
+                showRedpackArchiveSheet = false
+                guessInitialMid = mid
+                showGuessSheet = true
+            },
         )
     }
 
@@ -2772,11 +3512,24 @@ fun ChatScreen(
             onOpenFullscreenImage = { url -> fullscreenImg = url },
             onSendPhraseToChat = { phrase ->
                 if (me != null && phrase.isNotBlank()) {
-                    api.sendChatMessage(state.activeGroupId, phrase, replyToId = null, retry = false)
+                    val sent = controller.sendOrEditMessage(phrase)
+                    autoMatchSentMessageRedpacks(sent)
                 }
             },
             onOpenArchive = { showRedpackArchiveSheet = true },
             onUpdated = { scope.launch { controller.pollOnce(state.activeGroupId) } },
+            queueMessages = unclaimedRedpackMsgs,
+            onSwitchPacket = { nextPkt ->
+                redpackFallbackMeta = nextPkt.parseRedpackMeta()
+                redpackSenderName = nextPkt.displayAuthor
+                redpackDialogMsgId = nextPkt.id
+            },
+            onPacketTerminalOrClaimed = { doneId ->
+                sessionClaimedOrEndedPacketIds = sessionClaimedOrEndedPacketIds + doneId
+            },
+            onClaimPhraseBatch = { phrase, primaryMid ->
+                claimPhraseBatch(phrase, primaryMid)
+            },
         )
     }
 
@@ -2830,6 +3583,75 @@ fun ChatScreen(
             }
         }
     }
+}
+
+internal sealed interface ChatStreamEntry {
+    val stableKey: String
+
+    data class MessageItem(
+        val message: ChatMessage,
+        val isContinuation: Boolean,
+    ) : ChatStreamEntry {
+        override val stableKey: String =
+            if (message.id > 0L) "srv_${message.id}" else "loc_${message.localId ?: message.createdAt}"
+    }
+
+    data class FoldedSystemGroup(
+        val groupKeyId: Long,
+        val messages: List<ChatMessage>,
+    ) : ChatStreamEntry {
+        override val stableKey: String = "sysfold_$groupKeyId"
+    }
+
+    data class CollapseSystemGroupHandle(
+        val groupKeyId: Long,
+        val count: Int,
+    ) : ChatStreamEntry {
+        override val stableKey: String = "syscollapse_$groupKeyId"
+    }
+}
+
+internal fun buildReversedChatStreamEntries(
+    chronologicalMessages: List<ChatMessage>,
+    enableSystemFolding: Boolean,
+    expandedGroupIds: Set<Long>,
+): List<ChatStreamEntry> {
+    if (chronologicalMessages.isEmpty()) return emptyList()
+    val entries = ArrayList<ChatStreamEntry>(chronologicalMessages.size)
+    var i = 0
+    while (i < chronologicalMessages.size) {
+        val m = chronologicalMessages[i]
+        if (!m.systemKind.isNullOrBlank()) {
+            val startIdx = i
+            val run = ArrayList<ChatMessage>()
+            while (i < chronologicalMessages.size && !chronologicalMessages[i].systemKind.isNullOrBlank()) {
+                run.add(chronologicalMessages[i])
+                i++
+            }
+            if (!enableSystemFolding || run.size < 2) {
+                for (sysMsg in run) {
+                    entries.add(ChatStreamEntry.MessageItem(sysMsg, isContinuation = false))
+                }
+            } else {
+                val lastItem = run.last()
+                val gid = lastItem.id.takeIf { it > 0L }
+                    ?: -(lastItem.createdAt.coerceAtLeast(1L) * 1000L + startIdx.toLong())
+                if (gid in expandedGroupIds) {
+                    for (sysMsg in run) {
+                        entries.add(ChatStreamEntry.MessageItem(sysMsg, isContinuation = false))
+                    }
+                    entries.add(ChatStreamEntry.CollapseSystemGroupHandle(groupKeyId = gid, count = run.size))
+                } else {
+                    entries.add(ChatStreamEntry.FoldedSystemGroup(groupKeyId = gid, messages = run))
+                }
+            }
+        } else {
+            val prevChrono = if (i > 0) chronologicalMessages[i - 1] else null
+            entries.add(ChatStreamEntry.MessageItem(m, isContinuation = canGroupContinuation(prevChrono, m)))
+            i++
+        }
+    }
+    return entries.asReversed()
 }
 
 internal fun canGroupContinuation(prev: ChatMessage?, cur: ChatMessage): Boolean {
@@ -2972,12 +3794,20 @@ private fun NovelExcerptCard(
     val cardMuted = if (spec.theme == "night") Color(0xFF98A39C) else Color(0xFF7A7468)
     val palette = LocalForHappyPalette.current
 
+    val novelShape = if (palette.isModernUi) RoundedCornerShape(16.dp) else RoundedCornerShape(12.dp)
     Surface(
         color = cardBg,
-        shape = RoundedCornerShape(12.dp),
+        shape = novelShape,
+        shadowElevation = if (palette.isModernUi && !palette.isDark) 1.dp else 0.dp,
         modifier = Modifier
             .widthIn(min = 210.dp, max = 280.dp)
-            .border(1.dp, palette.line.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
+            .then(
+                when {
+                    !palette.isModernUi -> Modifier.border(1.dp, palette.line.copy(alpha = 0.7f), novelShape)
+                    palette.cardBorder != Color.Transparent -> Modifier.border(0.5.dp, palette.cardBorder, novelShape)
+                    else -> Modifier
+                },
+            )
             .clickable { onOpenBook() },
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -3048,6 +3878,73 @@ private fun SystemNoticeRow(
     }
     val headline = if (kind == "redpack_due" && !msg.deleted) "红包到点啦！" else parts.firstOrNull().orEmpty()
     val explanation = if (!msg.deleted && parts.size > 1) parts.drop(1).joinToString("；") else null
+
+    if (palette.isModernUi) {
+        val actionPair: Pair<String, () -> Unit>? = if (!msg.deleted && refId != null && refId > 0L) {
+            when {
+                kind == "title_raffle_open" && msg.body.contains("报名") -> "点我报名" to { onActionRaffle(refId) }
+                kind == "ldc_game" -> "对应发言" to { onJumpMessage(refId) }
+                kind in setOf("ldc_winner", "ldc_cancel", "ldc_expired") -> "看猜词结果" to { onActionGuess(refId) }
+                isRedpackNotice -> "去看看" to { onActionRedpack(refId) }
+                else -> null
+            }
+        } else null
+        val compactLine = remember(headline, explanation) {
+            val singleHead = headline.replace('\n', ' ').trim()
+            if (explanation.isNullOrBlank()) singleHead else "$singleHead · 释义：${explanation.replace('\n', ' ').trim()}"
+        }
+        Box(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Surface(
+                color = palette.surface2.copy(alpha = if (palette.isDark) 0.72f else 0.84f),
+                shape = CircleShape,
+                modifier = Modifier
+                    .widthIn(max = 336.dp)
+                    .clip(CircleShape)
+                    .then(
+                        if (actionPair != null) {
+                            Modifier.clickable { actionPair.second() }
+                        } else Modifier,
+                    ),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    if (isRedpackNotice || kind.startsWith("ldc")) {
+                        Icon(
+                            imageVector = if (isRedpackNotice) Icons.Rounded.CardGiftcard else Icons.Rounded.AutoAwesome,
+                            contentDescription = null,
+                            tint = if (isRedpackNotice) palette.redpacket.copy(alpha = 0.85f) else palette.gold,
+                            modifier = Modifier.size(13.dp),
+                        )
+                    }
+                    Text(
+                        text = compactLine,
+                        color = palette.muted,
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (actionPair != null) {
+                        Text(
+                            text = "${actionPair.first} ›",
+                            color = palette.primary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+        }
+        return
+    }
 
     Box(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp), contentAlignment = Alignment.Center) {
         Surface(
@@ -3151,7 +4048,11 @@ private fun SwipeableChatRow(
         }.getOrDefault(shortTimeStr)
     }
 
-    val rightEdgeGuardPx = with(density) { 32.dp.toPx() }
+    val layoutDir = LocalLayoutDirection.current
+    val sysGestures = WindowInsets.systemGestures
+    val baseEdgeGuardPx = with(density) { 36.dp.toPx() }
+    val leftEdgeGuardPx = maxOf(baseEdgeGuardPx, sysGestures.getLeft(density, layoutDir).toFloat())
+    val rightEdgeGuardPx = maxOf(baseEdgeGuardPx, sysGestures.getRight(density, layoutDir).toFloat())
     val quoteTriggerPx = with(density) { 44.dp.toPx() }
 
     Row(
@@ -3168,11 +4069,11 @@ private fun SwipeableChatRow(
             .offset { IntOffset(dragX.roundToInt(), 0) }
             .then(
                 if (enableSwipeReply) {
-                    Modifier.pointerInput(msg.id, msg.localId, rightEdgeGuardPx, quoteTriggerPx) {
-                        // Right-edge-safe swipe-to-quote (`04-gestures.md`: preserve >= 32dp system back edge!)
+                    Modifier.pointerInput(msg.id, msg.localId, leftEdgeGuardPx, rightEdgeGuardPx, quoteTriggerPx) {
+                        // Edge-safe swipe-to-quote (`04-gestures.md`: preserve left & right system back edges!)
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
-                            if (down.position.x > size.width - rightEdgeGuardPx) {
+                            if (down.position.x < leftEdgeGuardPx || down.position.x > size.width - rightEdgeGuardPx) {
                                 return@awaitEachGesture
                             }
                             val slop = awaitHorizontalTouchSlopOrCancellation(down.id) { change, over ->
@@ -3526,6 +4427,9 @@ private fun SwipeableChatRow(
                                         imageLoader = api.imageLoader,
                                         textColor = palette.text,
                                         isEdited = isEditedMsg,
+                                        collapsible = !msg.deleted,
+                                        collapsedMaxLines = 8,
+                                        collapseStateKey = "msg_fold_${msg.id}_${msg.localId.orEmpty()}",
                                         onPostRefClick = onPostRefClick,
                                         onHashtagClick = onHashtagClick,
                                         onLinkClick = onLinkClick,
@@ -3628,7 +4532,9 @@ private fun SwipeableChatRow(
                         Surface(
                             color = bubbleBg,
                             shape = bubbleShape,
-                            modifier = Modifier.border(1.dp, bubbleBorder, bubbleShape),
+                            modifier = if (bubbleBorder != Color.Transparent) {
+                                Modifier.border(1.dp, bubbleBorder, bubbleShape)
+                            } else Modifier,
                         ) {
                             Text(
                                 text = "${if (msg.mine) "你" else msg.displayAuthor} 撤回了一条消息",
@@ -3706,6 +4612,9 @@ private fun SwipeableChatRow(
                                             bodyFontWeight = bubbleStyle?.fontWeight,
                                             bodyFontStyle = bubbleStyle?.fontStyle,
                                             isEdited = isEditedMsg,
+                                            collapsible = !msg.deleted,
+                                            collapsedMaxLines = 8,
+                                            collapseStateKey = "msg_fold_${msg.id}_${msg.localId.orEmpty()}",
                                             onPostRefClick = onPostRefClick,
                                             onHashtagClick = onHashtagClick,
                                             onLinkClick = onLinkClick,
@@ -4518,6 +5427,42 @@ private fun RedpackBubbleCard(
                 Text(shownAction, color = headerBg, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 Text(shownBadge, color = palette.muted, fontSize = 10.sp)
             }
+        }
+    }
+}
+
+@Composable
+private fun ModernChatHeaderIconButton(
+    icon: ImageVector,
+    contentDescription: String,
+    tint: Color = LocalForHappyPalette.current.text.copy(alpha = 0.86f),
+    containerColor: Color = LocalForHappyPalette.current.surface2.copy(alpha = 0.78f),
+    showDot: Boolean = false,
+    dotColor: Color = LocalForHappyPalette.current.primary,
+    onClick: () -> Unit,
+) {
+    Box(modifier = Modifier.size(34.dp)) {
+        Surface(
+            color = containerColor,
+            shape = CircleShape,
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(CircleShape)
+                .clickable { onClick() },
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(18.dp))
+            }
+        }
+        if (showDot) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 3.dp, end = 3.dp)
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(dotColor),
+            )
         }
     }
 }

@@ -1,5 +1,6 @@
 package com.jinhuan.forhappy.ui.notifications
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -85,6 +86,7 @@ import com.jinhuan.forhappy.ui.components.ReactionEmojiView
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
+import com.jinhuan.forhappy.ui.wall.DialogBackOwnerScope
 import com.jinhuan.forhappy.ui.wall.FullscreenDialogProperties
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -161,10 +163,20 @@ fun NotificationsSheet(
     }
 
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            if (showSettings && !initialShowSettings) {
+                showSettings = false
+            } else {
+                onDismiss()
+            }
+        },
         properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+        DialogBackOwnerScope {
+            BackHandler(enabled = showSettings && !initialShowSettings) {
+                showSettings = false
+            }
         val navBottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         Column(
             modifier = Modifier
@@ -506,6 +518,7 @@ fun NotificationsSheet(
                 }
             }
         }
+        }
     }
 
     longPressMenuNotif?.let { target ->
@@ -772,7 +785,9 @@ private fun NotificationDetailDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        Surface(
+        DialogBackOwnerScope {
+            BackHandler(onBack = onDismiss)
+            Surface(
             color = palette.surface,
             shape = RoundedCornerShape(16.dp),
             modifier = Modifier
@@ -896,6 +911,7 @@ private fun NotificationDetailDialog(
                     }
                 }
             }
+        }
         }
     }
 }

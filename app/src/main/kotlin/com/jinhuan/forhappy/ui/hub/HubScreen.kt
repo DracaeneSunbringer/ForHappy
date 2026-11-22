@@ -1,5 +1,6 @@
 package com.jinhuan.forhappy.ui.hub
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -78,6 +79,7 @@ import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.theme.TABULAR_FONT_FEATURE
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
+import com.jinhuan.forhappy.ui.wall.DialogBackOwnerScope
 import com.jinhuan.forhappy.ui.wall.FullscreenDialogProperties
 import com.jinhuan.forhappy.ui.web.ShelllessWebScreen
 import kotlinx.coroutines.delay
@@ -183,6 +185,10 @@ fun HubScreen(
     val catalog = remember(modules) { resolveHubCatalog(modules) }
     var pinnedIds by remember { mutableStateOf(catalog.take(6).map { it.id }) }
     var editingPinned by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = editingPinned) {
+        editingPinned = false
+    }
 
     var showMoyuDialog by remember { mutableStateOf(false) }
     var showRoadDialog by remember { mutableStateOf(false) }
@@ -739,31 +745,33 @@ fun HubScreen(
             properties = FullscreenDialogProperties,
         ) {
             ConfigureFullscreenDialogWindow(darkStatusIcons = true)
-            Box(modifier = Modifier.fillMaxSize().background(palette.bg)) {
-                ShelllessWebScreen(
-                    route = entry.route,
-                    title = entry.label,
-                    cookieJar = api.cookieJar,
-                    assetCache = api.webAssetCache,
-                    showCompactBar = false,
-                    floatingCapsule = true,
-                    pausedOverlay = bossKeyActive,
-                    isPinnedToHub = entry.id in pinnedIds,
-                    onTogglePinToHub = { togglePin(entry.id) },
-                    onExit = { activeWebEntry = null },
-                    api = api,
-                    chatController = chatController,
-                    me = me,
-                    onRequireLogin = onRequireLogin,
-                    onJumpToGroupChat = if (onJumpToGroupChat != null) {
-                        { gid ->
-                            activeWebEntry = null
-                            onJumpToGroupChat.invoke(gid)
-                        }
-                    } else {
-                        null
-                    },
-                )
+            DialogBackOwnerScope {
+                Box(modifier = Modifier.fillMaxSize().background(palette.bg)) {
+                    ShelllessWebScreen(
+                        route = entry.route,
+                        title = entry.label,
+                        cookieJar = api.cookieJar,
+                        assetCache = api.webAssetCache,
+                        showCompactBar = false,
+                        floatingCapsule = true,
+                        pausedOverlay = bossKeyActive,
+                        isPinnedToHub = entry.id in pinnedIds,
+                        onTogglePinToHub = { togglePin(entry.id) },
+                        onExit = { activeWebEntry = null },
+                        api = api,
+                        chatController = chatController,
+                        me = me,
+                        onRequireLogin = onRequireLogin,
+                        onJumpToGroupChat = if (onJumpToGroupChat != null) {
+                            { gid ->
+                                activeWebEntry = null
+                                onJumpToGroupChat.invoke(gid)
+                            }
+                        } else {
+                            null
+                        },
+                    )
+                }
             }
         }
     }

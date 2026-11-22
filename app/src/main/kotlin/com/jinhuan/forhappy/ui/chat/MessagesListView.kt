@@ -1,5 +1,6 @@
 package com.jinhuan.forhappy.ui.chat
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -117,6 +118,7 @@ import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.theme.LocalPrivacyStealthConfig
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
+import com.jinhuan.forhappy.ui.wall.DialogBackOwnerScope
 import com.jinhuan.forhappy.ui.wall.FullscreenDialogProperties
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -1059,6 +1061,8 @@ private fun GlobalMessagesSearchDialog(
         properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+        DialogBackOwnerScope {
+            BackHandler(onBack = onDismiss)
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -1167,6 +1171,7 @@ private fun GlobalMessagesSearchDialog(
                 }
             }
         }
+        }
     }
 }
 
@@ -1218,6 +1223,8 @@ fun GroupInfoDialog(
         properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+        DialogBackOwnerScope {
+            BackHandler(onBack = onDismiss)
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -1528,6 +1535,7 @@ fun GroupInfoDialog(
                 }
             }
         }
+        }
     }
 
     if (showLeaveConfirm && me != null) {
@@ -1788,6 +1796,8 @@ fun ChatHistorySearchDialog(
         properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+        DialogBackOwnerScope {
+            BackHandler(onBack = onDismiss)
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -1957,6 +1967,7 @@ fun ChatHistorySearchDialog(
                     }
                 }
             }
+        }
         }
     }
 }

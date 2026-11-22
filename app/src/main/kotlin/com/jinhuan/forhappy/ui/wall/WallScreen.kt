@@ -2,6 +2,7 @@ package com.jinhuan.forhappy.ui.wall
 
 import android.graphics.RectF
 import android.os.SystemClock
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -422,11 +423,65 @@ fun WallScreen(
         }
     }
 
-    fun applyFilter(next: WallFilterState) {
+    var filterBackStack by remember { mutableStateOf<List<WallFilterState>>(emptyList()) }
+
+    fun applyFilter(next: WallFilterState, recordHistory: Boolean = true) {
+        if (recordHistory && next != filter) {
+            val prevDrill = filter.series.isNotBlank() ||
+                filter.author.isNotBlank() ||
+                filter.tags.isNotEmpty() ||
+                filter.fromDay != null ||
+                filter.focusMemeId != null ||
+                filter.viewMode == "pager"
+            val nextDrill = next.series.isNotBlank() ||
+                next.author.isNotBlank() ||
+                next.tags.isNotEmpty() ||
+                next.fromDay != null ||
+                next.focusMemeId != null ||
+                next.viewMode == "pager"
+            if (prevDrill || nextDrill) {
+                filterBackStack = (filterBackStack + filter).takeLast(10)
+            }
+        }
         filter = next
         persistPrefs(next)
         topBarOffsetPx = 0f
         fabVisible = true
+    }
+
+    val hasDrillDownFilter = filter.series.isNotBlank() ||
+        filter.author.isNotBlank() ||
+        filter.tags.isNotEmpty() ||
+        filter.fromDay != null ||
+        filter.focusMemeId != null
+    BackHandler(
+        enabled = showFabMenu ||
+            filterBackStack.isNotEmpty() ||
+            hasDrillDownFilter ||
+            filter.viewMode == "pager",
+    ) {
+        when {
+            showFabMenu -> showFabMenu = false
+            filterBackStack.isNotEmpty() -> {
+                val prev = filterBackStack.last()
+                filterBackStack = filterBackStack.dropLast(1)
+                applyFilter(prev, recordHistory = false)
+            }
+            hasDrillDownFilter -> applyFilter(
+                filter.copy(
+                    series = "",
+                    author = "",
+                    tags = emptySet(),
+                    fromDay = null,
+                    focusMemeId = null,
+                ),
+                recordHistory = false,
+            )
+            filter.viewMode == "pager" -> applyFilter(
+                filter.copy(viewMode = "dual"),
+                recordHistory = false,
+            )
+        }
     }
 
     var lastHandledUnseenSignal by remember { mutableIntStateOf(0) }

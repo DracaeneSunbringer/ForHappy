@@ -191,8 +191,35 @@ fun ShelllessWebScreen(
         }
     }
 
-    BackHandler(enabled = canGoBack) {
-        webViewRef?.goBack()
+    fun handleBackNavigation() {
+        when {
+            showOverflowMenu -> showOverflowMenu = false
+            showNovelChatDrawer -> showNovelChatDrawer = false
+            pendingExcerpt != null -> pendingExcerpt = null
+            else -> {
+                val wv = webViewRef
+                if (wv == null) {
+                    onExit?.invoke()
+                } else {
+                    wv.evaluateJavascript(
+                        "(function(){var ds=Array.prototype.slice.call(document.querySelectorAll('dialog[open]'));if(ds.length){var d=ds[ds.length-1];try{d.close();}catch(e){d.removeAttribute('open');}return 'closed';}return 'none';})()",
+                    ) { res ->
+                        if (res != null && res.contains("closed")) {
+                            return@evaluateJavascript
+                        }
+                        if (wv.canGoBack()) {
+                            wv.goBack()
+                        } else {
+                            onExit?.invoke()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    BackHandler(enabled = showOverflowMenu || showNovelChatDrawer || pendingExcerpt != null || canGoBack || onExit != null) {
+        handleBackNavigation()
     }
 
     // Pause WebView + HTML5/WebAudio immediately when Boss Key activates or activity backgrounds
@@ -594,7 +621,7 @@ fun ShelllessWebScreen(
                             IconButton(
                                 onClick = {
                                     lastInteractMs = System.currentTimeMillis()
-                                    if (canGoBack) webViewRef?.goBack() else onExit?.invoke()
+                                    handleBackNavigation()
                                 },
                                 modifier = Modifier.size(32.dp),
                             ) {

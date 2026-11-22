@@ -145,6 +145,7 @@ import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.theme.TABULAR_FONT_FEATURE
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
+import com.jinhuan.forhappy.ui.wall.DialogBackOwnerScope
 import com.jinhuan.forhappy.ui.wall.FullscreenDialogProperties
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -666,8 +667,6 @@ fun ComposeWorkbench(
         }
     }
 
-    BackHandler { attemptClose() }
-
     suspend fun uploadSingleTrayItem(item: ComposeTrayItem): ComposeTrayItem? {
         if (item.isOverLimit) {
             publishStatusText = "${item.fileName} 超过 20MB，请压缩或移除"
@@ -960,6 +959,8 @@ fun ComposeWorkbench(
         properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+        DialogBackOwnerScope {
+            BackHandler { attemptClose() }
 
         Column(
             modifier = Modifier
@@ -1982,6 +1983,7 @@ fun ComposeWorkbench(
                     }
                 }
             }
+        }
         }
     }
 

@@ -3,6 +3,7 @@ package com.jinhuan.forhappy.ui.me
 import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -90,6 +91,7 @@ import com.jinhuan.forhappy.core.model.FolderItem
 import com.jinhuan.forhappy.core.model.MeUser
 import com.jinhuan.forhappy.core.model.MemeItem
 import com.jinhuan.forhappy.core.model.Owner52bCard
+import com.jinhuan.forhappy.core.model.Owner52bPack
 import com.jinhuan.forhappy.core.model.PrivacyStealthConfig
 import com.jinhuan.forhappy.core.model.ShortcutGestureMode
 import com.jinhuan.forhappy.core.model.WalletSummary
@@ -167,7 +169,8 @@ fun MeScreen(
 
     var stats by remember { mutableStateOf<JsonObject?>(null) }
     var wallet by remember { mutableStateOf<WalletSummary?>(null) }
-    var cards52b by remember { mutableStateOf<List<Owner52bCard>>(emptyList()) }
+    var cardPacks52b by remember { mutableStateOf<List<Owner52bPack>>(emptyList()) }
+    var cards52bLoaded by remember { mutableStateOf(false) }
     var folders by remember { mutableStateOf<List<FolderItem>>(emptyList()) }
     var cleanRawPref by remember { mutableStateOf<String?>(null) }
 
@@ -206,17 +209,25 @@ fun MeScreen(
     LaunchedEffect(me?.id) {
         cleanRawPref = api.getPref(KV_DECO_CLEAN)
         if (me != null) {
+            cards52bLoaded = false
             stats = api.fetchMeStats()
             wallet = api.fetchWallet()
-            cards52b = api.fetchOwner52bCards()
+            cardPacks52b = api.fetchOwner52bPacks()
+            cards52bLoaded = true
             folders = api.fetchFolders()
         } else {
             stats = null
             wallet = null
-            cards52b = emptyList()
+            cardPacks52b = emptyList()
+            cards52bLoaded = false
             folders = emptyList()
             streamItems = emptyList()
         }
+    }
+
+    BackHandler(enabled = searchExpanded || searchQuery.isNotBlank()) {
+        searchQuery = ""
+        searchExpanded = false
     }
 
     LaunchedEffect(me?.id, activeStreamTab, selectedFolderId, sortMode, searchQuery) {
@@ -268,7 +279,16 @@ fun MeScreen(
     val renderAssetTiles = @Composable { rowModifier: Modifier ->
         Row(modifier = rowModifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             val coinsVal = wallet?.let { NumberFormat.getNumberInstance(Locale.CHINA).format(it.resolvedCoins) } ?: "--"
-            val cardsVal = if (cards52b.isNotEmpty()) "${cards52b.count { it.owned }}/${cards52b.size}" else "--"
+            val total52b = cardPacks52b.sumOf { maxOf(it.total, it.cards.size) }
+            val owned52b = cardPacks52b.sumOf { p ->
+                if (p.cards.isNotEmpty()) p.cards.count { it.owned } else p.owned
+            }
+            val cardsVal = when {
+                me == null -> "--"
+                total52b > 0 -> "$owned52b/$total52b"
+                cards52bLoaded -> "0/0"
+                else -> "--"
+            }
 
             AssetGridCell(
                 emoji = "🪙",
@@ -895,7 +915,7 @@ fun MeScreen(
     if (showCardsDialog && me != null) {
         Cards52bDialog(
             api = api,
-            initialCards = cards52b,
+            initialPacks = cardPacks52b,
             onOpenWebRoute = onOpenWebRoute,
             onDismiss = { showCardsDialog = false },
         )

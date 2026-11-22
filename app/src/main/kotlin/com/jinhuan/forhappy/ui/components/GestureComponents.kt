@@ -40,6 +40,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -524,6 +525,68 @@ fun PullToDismissBox(
     }
 }
 
+private fun estimateInlineTokensLines(tokens: List<ChatRichTextParser.Token>): Int {
+    val sb = StringBuilder()
+    tokens.forEach { t ->
+        when (t) {
+            is ChatRichTextParser.Token.PlainText -> sb.append(t.text)
+            is ChatRichTextParser.Token.Bold -> sb.append(t.text)
+            is ChatRichTextParser.Token.Strike -> sb.append(t.text)
+            is ChatRichTextParser.Token.InlineCode -> sb.append(t.code)
+            is ChatRichTextParser.Token.Spoiler -> sb.append(t.text)
+            is ChatRichTextParser.Token.Mention -> sb.append("@").append(t.username)
+            is ChatRichTextParser.Token.PostRef -> sb.append(t.label)
+            is ChatRichTextParser.Token.Hashtag -> sb.append("#").append(t.tag)
+            is ChatRichTextParser.Token.MarkdownLink -> sb.append(t.label)
+            is ChatRichTextParser.Token.WebLink -> sb.append(t.url)
+            is ChatRichTextParser.Token.Sticker,
+            is ChatRichTextParser.Token.Twemoji -> sb.append("□□")
+        }
+    }
+    val text = sb.toString()
+    if (text.isBlank()) return 0
+    return text.split('\n').sumOf { seg ->
+        if (seg.isEmpty()) 1 else ((seg.length - 1) / 18) + 1
+    }
+}
+
+/** Estimates visual lines of a parsed chat body inside ~296dp group chat bubbles. */
+fun estimateChatBodyVisualLines(parsed: ChatRichTextParser.ParsedBody): Int {
+    if (parsed.blocks.isEmpty()) return 0
+    return parsed.blocks.sumOf { block ->
+        when (block) {
+            is ChatRichTextParser.Block.Paragraph -> estimateInlineTokensLines(block.tokens).coerceAtLeast(1)
+            is ChatRichTextParser.Block.BlockQuote -> estimateInlineTokensLines(block.tokens).coerceAtLeast(1) + 1
+            is ChatRichTextParser.Block.CodeBlock -> block.code.lines().sumOf { line ->
+                if (line.isEmpty()) 1 else ((line.length - 1) / 28) + 1
+            }.coerceAtLeast(1) + 1
+            is ChatRichTextParser.Block.QuoteBlock -> 2 + estimateInlineTokensLines(block.bodyTokens).coerceAtMost(3)
+            is ChatRichTextParser.Block.DetailsBlock -> 2
+        }
+    }
+}
+
+/** Returns true when a chat message is long enough to merit default folding in group chat. */
+fun shouldCollapseChatBody(
+    parsed: ChatRichTextParser.ParsedBody,
+    maxLines: Int = 8,
+): Boolean {
+    if (parsed.bodyImgOnly) return false
+    if (parsed.blocks.size == 1) {
+        val single = parsed.blocks.first()
+        if (single is ChatRichTextParser.Block.Paragraph &&
+            single.tokens.count { it is ChatRichTextParser.Token.Sticker } in 1..6 &&
+            single.tokens.all {
+                it is ChatRichTextParser.Token.Sticker ||
+                    (it is ChatRichTextParser.Token.PlainText && it.text.isBlank())
+            }
+        ) {
+            return false
+        }
+    }
+    return estimateChatBodyVisualLines(parsed) > maxLines
+}
+
 /**
  * Full rich text & lite-Markdown renderer for `52dmeme.com` messages, comments, and descriptions.
  */
@@ -539,6 +602,9 @@ fun RichChatBodyView(
     bodyFontStyle: FontStyle? = null,
     isEdited: Boolean = false,
     showInlineImages: Boolean = true,
+    collapsible: Boolean = false,
+    collapsedMaxLines: Int = 8,
+    collapseStateKey: Any? = null,
     onPostRefClick: (Long) -> Unit = {},
     onHashtagClick: (String) -> Unit = {},
     onLinkClick: (String) -> Unit = {},
@@ -556,10 +622,23 @@ fun RichChatBodyView(
     val onlyParagraphIdx = remember(parsed.blocks) {
         parsed.blocks.indexOfLast { it is ChatRichTextParser.Block.Paragraph }
     }
+    val foldKey = collapseStateKey?.toString() ?: rawBody
+    var isExpanded by rememberSaveable(foldKey) { mutableStateOf(false) }
+    var observedOverflow by remember(foldKey, rawBody) { mutableStateOf(false) }
+    val estimatedOverBudget = remember(parsed, collapsible, collapsedMaxLines) {
+        collapsible && !onlyInlineImage && shouldCollapseChatBody(parsed, collapsedMaxLines)
+    }
+
+    var hiddenByBudget = false
 
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
         if (!onlyInlineImage) {
-            parsed.blocks.forEachIndexed { bIdx, block ->
+            var remainingLines = if (collapsible && !isExpanded) collapsedMaxLines.coerceAtLeast(3) else Int.MAX_VALUE
+            for ((bIdx, block) in parsed.blocks.withIndex()) {
+                if (collapsible && !isExpanded && remainingLines <= 0) {
+                    hiddenByBudget = true
+                    break
+                }
                 when (block) {
                     is ChatRichTextParser.Block.QuoteBlock -> {
                         val jumpMemeId = block.memeId
@@ -618,6 +697,8 @@ fun RichChatBodyView(
                                             stickerSp = 20.sp,
                                             linkColor = palette.primary,
                                             mutedColor = palette.muted,
+                                            maxLines = if (collapsible && !isExpanded) 3 else Int.MAX_VALUE,
+                                            overflow = TextOverflow.Ellipsis,
                                             onPostRefClick = onPostRefClick,
                                             onHashtagClick = onHashtagClick,
                                             onLinkClick = { url ->
@@ -628,6 +709,9 @@ fun RichChatBodyView(
                                     }
                                 }
                             }
+                        }
+                        if (remainingLines < Int.MAX_VALUE) {
+                            remainingLines -= (2 + estimateInlineTokensLines(block.bodyTokens).coerceAtMost(3))
                         }
                     }
 
@@ -686,9 +770,18 @@ fun RichChatBodyView(
                                 }
                             }
                         }
+                        if (remainingLines < Int.MAX_VALUE) remainingLines -= 2
                     }
 
                     is ChatRichTextParser.Block.CodeBlock -> {
+                        val allLines = remember(block.code) { block.code.lines() }
+                        val capLines = if (collapsible && !isExpanded) remainingLines.coerceAtLeast(3) else allLines.size
+                        val codeText = if (collapsible && !isExpanded && allLines.size > capLines) {
+                            hiddenByBudget = true
+                            allLines.take(capLines).joinToString("\n") + "\n…"
+                        } else {
+                            block.code
+                        }
                         Surface(
                             color = palette.surface2,
                             shape = RoundedCornerShape(10.dp),
@@ -697,7 +790,7 @@ fun RichChatBodyView(
                                 .border(1.dp, palette.line.copy(alpha = 0.7f), RoundedCornerShape(10.dp)),
                         ) {
                             Text(
-                                text = block.code,
+                                text = codeText,
                                 color = effectiveTextColor,
                                 fontSize = 12.sp,
                                 fontFamily = FontFamily.Monospace,
@@ -707,9 +800,15 @@ fun RichChatBodyView(
                                     .padding(horizontal = 10.dp, vertical = 7.dp),
                             )
                         }
+                        if (remainingLines < Int.MAX_VALUE) {
+                            remainingLines -= minOf(allLines.size, capLines) + 1
+                        }
                     }
 
                     is ChatRichTextParser.Block.BlockQuote -> {
+                        val bqMax = if (collapsible && !isExpanded) remainingLines.coerceAtLeast(2) else Int.MAX_VALUE
+                        val estLines = estimateInlineTokensLines(block.tokens).coerceAtLeast(1)
+                        if (collapsible && !isExpanded && estLines > bqMax) hiddenByBudget = true
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -736,6 +835,9 @@ fun RichChatBodyView(
                                 fontFamily = bodyFontFamily,
                                 fontWeight = bodyFontWeight,
                                 fontStyle = bodyFontStyle,
+                                maxLines = bqMax,
+                                overflow = if (bqMax < Int.MAX_VALUE) TextOverflow.Ellipsis else TextOverflow.Clip,
+                                onVisualOverflow = { over -> if (over) observedOverflow = true },
                                 onPostRefClick = onPostRefClick,
                                 onHashtagClick = onHashtagClick,
                                 onLinkClick = { url ->
@@ -743,6 +845,9 @@ fun RichChatBodyView(
                                     if (mid != null) onPostRefClick(mid) else onLinkClick(url)
                                 },
                             )
+                        }
+                        if (remainingLines < Int.MAX_VALUE) {
+                            remainingLines -= minOf(estLines, bqMax) + 1
                         }
                     }
 
@@ -756,6 +861,9 @@ fun RichChatBodyView(
                             }
                         val soloSizeDp = if (stickerCount == 1) 64.dp else if (stickerCount <= 3) 48.dp else 38.dp
                         val soloSp = if (stickerCount == 1) 66.sp else if (stickerCount <= 3) 50.sp else 40.sp
+                        val paraMax = if (collapsible && !isExpanded && !isSoloStickers) remainingLines.coerceAtLeast(1) else Int.MAX_VALUE
+                        val estLines = estimateInlineTokensLines(block.tokens).coerceAtLeast(1)
+                        if (collapsible && !isExpanded && !isSoloStickers && estLines > paraMax) hiddenByBudget = true
                         InlineTokensText(
                             tokens = block.tokens,
                             imageLoader = imageLoader,
@@ -770,6 +878,9 @@ fun RichChatBodyView(
                             fontFamily = bodyFontFamily,
                             fontWeight = bodyFontWeight,
                             fontStyle = bodyFontStyle,
+                            maxLines = paraMax,
+                            overflow = if (paraMax < Int.MAX_VALUE) TextOverflow.Ellipsis else TextOverflow.Clip,
+                            onVisualOverflow = { over -> if (over) observedOverflow = true },
                             onPostRefClick = onPostRefClick,
                             onHashtagClick = onHashtagClick,
                             onLongPress = onLongPress,
@@ -778,6 +889,9 @@ fun RichChatBodyView(
                                 if (mid != null) onPostRefClick(mid) else onLinkClick(url)
                             },
                         )
+                        if (remainingLines < Int.MAX_VALUE) {
+                            remainingLines -= minOf(estLines, paraMax)
+                        }
                     }
                 }
             }
@@ -789,6 +903,32 @@ fun RichChatBodyView(
                 color = effectiveMutedColor,
                 fontSize = 11.sp,
             )
+        }
+
+        val showFoldToggle = collapsible && !onlyInlineImage &&
+            (observedOverflow || hiddenByBudget || estimatedOverBudget)
+        if (showFoldToggle) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { isExpanded = !isExpanded }
+                    .padding(horizontal = 2.dp, vertical = 2.dp),
+            ) {
+                Text(
+                    text = if (isExpanded) "收起长消息" else "展开全文",
+                    color = effectiveLinkColor,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Icon(
+                    imageVector = if (isExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    contentDescription = if (isExpanded) "收起长消息" else "展开全文",
+                    tint = effectiveLinkColor,
+                    modifier = Modifier.size(15.dp),
+                )
+            }
         }
 
         if (showInlineImages && parsed.inlineImageUrls.isNotEmpty()) {
@@ -826,6 +966,9 @@ private fun InlineTokensText(
     fontFamily: FontFamily? = null,
     fontWeight: FontWeight? = null,
     fontStyle: FontStyle? = null,
+    maxLines: Int = Int.MAX_VALUE,
+    overflow: TextOverflow = TextOverflow.Clip,
+    onVisualOverflow: ((Boolean) -> Unit)? = null,
     onPostRefClick: (Long) -> Unit,
     onHashtagClick: (String) -> Unit,
     onLinkClick: (String) -> Unit,
@@ -1027,8 +1170,13 @@ private fun InlineTokensText(
             fontWeight = fontWeight,
             fontStyle = fontStyle,
         ),
+        maxLines = maxLines,
+        overflow = overflow,
         inlineContent = inlineContent,
-        onTextLayout = { layoutResult = it },
+        onTextLayout = { res ->
+            layoutResult = res
+            onVisualOverflow?.invoke(res.hasVisualOverflow)
+        },
         modifier = Modifier.pointerInput(annotated, onLongPress) {
             detectTapGestures(
                 onLongPress = if (onLongPress != null) {

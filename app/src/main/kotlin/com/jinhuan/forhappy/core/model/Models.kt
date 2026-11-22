@@ -3,16 +3,20 @@ package com.jinhuan.forhappy.core.model
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
+import kotlin.math.roundToLong
 
 val ForHappyJson = Json {
     ignoreUnknownKeys = true
@@ -1399,13 +1403,103 @@ data class WalletSummary(
 
 @Serializable
 data class Owner52bCard(
-    val id: Long = 0L,
+    val id: String = "",
     val name: String = "",
     val desc: String? = null,
     val tier: String? = null,
     val owned: Boolean = false,
+    val count: Int = 0,
     val icon: String? = null,
+    val asset: String? = null,
+    val back: String? = null,
+    @SerialName("first_at") val firstAt: Long? = null,
+    val packId: String = "",
+    val packName: String = "",
 )
+
+@Serializable
+data class Owner52bPack(
+    val id: String = "",
+    val name: String = "",
+    val owned: Int = 0,
+    val total: Int = 0,
+    val cards: List<Owner52bCard> = emptyList(),
+)
+
+private fun parseSingleOwner52bCard(
+    obj: JsonObject,
+    packId: String,
+    packName: String,
+): Owner52bCard {
+    val rawId = (obj["id"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+    val name = (obj["name"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+    val desc = (obj["description"] as? JsonPrimitive)?.contentOrNull
+        ?: (obj["desc"] as? JsonPrimitive)?.contentOrNull
+    val tier = (obj["rarity"] as? JsonPrimitive)?.contentOrNull
+        ?: (obj["tier"] as? JsonPrimitive)?.contentOrNull
+    val count = (obj["count"] as? JsonPrimitive)?.intOrNull ?: 0
+    val owned = (obj["owned"] as? JsonPrimitive)?.booleanOrNull ?: (count > 0)
+    val icon = (obj["icon"] as? JsonPrimitive)?.contentOrNull
+    val asset = (obj["asset"] as? JsonPrimitive)?.contentOrNull
+    val back = (obj["back"] as? JsonPrimitive)?.contentOrNull
+    val firstAt = (obj["first_at"] as? JsonPrimitive)?.longOrNull
+    return Owner52bCard(
+        id = rawId,
+        name = name,
+        desc = desc,
+        tier = tier,
+        owned = owned,
+        count = if (owned && count <= 0) 1 else count,
+        icon = icon,
+        asset = asset,
+        back = back,
+        firstAt = firstAt,
+        packId = packId,
+        packName = packName,
+    )
+}
+
+/**
+ * Parses `/api/me/owner52b-cards` matching `52dmeme.com/app.js` `owner52CardsDialog` (`{ packs: [...] }`),
+ * while also falling back cleanly if a flat `{ cards / items: [...] }` array is ever returned.
+ */
+fun parseOwner52bPacksJson(rawBody: String): List<Owner52bPack> {
+    val root = runCatching { ForHappyJson.parseToJsonElement(rawBody) as? JsonObject }.getOrNull() ?: return emptyList()
+    val packsArr = root["packs"] as? JsonArray
+    if (!packsArr.isNullOrEmpty()) {
+        return packsArr.mapNotNull { packEl ->
+            val pObj = packEl as? JsonObject ?: return@mapNotNull null
+            val pId = (pObj["id"] as? JsonPrimitive)?.contentOrNull.orEmpty().ifBlank { "52b" }
+            val pName = (pObj["name"] as? JsonPrimitive)?.contentOrNull.orEmpty().ifBlank { "52B 集卡包" }
+            val cards = (pObj["cards"] as? JsonArray)?.mapNotNull { cEl ->
+                (cEl as? JsonObject)?.let { parseSingleOwner52bCard(it, pId, pName) }
+            }.orEmpty()
+            val owned = (pObj["owned"] as? JsonPrimitive)?.intOrNull ?: cards.count { it.owned }
+            val total = (pObj["total"] as? JsonPrimitive)?.intOrNull ?: cards.size
+            Owner52bPack(
+                id = pId,
+                name = pName,
+                owned = owned,
+                total = maxOf(total, cards.size),
+                cards = cards,
+            )
+        }
+    }
+    val flatArr = (root["cards"] as? JsonArray) ?: (root["items"] as? JsonArray) ?: return emptyList()
+    val flatCards = flatArr.mapNotNull { cEl ->
+        (cEl as? JsonObject)?.let { parseSingleOwner52bCard(it, "52b", "52B 巡展") }
+    }
+    if (flatCards.isEmpty()) return emptyList()
+    return listOf(
+        Owner52bPack(
+            id = "52b",
+            name = "52B 巡展",
+            owned = flatCards.count { it.owned },
+            total = flatCards.size,
+            cards = flatCards,
+        ),
+    )
+}
 
 @Serializable
 data class DynamicModule(
@@ -1917,17 +2011,33 @@ data class RedpackArchiveItem(
     val provider: String = "native",
     @SerialName("payment_provider") val paymentProvider: String? = null,
     val mode: String = "open",
+    val game: String? = null,
+    @SerialName("ldc_mode") val ldcMode: String? = null,
     val state: String = "open",
+    val stateLabel: String = "",
+    val channelLabel: String = "",
+    val amountText: String = "",
+    val progressText: String = "",
     val total: JsonElement? = null,
     val currency: String? = null,
     val count: Int = 0,
     val opened: Int = 0,
     @SerialName("sender_name") val senderName: String? = null,
+    @SerialName("sender_avatar") val senderAvatar: String? = null,
+    val cover: String? = null,
     @SerialName("created_at") val createdAt: Long = 0L,
+    val deleted: Boolean = false,
+    val isGuessGame: Boolean = false,
 ) {
-    val displayTitle: String get() = prompt.ifBlank { title.ifBlank { "红包 #${if (messageId > 0L) messageId else id}" } }
-    val totalText: String get() = (total as? JsonPrimitive)?.contentOrNull.orEmpty()
+    val displayTitle: String get() = title.ifBlank { prompt.ifBlank { "红包 #${if (messageId > 0L) messageId else id}" } }
+    val totalText: String get() = amountText.ifBlank { (total as? JsonPrimitive)?.contentOrNull.orEmpty() }
 }
+
+data class RedpackArchivePage(
+    val items: List<RedpackArchiveItem> = emptyList(),
+    val more: Boolean = false,
+    val next: String? = null,
+)
 
 @Serializable
 data class SenderStatItem(
@@ -1936,11 +2046,278 @@ data class SenderStatItem(
     val name: String? = null,
     val avatar: String? = null,
     val count: Int = 0,
+    val value: Long = 0L,
     val total: JsonElement? = null,
     val currency: String? = null,
+    val valueText: String = "",
 ) {
     val displayName: String get() = name?.takeIf { it.isNotBlank() } ?: username.ifBlank { "欢友" }
-    val totalText: String get() = (total as? JsonPrimitive)?.contentOrNull.orEmpty()
+    val totalText: String get() = valueText.ifBlank { (total as? JsonPrimitive)?.contentOrNull.orEmpty() }
+}
+
+data class SenderStatsPage(
+    val leaders: List<SenderStatItem> = emptyList(),
+    val mineValue: Long = 0L,
+    val mineValueText: String = "",
+    val mineRank: Int? = null,
+    val today: String? = null,
+)
+
+private val REDPACK_ARCHIVE_STATE_MAP = mapOf(
+    "active" to "可领取",
+    "open" to "进行中",
+    "exhausted" to "被抢光啦",
+    "expired" to "已过期",
+    "cancelled" to "已取消",
+    "canceled" to "已取消",
+    "drawn" to "已开奖",
+    "unmatched" to "口令待匹配",
+    "registered" to "已报名待开奖",
+    "drawing" to "正在开奖",
+    "not_won" to "未中奖",
+    "payment_pending" to "奖励待发放",
+    "simulation" to "模拟奖励",
+    "draft" to "尚未开放",
+    "unconfirmed" to "待核对",
+    "ended" to "已结束",
+    "settled" to "已结束",
+    "closed" to "已结束",
+)
+
+private fun JsonObject.strOrNull(key: String): String? =
+    (get(key) as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
+
+private fun JsonObject.longOrNull(key: String): Long? =
+    (get(key) as? JsonPrimitive)?.longOrNull
+
+private fun JsonObject.intOrNull(key: String): Int? =
+    (get(key) as? JsonPrimitive)?.intOrNull
+
+private fun JsonObject.boolOrNull(key: String): Boolean? =
+    (get(key) as? JsonPrimitive)?.booleanOrNull
+
+private fun JsonElement?.isPresentJson(): Boolean = this != null && this !is JsonNull
+
+/**
+ * Parses `GET /api/chat/groups/{gid}/redpacks?view=...` following `52dmeme.com/redpacket.js` (`d.items` are [ChatMessage] rows
+ * carrying nested `user` and `redpack`), with graceful fallback if flat records are ever returned.
+ */
+fun parseRedpackArchivePageJson(rawBody: String, view: String = "history"): RedpackArchivePage {
+    val root = runCatching { ForHappyJson.parseToJsonElement(rawBody) as? JsonObject }.getOrNull()
+        ?: return RedpackArchivePage()
+    val arr = (root["items"] as? JsonArray) ?: (root["redpacks"] as? JsonArray) ?: return RedpackArchivePage()
+    val more = root.boolOrNull("more") ?: false
+    val next = root.strOrNull("next")
+
+    val parsedItems = arr.mapNotNull { el ->
+        val obj = el as? JsonObject ?: return@mapNotNull null
+        val rpObj = obj["redpack"] as? JsonObject
+        if (rpObj != null) {
+            val msg = runCatching { ForHappyJson.decodeFromJsonElement(ChatMessage.serializer(), obj) }.getOrNull()
+            val mid = msg?.id?.takeIf { it > 0L } ?: obj.longOrNull("id") ?: 0L
+            val meta = msg?.parseRedpackMeta()
+            val sender = msg?.displayAuthor?.takeIf { it.isNotBlank() }
+                ?: (obj["user"] as? JsonObject)?.let { u ->
+                    u.strOrNull("name") ?: u.strOrNull("nick") ?: u.strOrNull("username")
+                }
+                ?: "欢友"
+            val senderAvatar = msg?.resolvedAvatar ?: (obj["user"] as? JsonObject)?.strOrNull("avatar")
+            val deleted = msg?.deleted ?: obj.boolOrNull("deleted") ?: false
+            val createdAt = msg?.createdAt ?: obj.longOrNull("created_at") ?: 0L
+            val prompt = meta?.prompt ?: rpObj.strOrNull("prompt") ?: rpObj.strOrNull("title").orEmpty()
+            val title = prompt.ifBlank { "${sender}的红包" }
+
+            val provider = meta?.provider ?: rpObj.strOrNull("provider") ?: "native"
+            val paymentProvider = meta?.paymentProvider ?: rpObj.strOrNull("payment_provider")
+            val game = meta?.game ?: rpObj.strOrNull("game")
+            val mode = meta?.mode ?: rpObj.strOrNull("mode") ?: "open"
+            val ldcMode = meta?.ldcMode ?: rpObj.strOrNull("ldc_mode")
+            val snapshot = rpObj["snapshot"] as? JsonObject
+            val ldcObj = rpObj["ldc"] as? JsonObject
+            val coin52Obj = rpObj["coin52"] as? JsonObject
+            val drawObj = rpObj["draw"] as? JsonObject
+
+            val isDcoin = provider == "coin52" || paymentProvider == "coin52"
+            val isGuessGame = meta?.isGuessGame == true || game == "free_guess" || ldcMode in setOf("guess", "clues")
+
+            val channelLabel = when {
+                isDcoin -> if (drawObj != null) "D币抽奖" else "D币红包"
+                game == "free_guess" -> "无奖励猜词"
+                game == "ldc" -> when {
+                    drawObj?.strOrNull("kind") == "lottery" || ldcObj?.get("draw") is JsonObject -> "LDC 抽奖"
+                    ldcMode in setOf("guess", "clues") -> "LDC 猜词"
+                    else -> "本站 LDC"
+                }
+                provider == "hb" -> "HB 红包"
+                provider == "credit" -> "Credit 红包"
+                provider == "fish" -> "Fish 红包"
+                provider == "native" -> when (mode) {
+                    "phrase" -> "复读口令"
+                    "cipher" -> "解谜红包"
+                    "image" -> "猜图红包"
+                    else -> "直接开"
+                }
+                else -> "红包"
+            }
+
+            val sClaimed = snapshot?.boolOrNull("claimed") ?: false
+            val sState = snapshot?.strOrNull("state")
+            val sRemaining = snapshot?.intOrNull("remaining")
+            val sTotal = snapshot?.intOrNull("total")
+            val sClaimedCount = snapshot?.intOrNull("claimed_count")
+            val ldcState = ldcObj?.strOrNull("state") ?: sState
+            val ldcMine = ldcObj?.get("mine")
+            val coin52State = coin52Obj?.strOrNull("state") ?: sState
+            val coin52Mine = coin52Obj?.get("mine")
+            val coin52Remaining = coin52Obj?.intOrNull("remaining_count")
+            val coin52Count = coin52Obj?.intOrNull("count")
+            val ldcCount = meta?.ldcCount ?: ldcObj?.intOrNull("count")
+            val ldcClaimedCount = ldcObj?.intOrNull("claimed_count")
+            val opened = meta?.opened ?: rpObj.intOrNull("opened") ?: 0
+            val solved = meta?.solved ?: rpObj.boolOrNull("solved") ?: false
+
+            val stateLabel = when {
+                deleted -> "已撤回"
+                view == "check" -> "待确认"
+                game == "free_guess" -> if (solved) "已猜出" else "猜词中"
+                coin52Mine.isPresentJson() -> "已领取"
+                coin52State == "expired" -> "已过期"
+                coin52State in setOf("exhausted", "ended", "closed") || coin52Remaining == 0 -> "已领完"
+                coin52State == "active" -> "可领取"
+                ldcMine.isPresentJson() -> "已领取"
+                game == "ldc" && ldcState in setOf("ended", "settled", "closed") -> "已结束"
+                game == "ldc" && ldcState == "open" -> if (isGuessGame) "猜词中" else if (view == "pending") "可领取" else "进行中"
+                sClaimed -> "已领取"
+                sState == "expired" -> "已过期"
+                sRemaining == 0 || (sTotal != null && sClaimedCount != null && sClaimedCount >= sTotal) -> "已领完"
+                sState != null -> REDPACK_ARCHIVE_STATE_MAP[sState.lowercase()] ?: sState
+                provider == "coin52" || game == "ldc" -> if (view == "pending") "可领取" else "已归档"
+                provider == "native" -> when {
+                    solved -> "已拆"
+                    view == "history" -> "已结束"
+                    else -> "待拆"
+                }
+                else -> if (view == "pending") "待确认" else "点开查看"
+            }
+
+            val totalCents = meta?.ldcTotalCents ?: ldcObj?.longOrNull("total") ?: coin52Obj?.longOrNull("total")
+            val amountText = when {
+                totalCents != null && totalCents > 0L ->
+                    if (isDcoin) "${totalCents / 100} D币" else String.format(java.util.Locale.US, "%.2f LDC", totalCents / 100.0)
+                else -> ""
+            }
+
+            val progressText = when {
+                sClaimedCount != null && sTotal != null && sTotal > 0 -> "已领 $sClaimedCount/$sTotal 份"
+                sRemaining != null && sTotal != null && sTotal > 0 -> "剩 $sRemaining/$sTotal 份"
+                ldcClaimedCount != null && ldcCount != null && ldcCount > 0 -> "已领 $ldcClaimedCount/$ldcCount 份"
+                coin52Count != null && coin52Remaining != null && coin52Count > 0 -> "已领 ${(coin52Count - coin52Remaining).coerceAtLeast(0)}/$coin52Count 份"
+                ldcCount != null && ldcCount > 0 -> "共 $ldcCount 份 · $opened 人拆"
+                opened > 0 -> "${opened} 人拆过"
+                else -> ""
+            }
+
+            RedpackArchiveItem(
+                id = mid,
+                messageId = mid,
+                title = title,
+                prompt = prompt,
+                provider = provider,
+                paymentProvider = paymentProvider,
+                mode = mode,
+                game = game,
+                ldcMode = ldcMode,
+                state = sState ?: ldcState ?: coin52State ?: if (solved) "solved" else "open",
+                stateLabel = stateLabel,
+                channelLabel = channelLabel,
+                amountText = amountText,
+                progressText = progressText,
+                currency = if (isDcoin) "D币" else if (game == "ldc" || (provider != "native")) "LDC" else null,
+                count = sTotal ?: ldcCount ?: coin52Count ?: 0,
+                opened = sClaimedCount ?: ldcClaimedCount ?: opened,
+                senderName = sender,
+                senderAvatar = senderAvatar,
+                cover = meta?.cover ?: rpObj.strOrNull("cover"),
+                createdAt = createdAt,
+                deleted = deleted,
+                isGuessGame = isGuessGame,
+            )
+        } else {
+            runCatching { ForHappyJson.decodeFromJsonElement(RedpackArchiveItem.serializer(), obj) }.getOrNull()?.let { flat ->
+                flat.copy(
+                    messageId = if (flat.messageId > 0L) flat.messageId else flat.id,
+                    stateLabel = flat.stateLabel.ifBlank { REDPACK_ARCHIVE_STATE_MAP[flat.state.lowercase()] ?: flat.state },
+                    channelLabel = flat.channelLabel.ifBlank {
+                        when (flat.provider) {
+                            "coin52" -> "D币红包"
+                            "hb" -> "HB 红包"
+                            "credit" -> "Credit 红包"
+                            "fish" -> "Fish 红包"
+                            else -> "本站红包"
+                        }
+                    },
+                    progressText = if (flat.count > 0) "已拆 ${flat.opened}/${flat.count}" else if (flat.opened > 0) "${flat.opened} 人拆过" else "",
+                )
+            }
+        }
+    }
+    return RedpackArchivePage(items = parsedItems, more = more, next = next)
+}
+
+/**
+ * Parses `GET /api/chat/groups/{gid}/sender-stats?period=today|all&metric=count|paid|declared`
+ * matching `52dmeme.com/redpacket.js:526-531`.
+ */
+fun parseSenderStatsJson(rawBody: String, metric: String = "count"): SenderStatsPage {
+    val root = runCatching { ForHappyJson.parseToJsonElement(rawBody) as? JsonObject }.getOrNull()
+        ?: return SenderStatsPage()
+    fun formatMetricValue(v: Long): String = if (metric == "count") {
+        "$v 次"
+    } else {
+        String.format(java.util.Locale.US, "%.2f LDC", v / 100.0)
+    }
+
+    val mineObj = root["mine"] as? JsonObject
+    val mineVal = mineObj?.longOrNull("value")
+        ?: (mineObj?.get("value") as? JsonPrimitive)?.doubleOrNull?.roundToLong()
+        ?: 0L
+    val mineRank = (root.intOrNull("mineRank") ?: root.intOrNull("mine_rank"))?.takeIf { it > 0 }
+    val today = root.strOrNull("today")
+    val leadersArr = (root["leaders"] as? JsonArray)
+        ?: (root["items"] as? JsonArray)
+        ?: (root["stats"] as? JsonArray)
+        ?: JsonArray(emptyList())
+
+    val leaders = leadersArr.mapNotNull { el ->
+        val obj = el as? JsonObject ?: return@mapNotNull null
+        val uid = obj.longOrNull("user_id") ?: obj.longOrNull("id") ?: 0L
+        val rawName = obj.strOrNull("name")
+        val username = obj.strOrNull("username").orEmpty()
+        val avatar = obj.strOrNull("avatar")
+        val rawVal = obj.longOrNull("value")
+            ?: (obj["value"] as? JsonPrimitive)?.doubleOrNull?.roundToLong()
+            ?: obj.longOrNull("count")
+            ?: (obj["total"] as? JsonPrimitive)?.longOrNull
+            ?: 0L
+        SenderStatItem(
+            userId = uid,
+            username = username,
+            name = rawName,
+            avatar = avatar,
+            count = if (metric == "count") rawVal.toInt() else (obj.intOrNull("count") ?: 0),
+            value = rawVal,
+            total = obj["total"],
+            currency = obj.strOrNull("currency"),
+            valueText = formatMetricValue(rawVal),
+        )
+    }
+    return SenderStatsPage(
+        leaders = leaders,
+        mineValue = mineVal,
+        mineValueText = formatMetricValue(mineVal),
+        mineRank = mineRank,
+        today = today,
+    )
 }
 
 @Serializable

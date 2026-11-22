@@ -3,7 +3,10 @@ package com.jinhuan.forhappy
 import com.jinhuan.forhappy.core.model.AppDisguiseMode
 import com.jinhuan.forhappy.core.model.AppThemeMode
 import com.jinhuan.forhappy.core.model.AppUiStyle
+import com.jinhuan.forhappy.core.model.ChatMessage
 import com.jinhuan.forhappy.core.model.PrivacyStealthConfig
+import com.jinhuan.forhappy.ui.chat.ChatStreamEntry
+import com.jinhuan.forhappy.ui.chat.buildReversedChatStreamEntries
 import com.jinhuan.forhappy.ui.theme.FeishuWorkDarkPalette
 import com.jinhuan.forhappy.ui.theme.FeishuWorkPalette
 import com.jinhuan.forhappy.ui.theme.LinuxDoDarkPalette
@@ -127,5 +130,65 @@ class UiVisualStyleTest {
         assertEquals("跟随系统（暖纸/深松）", AppThemeMode.FOLLOW_SYSTEM.displayLabel(AppUiStyle.CLASSIC_WEB))
         assertEquals("暖纸松绿（日间）", AppThemeMode.WARM_PAPER_LIGHT.displayLabel(AppUiStyle.CLASSIC_WEB))
         assertEquals("深松暗夜（夜间）", AppThemeMode.PINE_NIGHT_DARK.displayLabel(AppUiStyle.CLASSIC_WEB))
+    }
+
+    @Test
+    fun `buildReversedChatStreamEntries folds consecutive system notices when enabled`() {
+        val t0 = 1_700_000_000L
+        val sysMsgs = (1L..9L).map { idx ->
+            ChatMessage(
+                id = idx,
+                systemKind = "redpack_result",
+                systemRef = (100L + idx).toString(),
+                body = "红包已结束 #$idx",
+                createdAt = t0 + idx,
+            )
+        }
+        val chatBefore = ChatMessage(id = 1000L, userId = 7L, body = "前一条", createdAt = t0 - 10)
+        val chatAfter1 = ChatMessage(id = 1001L, userId = 8L, body = "第一条", createdAt = t0 + 20)
+        val chatAfter2 = ChatMessage(id = 1002L, userId = 8L, body = "紧跟连续消息", createdAt = t0 + 30)
+        val chrono = listOf(chatBefore) + sysMsgs + listOf(chatAfter1, chatAfter2)
+
+        val folded = buildReversedChatStreamEntries(
+            chronologicalMessages = chrono,
+            enableSystemFolding = true,
+            expandedGroupIds = emptySet(),
+        )
+        assertEquals(4, folded.size)
+        val item2 = folded[0] as ChatStreamEntry.MessageItem
+        assertEquals(1002L, item2.message.id)
+        assertTrue(item2.isContinuation)
+        val item1 = folded[1] as ChatStreamEntry.MessageItem
+        assertEquals(1001L, item1.message.id)
+        assertFalse(item1.isContinuation)
+        val foldGroup = folded[2] as ChatStreamEntry.FoldedSystemGroup
+        assertEquals(9, foldGroup.messages.size)
+        assertEquals(9L, foldGroup.groupKeyId)
+        assertEquals(1000L, (folded[3] as ChatStreamEntry.MessageItem).message.id)
+    }
+
+    @Test
+    fun `buildReversedChatStreamEntries supports expanding folded group and leaves isolated notices unfolded`() {
+        val t0 = 1_700_000_000L
+        val sysRun = (1L..3L).map { idx ->
+            ChatMessage(id = idx, systemKind = "redpack_result", body = "红包 #$idx", createdAt = t0 + idx)
+        }
+        val isolated = ChatMessage(id = 50L, systemKind = "join", body = "入群", createdAt = t0 + 100)
+        val midUser = ChatMessage(id = 40L, userId = 5L, body = "hi", createdAt = t0 + 50)
+        val chrono = sysRun + listOf(midUser, isolated)
+
+        val expanded = buildReversedChatStreamEntries(
+            chronologicalMessages = chrono,
+            enableSystemFolding = true,
+            expandedGroupIds = setOf(3L),
+        )
+        assertEquals(6, expanded.size)
+        assertEquals(50L, (expanded[0] as ChatStreamEntry.MessageItem).message.id)
+        assertEquals(40L, (expanded[1] as ChatStreamEntry.MessageItem).message.id)
+        val collapseHandle = expanded[2] as ChatStreamEntry.CollapseSystemGroupHandle
+        assertEquals(3L, collapseHandle.groupKeyId)
+        assertEquals(3, collapseHandle.count)
+        assertEquals(3L, (expanded[3] as ChatStreamEntry.MessageItem).message.id)
+        assertEquals(1L, (expanded[5] as ChatStreamEntry.MessageItem).message.id)
     }
 }

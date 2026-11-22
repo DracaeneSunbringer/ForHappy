@@ -51,14 +51,20 @@ import com.jinhuan.forhappy.core.model.MemesPageResponse
 import com.jinhuan.forhappy.core.model.NotifItem
 import com.jinhuan.forhappy.core.model.NotifsPayload
 import com.jinhuan.forhappy.core.model.Owner52bCard
+import com.jinhuan.forhappy.core.model.Owner52bPack
 import com.jinhuan.forhappy.core.model.PetGuardBattle
 import com.jinhuan.forhappy.core.model.PetNeighborSummary
 import com.jinhuan.forhappy.core.model.RedpackArchiveItem
+import com.jinhuan.forhappy.core.model.RedpackArchivePage
 import com.jinhuan.forhappy.core.model.RoadCommentItem
 import com.jinhuan.forhappy.core.model.RoadItem
 import com.jinhuan.forhappy.core.model.SeenVisitEntry
 import com.jinhuan.forhappy.core.model.SenderStatItem
+import com.jinhuan.forhappy.core.model.SenderStatsPage
 import com.jinhuan.forhappy.core.model.SeriesItem
+import com.jinhuan.forhappy.core.model.parseOwner52bPacksJson
+import com.jinhuan.forhappy.core.model.parseRedpackArchivePageJson
+import com.jinhuan.forhappy.core.model.parseSenderStatsJson
 import com.jinhuan.forhappy.core.model.SiteNotice
 import com.jinhuan.forhappy.core.model.StickerEntry
 import com.jinhuan.forhappy.core.model.StickerPack
@@ -1294,29 +1300,47 @@ class ForHappyApiClient(
         }
     }
 
-    suspend fun fetchGroupRedpacksArchive(groupId: Long, view: String = "all"): List<RedpackArchiveItem> {
-        val res = executeRawJson("GET", "/api/chat/groups/$groupId/redpacks?view=${enc(view)}")
+    suspend fun fetchGroupRedpacksArchive(
+        groupId: Long,
+        view: String = "history",
+        before: String? = null,
+    ): RedpackArchivePage {
+        val qs = buildString {
+            append("view=").append(enc(view))
+            if (!before.isNullOrBlank()) append("&before=").append(enc(before))
+        }
+        val res = executeRawJson("GET", "/api/chat/groups/$groupId/redpacks?$qs")
+        if (res.code !in 200..299) return RedpackArchivePage()
+        return parseRedpackArchivePageJson(res.body, view = view)
+    }
+
+    suspend fun fetchRedpackMatches(groupId: Long, messageId: Long): List<ChatMessage> {
+        val res = executeRawJson("GET", "/api/chat/groups/$groupId/redpacks/matches?message_id=$messageId")
         if (res.code !in 200..299) return emptyList()
         val obj = runCatching { ForHappyJson.parseToJsonElement(res.body).jsonObject }.getOrNull() ?: return emptyList()
-        val arr = obj["items"] ?: obj["redpacks"] ?: return emptyList()
-        return runCatching { ForHappyJson.decodeFromJsonElement(ListSerializer(RedpackArchiveItem.serializer()), arr) }
+        val arr = obj["items"] ?: return emptyList()
+        return runCatching { ForHappyJson.decodeFromJsonElement(ListSerializer(ChatMessage.serializer()), arr) }
             .getOrDefault(emptyList())
+    }
+
+    suspend fun fetchRedpacksAvailable(groupId: Long): Boolean {
+        val res = executeRawJson("GET", "/api/chat/groups/$groupId/redpacks/available")
+        if (res.code !in 200..299) return false
+        val obj = runCatching { ForHappyJson.parseToJsonElement(res.body).jsonObject }.getOrNull() ?: return false
+        return obj["has_available"]?.jsonPrimitive?.booleanOrNull == true
     }
 
     suspend fun fetchGroupSenderStats(
         groupId: Long,
-        period: String = "month",
-        metric: String = "amount",
-    ): List<SenderStatItem> {
+        period: String = "today",
+        metric: String = "count",
+    ): SenderStatsPage {
         val res = executeRawJson(
             "GET",
             "/api/chat/groups/$groupId/sender-stats?period=${enc(period)}&metric=${enc(metric)}",
         )
-        if (res.code !in 200..299) return emptyList()
-        val obj = runCatching { ForHappyJson.parseToJsonElement(res.body).jsonObject }.getOrNull() ?: return emptyList()
-        val arr = obj["items"] ?: obj["leaders"] ?: obj["stats"] ?: return emptyList()
-        return runCatching { ForHappyJson.decodeFromJsonElement(ListSerializer(SenderStatItem.serializer()), arr) }
-            .getOrDefault(emptyList())
+        if (res.code !in 200..299) return SenderStatsPage()
+        return parseSenderStatsJson(res.body, metric = metric)
     }
 
     suspend fun fetchFishFunding(): FishFundingStatus? {
@@ -1829,14 +1853,14 @@ class ForHappyApiClient(
         else Result.failure(IllegalStateException("保存 AI 偏好失败 (${res.code})"))
     }
 
-    suspend fun fetchOwner52bCards(): List<Owner52bCard> {
+    suspend fun fetchOwner52bPacks(): List<Owner52bPack> {
         val res = executeRawJson("GET", "/api/me/owner52b-cards")
         if (res.code !in 200..299) return emptyList()
-        val obj = runCatching { ForHappyJson.parseToJsonElement(res.body).jsonObject }.getOrNull() ?: return emptyList()
-        val arr = obj["cards"] ?: obj["items"] ?: return emptyList()
-        return runCatching { ForHappyJson.decodeFromJsonElement(ListSerializer(Owner52bCard.serializer()), arr) }
-            .getOrDefault(emptyList())
+        return parseOwner52bPacksJson(res.body)
     }
+
+    suspend fun fetchOwner52bCards(): List<Owner52bCard> =
+        fetchOwner52bPacks().flatMap { it.cards }
 
     suspend fun fetchFolders(): List<FolderItem> {
         val res = executeRawJson("GET", "/api/folders")

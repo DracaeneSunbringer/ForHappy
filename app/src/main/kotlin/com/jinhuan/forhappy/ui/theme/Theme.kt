@@ -381,15 +381,15 @@ val ModernAiryLightPalette = ForHappyPalette(
     bubbleSelf = Color(0xFFFFE8E1),
     success = Color(0xFF10B981),
     isModernUi = true,
-    glassSurface = Color(0xF5F8FAFE),
+    glassSurface = Color(0xF2F8FAFE),
     glassBorder = Color(0x140F172A),
     cardBorder = Color.Transparent,
 )
 
 val ModernObsidianDarkPalette = ForHappyPalette(
     bg = Color(0xFF0A0C10),
-    surface = Color(0xFF131720),
-    surface2 = Color(0xFF1C2230),
+    surface = Color(0xFF161B26),
+    surface2 = Color(0xFF1F2636),
     text = Color(0xFFF1F5F9),
     muted = Color(0xFF8B98AF),
     primary = Color(0xFFFF6642),
@@ -409,10 +409,10 @@ val ModernObsidianDarkPalette = ForHappyPalette(
     highlight = Color(0xFF4A3B10),
     scrim = Color.Black.copy(alpha = 0.62f),
     blurOverlay = Color.Black.copy(alpha = 0.26f),
-    bubbleSelf = Color(0xFF2E1D1B),
+    bubbleSelf = Color(0xFF38201C),
     success = Color(0xFF34D399),
     isModernUi = true,
-    glassSurface = Color(0xF5141923),
+    glassSurface = Color(0xF2141923),
     glassBorder = Color(0x22FFFFFF),
     cardBorder = Color(0x0FFFFFFF),
 )
