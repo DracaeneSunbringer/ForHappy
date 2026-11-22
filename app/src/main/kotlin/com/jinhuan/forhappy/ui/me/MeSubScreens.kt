@@ -16,10 +16,13 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -107,6 +110,7 @@ import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.theme.TABULAR_FONT_FEATURE
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
+import com.jinhuan.forhappy.ui.wall.FullscreenDialogProperties
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -367,20 +371,20 @@ fun WalletDetailDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+        properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+        val navBottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(palette.bg)
-                .statusBarsPadding()
-                .navigationBarsPadding(),
+                .background(palette.bg),
         ) {
             Surface(color = palette.surface) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .statusBarsPadding()
                         .height(ForHappyDimens.topBarHeight)
                         .padding(horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -409,7 +413,12 @@ fun WalletDetailDialog(
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(14.dp),
+                contentPadding = PaddingValues(
+                    start = 14.dp,
+                    top = 14.dp,
+                    end = 14.dp,
+                    bottom = 14.dp + navBottomPad,
+                ),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 bannerText?.let { msg ->
@@ -701,20 +710,20 @@ fun Cards52bDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+        properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+        val navBottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(palette.bg)
-                .statusBarsPadding()
-                .navigationBarsPadding(),
+                .background(palette.bg),
         ) {
             Surface(color = palette.surface) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .statusBarsPadding()
                         .height(ForHappyDimens.topBarHeight)
                         .padding(horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -738,7 +747,12 @@ fun Cards52bDialog(
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(14.dp),
+                contentPadding = PaddingValues(
+                    start = 14.dp,
+                    top = 14.dp,
+                    end = 14.dp,
+                    bottom = 14.dp + navBottomPad,
+                ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 item(key = "progress") {
@@ -1018,20 +1032,20 @@ fun DecoStudioDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+        properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+        val navBottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(palette.bg)
-                .statusBarsPadding()
-                .navigationBarsPadding(),
+                .background(palette.bg),
         ) {
             Surface(color = palette.surface) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .statusBarsPadding()
                         .height(ForHappyDimens.topBarHeight)
                         .padding(horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1312,7 +1326,12 @@ fun DecoStudioDialog(
                 if (activeTab == 2) {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(14.dp),
+                        contentPadding = PaddingValues(
+                            start = 14.dp,
+                            top = 14.dp,
+                            end = 14.dp,
+                            bottom = 14.dp + navBottomPad,
+                        ),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         item(key = "badge_mode_header") {
@@ -1636,6 +1655,7 @@ fun DecoStudioDialog(
                                 }
                             }
                         }
+                        Spacer(Modifier.navigationBarsPadding())
                     }
                 }
             }
@@ -1811,20 +1831,20 @@ fun InviteCodesDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+        properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+        val navBottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(palette.bg)
-                .statusBarsPadding()
-                .navigationBarsPadding(),
+                .background(palette.bg),
         ) {
             Surface(color = palette.surface) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .statusBarsPadding()
                         .height(ForHappyDimens.topBarHeight)
                         .padding(horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1861,7 +1881,12 @@ fun InviteCodesDialog(
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(14.dp),
+                contentPadding = PaddingValues(
+                    start = 14.dp,
+                    top = 14.dp,
+                    end = 14.dp,
+                    bottom = 14.dp + navBottomPad,
+                ),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 bannerText?.let { msg ->

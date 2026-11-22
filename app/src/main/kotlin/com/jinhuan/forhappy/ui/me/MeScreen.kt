@@ -77,6 +77,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.jinhuan.forhappy.core.chat.ChatSessionController
 import com.jinhuan.forhappy.core.model.AppDisguiseMode
 import com.jinhuan.forhappy.core.model.AppIconAlias
 import com.jinhuan.forhappy.core.model.AppThemeMode
@@ -147,6 +148,7 @@ fun MeScreen(
     initialSettingsSubpage: String? = null,
     onConsumeSettingsSubpage: () -> Unit = {},
     onRefreshMe: () -> Unit = {},
+    chatController: ChatSessionController? = null,
     effectiveDisguise: AppDisguiseMode = AppDisguiseMode.NONE,
     bossKeyActive: Boolean = false,
 ) {
@@ -786,6 +788,7 @@ fun MeScreen(
             api = api,
             updateController = updateController,
             me = me,
+            chatController = chatController,
             themeMode = themeMode,
             privacyConfig = privacyConfig,
             privacyShieldEnabled = privacyShieldEnabled,

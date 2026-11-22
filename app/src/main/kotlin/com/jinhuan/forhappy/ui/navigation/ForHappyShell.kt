@@ -127,6 +127,7 @@ import com.jinhuan.forhappy.ui.theme.ForHappyPalette
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.theme.TABULAR_FONT_FEATURE
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
+import com.jinhuan.forhappy.ui.wall.FullscreenDialogProperties
 import com.jinhuan.forhappy.ui.wall.FullscreenMediaOverlay
 import com.jinhuan.forhappy.ui.wall.MemeDetailModal
 import com.jinhuan.forhappy.ui.wall.WallScreen
@@ -391,10 +392,20 @@ fun ForHappyShell(
                 activeTab = "wall"
             }
             is DeepLinkTarget.MessagesRoot -> {
-                chatOpenRequest = ChatOpenSessionRequest(
-                    mode = "list",
-                    filter = target.filter,
-                )
+                val curChatState = chatController.uiState.value
+                chatOpenRequest = if (curChatState.shouldBypassSessionList()) {
+                    ChatOpenSessionRequest(
+                        mode = "group",
+                        groupId = curChatState.activeGroupId,
+                        requestId = System.nanoTime(),
+                    )
+                } else {
+                    ChatOpenSessionRequest(
+                        mode = "list",
+                        filter = target.filter,
+                        requestId = System.nanoTime(),
+                    )
+                }
                 activeTab = "messages"
             }
             is DeepLinkTarget.GroupChat -> {
@@ -408,14 +419,17 @@ fun ForHappyShell(
                     chatOpenRequest = ChatOpenSessionRequest(
                         mode = "group",
                         groupId = target.groupId,
+                        requestId = System.nanoTime(),
                     )
                 }
                 activeTab = "messages"
             }
             is DeepLinkTarget.DirectMessage -> {
+                if (!chatController.uiState.value.dmEnabled) return
                 chatOpenRequest = ChatOpenSessionRequest(
                     mode = "dm",
                     dmThreadId = if (!target.isNewPeer) target.threadOrUserId else null,
+                    requestId = System.nanoTime(),
                 )
                 activeTab = "messages"
             }
@@ -822,16 +836,32 @@ fun ForHappyShell(
                                                     }.forEach { g ->
                                                         add(ChatOpenSessionRequest(mode = "group", groupId = g.id))
                                                     }
-                                                    chatState.dmThreads.filter { t ->
-                                                        !t.muted && t.id !in chatState.mutedDmIds && t.unread > 0
-                                                    }.forEach { t ->
-                                                        add(ChatOpenSessionRequest(mode = "dm", dmThreadId = t.id))
+                                                    if (chatState.dmEnabled) {
+                                                        chatState.dmThreads.filter { t ->
+                                                            !t.muted && t.id !in chatState.mutedDmIds && t.unread > 0
+                                                        }.forEach { t ->
+                                                            add(ChatOpenSessionRequest(mode = "dm", dmThreadId = t.id))
+                                                        }
                                                     }
                                                 }
                                                 if (unreadTargets.isNotEmpty()) {
                                                     val idx = unreadCycleCursor % unreadTargets.size
                                                     unreadCycleCursor++
                                                     chatOpenRequest = unreadTargets[idx].copy(requestId = System.nanoTime())
+                                                } else if (chatState.shouldBypassSessionList()) {
+                                                    val joined = chatState.groups.filter { it.joined }
+                                                    val targetGroupId = if (joined.size >= 2) {
+                                                        val curIdx = joined.indexOfFirst { it.id == chatState.activeGroupId }
+                                                        val nextIdx = if (curIdx >= 0) (curIdx + 1) % joined.size else 0
+                                                        joined[nextIdx].id
+                                                    } else {
+                                                        joined.firstOrNull()?.id ?: chatState.activeGroupId
+                                                    }
+                                                    chatOpenRequest = ChatOpenSessionRequest(
+                                                        mode = "group",
+                                                        groupId = targetGroupId,
+                                                        requestId = System.nanoTime(),
+                                                    )
                                                 } else {
                                                     chatOpenRequest = ChatOpenSessionRequest(mode = "list")
                                                 }
@@ -1052,6 +1082,7 @@ fun ForHappyShell(
                             initialSettingsSubpage = pendingSettingsSubpage,
                             onConsumeSettingsSubpage = { pendingSettingsSubpage = null },
                             onRefreshMe = { bootstrapSession() },
+                            chatController = chatController,
                             effectiveDisguise = effectiveDisguise,
                             bossKeyActive = bossKeyActive,
                         )
@@ -1313,8 +1344,9 @@ fun ForHappyShell(
     if (showLoginModal) {
         Dialog(
             onDismissRequest = { showLoginModal = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+            properties = FullscreenDialogProperties,
         ) {
+            ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
             LoginWebSheet(
                 api = api,
                 onAuthenticated = {
@@ -1378,7 +1410,7 @@ fun ForHappyShell(
     webLinkModalUrl?.let { url ->
         Dialog(
             onDismissRequest = { webLinkModalUrl = null },
-            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+            properties = FullscreenDialogProperties,
         ) {
             ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
             Box(modifier = Modifier.fillMaxSize().background(palette.bg)) {

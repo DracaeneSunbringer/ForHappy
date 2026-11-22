@@ -7,11 +7,15 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
@@ -120,18 +124,23 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -269,12 +278,23 @@ fun ChatScreen(
     val isImeVisible = WindowInsets.isImeVisible
 
     val isDirectEmbedded = hideChannelHeader || forcedChannelMode != null
+    val joinedGroups = remember(state.groups) { state.groups.filter { it.joined } }
+    val bypassSessionList = state.shouldBypassSessionList(isDirectEmbedded)
     var activePane by remember(isDirectEmbedded, forcedChannelMode) {
-        mutableStateOf(if (isDirectEmbedded) (forcedChannelMode ?: "group") else "list")
+        mutableStateOf(if (isDirectEmbedded || bypassSessionList) (forcedChannelMode ?: "group") else "list")
     }
     var cleanRawPref by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(me?.id, me?.deco, state.activeGroupId, activePane) {
         cleanRawPref = api.getPref(KV_DECO_CLEAN)
+    }
+    LaunchedEffect(isDirectEmbedded, bypassSessionList, state.dmEnabled, disguiseMode) {
+        if (!isDirectEmbedded) {
+            if (bypassSessionList && activePane != "group") {
+                activePane = "group"
+            } else if (!state.dmEnabled && disguiseMode != AppDisguiseMode.FEISHU && activePane == "dm") {
+                activePane = "list"
+            }
+        }
     }
     val cleanDecoConfig = remember(me?.deco, cleanRawPref) {
         BadgeAndCosmeticRegistry.parseServerDecoConfig(me?.deco, cleanRawPref)
@@ -365,13 +385,20 @@ fun ChatScreen(
     }
 
     // System Back inside Level-1 Group/DM returns to Level-0 Unified Session List
-    BackHandler(enabled = !isDirectEmbedded && activePane != "list") {
+    BackHandler(
+        enabled = !isDirectEmbedded && (
+            showStickerTray ||
+                showAttachmentTray ||
+                historyMsgs != null ||
+                (activePane != "list" && !bypassSessionList)
+            ),
+    ) {
         if (showStickerTray || showAttachmentTray) {
             showStickerTray = false
             showAttachmentTray = false
         } else if (historyMsgs != null) {
             historyMsgs = null
-        } else {
+        } else if (!bypassSessionList) {
             activePane = "list"
         }
     }
@@ -693,8 +720,8 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(me?.id) {
-        if (me != null) {
+    LaunchedEffect(me?.id, state.dmEnabled, disguiseMode) {
+        if (me != null && (state.dmEnabled || disguiseMode == AppDisguiseMode.FEISHU)) {
             controller.refreshDmThreads()
         }
     }
@@ -782,12 +809,16 @@ fun ChatScreen(
         when (req.mode) {
             "list" -> {
                 req.filter?.let { listFilter = it }
-                activePane = "list"
+                activePane = if (bypassSessionList) "group" else "list"
             }
             "dm" -> {
-                newDmPeer = null
-                activeDmId = req.dmThreadId ?: state.dmThreads.firstOrNull()?.id
-                activePane = "dm"
+                if (!state.dmEnabled && disguiseMode != AppDisguiseMode.FEISHU) {
+                    activePane = if (bypassSessionList) "group" else "list"
+                } else {
+                    newDmPeer = null
+                    activeDmId = req.dmThreadId ?: state.dmThreads.firstOrNull()?.id
+                    activePane = "dm"
+                }
             }
             else -> {
                 activePane = "group"
@@ -939,6 +970,11 @@ fun ChatScreen(
 
     val activeGroup = state.groups.firstOrNull { it.id == state.activeGroupId }
     val activeRedpackMsg = remember(state.messages) { state.messages.lastOrNull { it.redpack != null && !it.deleted } }
+    val canSwipeSwitchGroups = disguiseMode == AppDisguiseMode.NONE &&
+        activePane == "group" &&
+        state.swipeSwitchGroups &&
+        joinedGroups.size >= 2 &&
+        historyMsgs == null
 
     Column(
         modifier = Modifier
@@ -957,32 +993,116 @@ fun ChatScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        IconButton(
-                            onClick = { activePane = "list" },
-                            modifier = Modifier.size(36.dp),
-                        ) {
-                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回消息列表", tint = palette.text)
+                        if (!bypassSessionList) {
+                            IconButton(
+                                onClick = { activePane = "list" },
+                                modifier = Modifier.size(36.dp),
+                            ) {
+                                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回消息列表", tint = palette.text)
+                            }
+                        } else {
+                            Spacer(Modifier.width(8.dp))
                         }
 
                         if (activePane == "group") {
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable { if (activeGroup != null) showGroupInfoDialog = true }
-                                    .padding(horizontal = 4.dp, vertical = 2.dp),
-                            ) {
-                                Text(
-                                    text = buildString {
-                                        append(activeGroup?.name ?: "群聊")
-                                        if ((activeGroup?.memberCount ?: 0) > 0) append(" (${activeGroup!!.memberCount})")
-                                    },
-                                    color = palette.text,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
+                            val showTopGroupPills = disguiseMode == AppDisguiseMode.NONE &&
+                                joinedGroups.size >= 2 &&
+                                (state.swipeSwitchGroups || bypassSessionList)
+                            if (showTopGroupPills) {
+                                Row(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .horizontalScroll(rememberScrollState())
+                                        .padding(end = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    joinedGroups.forEach { grp ->
+                                        val selected = grp.id == state.activeGroupId
+                                        val badgeCnt = (if (grp.muted) grp.atMe else grp.unread).coerceAtLeast(0)
+                                        Surface(
+                                            color = if (selected) palette.primaryContainer else palette.surface2,
+                                            shape = RoundedCornerShape(999.dp),
+                                            modifier = Modifier
+                                                .border(
+                                                    1.dp,
+                                                    if (selected) palette.primary else palette.line,
+                                                    RoundedCornerShape(999.dp),
+                                                )
+                                                .clip(RoundedCornerShape(999.dp))
+                                                .clickable {
+                                                    if (selected) {
+                                                        showGroupInfoDialog = true
+                                                    } else {
+                                                        historyMsgs = null
+                                                        controller.setActiveGroup(grp.id)
+                                                    }
+                                                },
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            ) {
+                                                Text(
+                                                    text = grp.name,
+                                                    color = if (selected) palette.primary else palette.text,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                                if (selected && grp.memberCount > 0) {
+                                                    Text(
+                                                        text = "(${grp.memberCount})",
+                                                        color = palette.primary.copy(alpha = 0.78f),
+                                                        fontSize = 10.sp,
+                                                        maxLines = 1,
+                                                    )
+                                                }
+                                                if (!selected && badgeCnt > 0) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(999.dp))
+                                                            .background(if (grp.atMe > 0) palette.danger else palette.badge)
+                                                            .padding(horizontal = 5.dp, vertical = 1.dp),
+                                                    ) {
+                                                        Text(
+                                                            text = when {
+                                                                grp.atMe > 0 -> "@$badgeCnt"
+                                                                badgeCnt > 99 -> "99+"
+                                                                else -> badgeCnt.toString()
+                                                            },
+                                                            color = Color.White,
+                                                            fontSize = 9.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable { if (activeGroup != null) showGroupInfoDialog = true }
+                                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                                ) {
+                                    Text(
+                                        text = buildString {
+                                            append(activeGroup?.name ?: "群聊")
+                                            if ((activeGroup?.memberCount ?: 0) > 0) append(" (${activeGroup!!.memberCount})")
+                                        },
+                                        color = palette.text,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
                             }
                             IconButton(onClick = { showSearchDialog = true }, modifier = Modifier.size(34.dp)) {
                                 Icon(Icons.Rounded.Search, contentDescription = "搜索记录", tint = palette.text, modifier = Modifier.size(19.dp))
@@ -1078,9 +1198,96 @@ fun ChatScreen(
         // Main Chat / DM Viewport
         if (activePane == "group") {
             val activeHistory = historyMsgs
-            BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            val swipeAnimHaptic = LocalHapticFeedback.current
+            var swipeDragOffsetPx by remember { mutableFloatStateOf(0f) }
+            val slideEntryOffsetPx = remember { Animatable(0f) }
+            val edgeGuardPx = with(density) { 32.dp.toPx() }
+            val swipeThresholdPx = with(density) { 56.dp.toPx() }
+            val swipeVelocityThresholdPx = with(density) { 650.dp.toPx() }
+            val minVelDistancePx = with(density) { 24.dp.toPx() }
+            val entryShiftPx = with(density) { 72.dp.toPx() }
+            val latestJoinedGroups by rememberUpdatedState(joinedGroups)
+            val latestActiveGroupId by rememberUpdatedState(state.activeGroupId)
+
+            BoxWithConstraints(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .clipToBounds()
+                    .then(
+                        if (canSwipeSwitchGroups) {
+                            Modifier.pointerInput(canSwipeSwitchGroups) {
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    if (down.position.x < edgeGuardPx || down.position.x > size.width - edgeGuardPx) {
+                                        return@awaitEachGesture
+                                    }
+                                    var rawDragPx = 0f
+                                    val slop = awaitHorizontalTouchSlopOrCancellation(down.id) { change, over ->
+                                        if (!change.isConsumed) {
+                                            change.consume()
+                                            rawDragPx = over
+                                        }
+                                    }
+                                    if (slop != null) {
+                                        val vt = VelocityTracker()
+                                        vt.addPointerInputChange(down)
+                                        vt.addPointerInputChange(slop)
+                                        val groupsSnap = latestJoinedGroups
+                                        val curIdx = groupsSnap.indexOfFirst { it.id == latestActiveGroupId }.coerceAtLeast(0)
+                                        fun applyDragOffset(rawDx: Float) {
+                                            val hasTargetInDir = (rawDx < 0f && curIdx < groupsSnap.lastIndex) ||
+                                                (rawDx > 0f && curIdx > 0)
+                                            val factor = if (hasTargetInDir) 0.42f else 0.12f
+                                            swipeDragOffsetPx = (rawDx * factor).coerceIn(-entryShiftPx * 1.4f, entryShiftPx * 1.4f)
+                                        }
+                                        applyDragOffset(rawDragPx)
+                                        val finished = horizontalDrag(slop.id) { change ->
+                                            vt.addPointerInputChange(change)
+                                            rawDragPx += change.positionChange().x
+                                            applyDragOffset(rawDragPx)
+                                            change.consume()
+                                        }
+                                        if (finished) {
+                                            val vx = vt.calculateVelocity().x
+                                            val swipeLeft = rawDragPx <= -swipeThresholdPx ||
+                                                (vx <= -swipeVelocityThresholdPx && rawDragPx <= -minVelDistancePx)
+                                            val swipeRight = rawDragPx >= swipeThresholdPx ||
+                                                (vx >= swipeVelocityThresholdPx && rawDragPx >= minVelDistancePx)
+                                            val targetIdx = when {
+                                                swipeLeft && curIdx < groupsSnap.lastIndex -> curIdx + 1
+                                                swipeRight && curIdx > 0 -> curIdx - 1
+                                                else -> -1
+                                            }
+                                            if (targetIdx in groupsSnap.indices) {
+                                                val targetGroup = groupsSnap[targetIdx]
+                                                swipeAnimHaptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                historyMsgs = null
+                                                controller.setActiveGroup(targetGroup.id)
+                                                val startShift = if (targetIdx > curIdx) entryShiftPx else -entryShiftPx
+                                                scope.launch {
+                                                    slideEntryOffsetPx.snapTo(startShift)
+                                                    slideEntryOffsetPx.animateTo(0f, animationSpec = tween(180))
+                                                }
+                                            }
+                                        }
+                                        swipeDragOffsetPx = 0f
+                                    }
+                                }
+                            }
+                        } else {
+                            Modifier
+                        },
+                    ),
+            ) {
                 val maxGuessHeightDp = (maxHeight * 0.50f).coerceAtLeast(160.dp)
-                Column(modifier = Modifier.fillMaxSize()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            translationX = swipeDragOffsetPx + slideEntryOffsetPx.value
+                        },
+                ) {
                     // Active Title Raffle banner (top of group)
                     if (activeHistory == null && activeRaffles.isNotEmpty()) {
                         val raffle = activeRaffles.first()
@@ -1427,6 +1634,7 @@ fun ChatScreen(
                                             meId = me?.id ?: 0L,
                                             cosmeticCatalogRev = cosmeticCatalogRev,
                                             api = api,
+                                            enableSwipeReply = !canSwipeSwitchGroups,
                                             onActionRedpack = { refId ->
                                                 redpackFallbackMeta = null
                                                 redpackSenderName = null
@@ -2342,7 +2550,12 @@ fun ChatScreen(
             },
             onLeftGroup = {
                 showGroupInfoDialog = false
-                activePane = "list"
+                val remaining = state.groups.filter { it.joined && it.id != activeGroup.id }
+                if (bypassSessionList && remaining.isNotEmpty()) {
+                    controller.setActiveGroup(remaining.first().id)
+                } else {
+                    activePane = "list"
+                }
             },
         )
     }
@@ -2360,21 +2573,25 @@ fun ChatScreen(
                 draft += mention
                 if (activePane == "group") controller.updateGroupDraft(state.activeGroupId, inputMode, draft)
             },
-            onSendDm = { peerUser ->
-                selectedMemberProfile = null
-                showGroupInfoDialog = false
-                val existing = state.dmThreads.firstOrNull { it.peerId == peerUser.id }
-                if (existing != null) {
-                    newDmPeer = null
-                    activeDmId = existing.id
-                    activeDmMeta = existing
-                } else {
-                    newDmPeer = peerUser
-                    activeDmId = null
-                    activeDmMeta = null
-                    dmMessages = emptyList()
+            onSendDm = if (state.dmEnabled || disguiseMode == AppDisguiseMode.FEISHU) {
+                { peerUser ->
+                    selectedMemberProfile = null
+                    showGroupInfoDialog = false
+                    val existing = state.dmThreads.firstOrNull { it.peerId == peerUser.id }
+                    if (existing != null) {
+                        newDmPeer = null
+                        activeDmId = existing.id
+                        activeDmMeta = existing
+                    } else {
+                        newDmPeer = peerUser
+                        activeDmId = null
+                        activeDmMeta = null
+                        dmMessages = emptyList()
+                    }
+                    activePane = "dm"
                 }
-                activePane = "dm"
+            } else {
+                null
             },
             onViewWall = { username ->
                 selectedMemberProfile = null
@@ -2549,6 +2766,7 @@ private fun RenderChatItemRow(
     meId: Long,
     cosmeticCatalogRev: Int,
     api: ForHappyApiClient,
+    enableSwipeReply: Boolean = true,
     onActionRedpack: (Long) -> Unit,
     onActionGuess: (Long) -> Unit,
     onActionRaffle: (Long) -> Unit,
@@ -2588,6 +2806,7 @@ private fun RenderChatItemRow(
             meId = meId,
             cosmeticCatalogRev = cosmeticCatalogRev,
             api = api,
+            enableSwipeReply = enableSwipeReply,
             onSwipeReply = onSwipeReply,
             onOpenActionSheet = onOpenActionSheet,
             onOpenBoostComposer = onOpenBoostComposer,
@@ -2787,6 +3006,7 @@ private fun SwipeableChatRow(
     meId: Long,
     cosmeticCatalogRev: Int,
     api: ForHappyApiClient,
+    enableSwipeReply: Boolean = true,
     onSwipeReply: () -> Unit,
     onOpenActionSheet: () -> Unit,
     onOpenBoostComposer: () -> Unit,
@@ -2847,31 +3067,37 @@ private fun SwipeableChatRow(
                 } else Modifier,
             )
             .offset { IntOffset(dragX.roundToInt(), 0) }
-            .pointerInput(msg.id, msg.localId, rightEdgeGuardPx, quoteTriggerPx) {
-                // Right-edge-safe swipe-to-quote (`04-gestures.md`: preserve >= 32dp system back edge!)
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    if (down.position.x > size.width - rightEdgeGuardPx) {
-                        return@awaitEachGesture
-                    }
-                    val slop = awaitHorizontalTouchSlopOrCancellation(down.id) { change, over ->
-                        if (over < 0f) change.consume()
-                    }
-                    if (slop != null) {
-                        dragX = 0f
-                        horizontalDrag(slop.id) { change ->
-                            val dx = change.positionChange().x
-                            dragX = (dragX + dx).coerceIn(-quoteTriggerPx * 1.4f, 0f)
-                            change.consume()
+            .then(
+                if (enableSwipeReply) {
+                    Modifier.pointerInput(msg.id, msg.localId, rightEdgeGuardPx, quoteTriggerPx) {
+                        // Right-edge-safe swipe-to-quote (`04-gestures.md`: preserve >= 32dp system back edge!)
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            if (down.position.x > size.width - rightEdgeGuardPx) {
+                                return@awaitEachGesture
+                            }
+                            val slop = awaitHorizontalTouchSlopOrCancellation(down.id) { change, over ->
+                                if (over < 0f) change.consume()
+                            }
+                            if (slop != null) {
+                                dragX = 0f
+                                horizontalDrag(slop.id) { change ->
+                                    val dx = change.positionChange().x
+                                    dragX = (dragX + dx).coerceIn(-quoteTriggerPx * 1.4f, 0f)
+                                    change.consume()
+                                }
+                                if (dragX <= -quoteTriggerPx) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onSwipeReply()
+                                }
+                                dragX = 0f
+                            }
                         }
-                        if (dragX <= -quoteTriggerPx) {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onSwipeReply()
-                        }
-                        dragX = 0f
                     }
-                }
-            }
+                } else {
+                    Modifier
+                },
+            )
             .combinedClickable(
                 onClick = { showDetailMeta = !showDetailMeta },
                 onLongClick = {

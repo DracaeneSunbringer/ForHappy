@@ -1799,8 +1799,11 @@ enum class ChatScrollPolicy(val key: String, val label: String) {
     ;
 
     companion object {
-        fun fromKey(key: String?): ChatScrollPolicy =
-            entries.firstOrNull { it.key == key } ?: SMART
+        fun fromKey(key: String?): ChatScrollPolicy = when (key?.lowercase()) {
+            "auto", "always" -> AUTO_FOLLOW
+            "manual", "never" -> MANUAL
+            else -> SMART
+        }
     }
 }
 

@@ -32,13 +32,17 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -73,6 +77,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -232,11 +237,20 @@ fun ShelllessWebScreen(
         }
     }
 
-    val shelllessCss = remember(isPetsCanvas) {
+    val statusBarTopDp = WindowInsets.statusBars.asPaddingValues().calculateTopPadding().value.toInt()
+    val navBarBotDp = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding().value.toInt()
+
+    val shelllessCss = remember(isPetsCanvas, floatingCapsule, showCompactBar, isNovelReader, statusBarTopDp, navBarBotDp) {
         if (isPetsCanvas) {
-            ".topbar,.mobile-nav,.site-footer,.pet-dock,header.site-header{display:none!important;} html,body,#main{margin:0!important;padding:0!important;width:100%!important;height:100%!important;max-width:none!important;}"
+            ".topbar,.mobile-nav,.site-footer,.pet-dock,header.site-header{display:none!important;} html,body,#main{margin:0!important;padding:0!important;width:100%!important;height:100dvh!important;min-height:100%!important;max-width:none!important;overflow:hidden!important;}"
         } else {
-            ".topbar,.mobile-nav,.site-footer,.pet-dock,header.site-header{display:none!important;} body{padding-top:4px!important;padding-bottom:8px!important;}"
+            val topPadPx = when {
+                floatingCapsule -> statusBarTopDp + 44
+                !showCompactBar -> statusBarTopDp + 8
+                else -> 4
+            }
+            val botPadPx = if (isNovelReader) 10 else navBarBotDp + 12
+            ".topbar,.mobile-nav,.site-footer,.pet-dock,header.site-header{display:none!important;} html,body{min-height:100dvh!important;} body{padding-top:${topPadPx}px!important;padding-bottom:${botPadPx}px!important;box-sizing:border-box!important;}"
         }
     }
 
@@ -300,15 +314,28 @@ fun ShelllessWebScreen(
         val quotedCss = JSONObject.quote(shelllessCss)
         """
         (function(){
-          if(!document.getElementById('forhappy-shellless-css')){
-            var st=document.createElement('style');
+          var st=document.getElementById('forhappy-shellless-css');
+          if(!st){
+            st=document.createElement('style');
             st.id='forhappy-shellless-css';
-            st.textContent=$quotedCss;
             (document.head||document.documentElement).appendChild(st);
           }
+          st.textContent=$quotedCss;
           setTimeout(function(){ window.dispatchEvent(new Event('resize')); }, 80);
         })();
         """.trimIndent()
+    }
+
+    val latestHeadInjectionHtml by rememberUpdatedState(headInjectionHtml)
+    val latestInjectFallbackScript by rememberUpdatedState(injectFallbackScript)
+
+    LaunchedEffect(shelllessCss, webViewRef) {
+        val wv = webViewRef ?: return@LaunchedEffect
+        val qCss = JSONObject.quote(shelllessCss)
+        wv.evaluateJavascript(
+            "(function(){var el=document.getElementById('forhappy-shellless-css');if(el){el.textContent=$qCss;}})();",
+            null,
+        )
     }
 
     fun triggerExcerptCapture() {
@@ -371,6 +398,7 @@ fun ShelllessWebScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .statusBarsPadding()
                         .padding(horizontal = 14.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
@@ -492,7 +520,7 @@ fun ShelllessWebScreen(
                             ): WebResourceResponse? {
                                 return assetCache.interceptShelllessGet(
                                     request = request,
-                                    htmlHeadInjection = if (request.isForMainFrame) headInjectionHtml else null,
+                                    htmlHeadInjection = if (request.isForMainFrame) latestHeadInjectionHtml else null,
                                 )
                             }
 
@@ -504,7 +532,7 @@ fun ShelllessWebScreen(
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 isLoading = false
                                 canGoBack = view?.canGoBack() == true
-                                view?.evaluateJavascript(injectFallbackScript, null)
+                                view?.evaluateJavascript(latestInjectFallbackScript, null)
                                 onCookiesSynced?.invoke()
                             }
                         }
@@ -525,6 +553,7 @@ fun ShelllessWebScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .statusBarsPadding()
                             .height(28.dp)
                             .align(Alignment.TopCenter)
                             .pointerInput(Unit) {

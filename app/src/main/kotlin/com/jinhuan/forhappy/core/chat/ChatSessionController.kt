@@ -76,6 +76,8 @@ class ChatSessionController(
         val mutedDmIds: Set<Long> = emptySet(),
         val scrollPolicy: ChatScrollPolicy = ChatScrollPolicy.SMART,
         val cleanDecoMode: Boolean = false,
+        val dmEnabled: Boolean = true,
+        val swipeSwitchGroups: Boolean = false,
         val activeGuessRoundByGroup: Map<Long, GuessRound> = emptyMap(),
         val draftsByGroup: Map<Long, GroupInputDrafts> = emptyMap(),
         val unreadEntryBoundaryByGroup: Map<Long, Long> = emptyMap(),
@@ -89,7 +91,9 @@ class ChatSessionController(
             }
 
         val dmUnreadCount: Int
-            get() = if (hasLoadedDmThreads) {
+            get() = if (!dmEnabled) {
+                0
+            } else if (hasLoadedDmThreads) {
                 dmThreads.sumOf { t ->
                     val muted = t.muted || (t.id in mutedDmIds)
                     if (muted) 0 else t.unread.coerceAtLeast(0)
@@ -106,6 +110,13 @@ class ChatSessionController(
 
         val hasUnreadMention: Boolean
             get() = totalAtMeCount > 0
+
+        fun shouldBypassSessionList(isDirectEmbedded: Boolean = false): Boolean {
+            if (isDirectEmbedded || dmEnabled) return false
+            val joinedCount = groups.count { it.joined }
+            if (joinedCount <= 0) return false
+            return joinedCount == 1 || swipeSwitchGroups
+        }
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -138,14 +149,21 @@ class ChatSessionController(
                     ForHappyJson.decodeFromString(ListSerializer(Long.serializer()), raw).toSet()
                 }.getOrNull()
             }
-            val savedPolicy = ChatScrollPolicy.fromKey(db.getKvBlocking(KV_SCROLL_POLICY))
-            val savedClean = db.getKvBlocking(KV_CLEAN_DECO) == "1"
+            val savedPolicy = ChatScrollPolicy.fromKey(
+                db.getKvBlocking(KV_SCROLL_POLICY) ?: db.getKvBlocking("ui.chat.scroll_policy"),
+            )
+            val savedClean = db.getKvBlocking(KV_CLEAN_DECO)?.let { it == "1" || it == "true" }
+                ?: (db.getKvBlocking("ui.chat.clean_mode") == "true")
+            val savedDmEnabled = db.getKvBlocking(KV_DM_ENABLED)?.let { it != "0" && it != "false" } ?: true
+            val savedSwipeSwitch = db.getKvBlocking(KV_SWIPE_SWITCH_GROUPS)?.let { it == "1" || it == "true" } ?: false
             _uiState.update { cur ->
                 cur.copy(
                     pinnedSessionKeys = savedPinned ?: cur.pinnedSessionKeys,
                     mutedDmIds = savedMutedDms ?: emptySet(),
                     scrollPolicy = savedPolicy,
                     cleanDecoMode = savedClean,
+                    dmEnabled = savedDmEnabled,
+                    swipeSwitchGroups = savedSwipeSwitch,
                 )
             }
         }
@@ -306,6 +324,23 @@ class ChatSessionController(
         }
     }
 
+    fun setDmEnabled(enabled: Boolean) {
+        _uiState.update { it.copy(dmEnabled = enabled) }
+        db?.let { database ->
+            scope.launch { database.putKv(KV_DM_ENABLED, if (enabled) "1" else "0") }
+        }
+        if (enabled && !_uiState.value.hasLoadedDmThreads) {
+            scope.launch { refreshDmThreads() }
+        }
+    }
+
+    fun setSwipeSwitchGroups(enabled: Boolean) {
+        _uiState.update { it.copy(swipeSwitchGroups = enabled) }
+        db?.let { database ->
+            scope.launch { database.putKv(KV_SWIPE_SWITCH_GROUPS, if (enabled) "1" else "0") }
+        }
+    }
+
     fun updateActiveGuessRound(groupId: Long, round: GuessRound?) {
         _uiState.update { cur ->
             val next = if (round != null && round.messageId > 0L && round.state == "open") {
@@ -414,7 +449,7 @@ class ChatSessionController(
                 items += item
             }
         }
-        if (filter != "groups" && filter != "at") {
+        if (snap.dmEnabled && filter != "groups" && filter != "at") {
             snap.dmThreads.forEach { thread ->
                 items += UnifiedSessionItem.Dm(
                     thread = thread,
@@ -473,8 +508,8 @@ class ChatSessionController(
                 val gid = _uiState.value.activeGroupId
                 val needsFastCatchup = pollOnce(gid)
                 pollCycle += 1
-                if (pollCycle % 5 == 0) {
-                    refreshDmThreads()
+                if (pollCycle % 6 == 0) {
+                    refreshGroups()
                 }
                 delay(if (needsFastCatchup) 250L else BackgroundGate.pollingIntervalMs(3_000L))
             }
@@ -493,7 +528,11 @@ class ChatSessionController(
         if (fetched != null) {
             stateMutex.withLock {
                 val currentId = _uiState.value.activeGroupId
-                val resolvedId = if (fetched.any { it.id == currentId }) currentId else (fetched.firstOrNull()?.id ?: currentId)
+                val resolvedId = if (fetched.any { it.id == currentId && it.joined }) {
+                    currentId
+                } else {
+                    fetched.firstOrNull { it.joined }?.id ?: fetched.firstOrNull()?.id ?: currentId
+                }
                 val reconciled = fetched.map { g ->
                     val sent = sentReadByGroup[g.id] ?: 0L
                     val headId = maxOf(g.effectiveLatestId, g.effectiveLastRead)
@@ -513,7 +552,9 @@ class ChatSessionController(
                 }
             }
         }
-        refreshDmThreads()
+        if (_uiState.value.dmEnabled) {
+            refreshDmThreads()
+        }
     }
 
     suspend fun refreshDmThreads() {
@@ -1082,6 +1123,8 @@ class ChatSessionController(
         private const val KV_MUTED_DMS = "chat.dm_muted.v1"
         private const val KV_SCROLL_POLICY = "chat.scroll_policy.v1"
         private const val KV_CLEAN_DECO = "chat.clean_deco.v1"
+        const val KV_DM_ENABLED = "chat.dm_enabled.v1"
+        const val KV_SWIPE_SWITCH_GROUPS = "chat.swipe_switch_groups.v1"
         private const val KV_DRAFT_PREFIX = "chat.drafts.v2:"
     }
 }

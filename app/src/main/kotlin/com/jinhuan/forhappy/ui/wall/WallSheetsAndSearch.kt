@@ -837,42 +837,42 @@ fun WallSearchScreen(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+        properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(palette.bg)
-                .statusBarsPadding()
                 .navigationBarsPadding(),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(palette.surface)
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
-                }
-                Surface(
-                    color = palette.surface2,
-                    shape = RoundedCornerShape(999.dp),
+            Surface(color = palette.surface) {
+                Row(
                     modifier = Modifier
-                        .weight(1f)
-                        .height(40.dp)
-                        .border(1.dp, palette.line, RoundedCornerShape(999.dp)),
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Row(
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
+                    }
+                    Surface(
+                        color = palette.surface2,
+                        shape = RoundedCornerShape(999.dp),
                         modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                            .weight(1f)
+                            .height(40.dp)
+                            .border(1.dp, palette.line, RoundedCornerShape(999.dp)),
                     ) {
-                        Icon(Icons.Rounded.Search, contentDescription = null, tint = palette.muted, modifier = Modifier.size(18.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Rounded.Search, contentDescription = null, tint = palette.muted, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                             if (query.isEmpty()) {
@@ -906,6 +906,7 @@ fun WallSearchScreen(
                             }
                         }
                     }
+                }
                 }
             }
 
@@ -1248,27 +1249,28 @@ fun SeriesIndexDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+        properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(palette.bg)
-                .statusBarsPadding()
                 .navigationBarsPadding(),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(palette.surface)
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
+            Surface(color = palette.surface) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
+                    }
+                    Text("专题图集", color = palette.text, fontSize = 17.sp, fontWeight = FontWeight.Bold)
                 }
-                Text("专题图集", color = palette.text, fontSize = 17.sp, fontWeight = FontWeight.Bold)
             }
 
             LazyRow(

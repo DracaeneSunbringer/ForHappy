@@ -12,10 +12,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -85,9 +88,11 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.jinhuan.forhappy.BuildConfig
 import com.jinhuan.forhappy.ForHappyApp
+import com.jinhuan.forhappy.core.chat.ChatSessionController
 import com.jinhuan.forhappy.core.model.AppDisguiseMode
 import com.jinhuan.forhappy.core.model.AppIconAlias
 import com.jinhuan.forhappy.core.model.AppThemeMode
+import com.jinhuan.forhappy.core.model.ChatScrollPolicy
 import com.jinhuan.forhappy.core.model.CustomEdgeNode
 import com.jinhuan.forhappy.core.model.MeUser
 import com.jinhuan.forhappy.core.model.PrivacyStealthConfig
@@ -100,6 +105,7 @@ import com.jinhuan.forhappy.ui.components.BadgePill
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
+import com.jinhuan.forhappy.ui.wall.FullscreenDialogProperties
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -116,6 +122,7 @@ fun SettingsCenterDialog(
     api: ForHappyApiClient,
     updateController: AppUpdateController,
     me: MeUser?,
+    chatController: ChatSessionController? = null,
     themeMode: AppThemeMode,
     privacyConfig: PrivacyStealthConfig,
     privacyShieldEnabled: Boolean,
@@ -135,6 +142,7 @@ fun SettingsCenterDialog(
 ) {
     val palette = LocalForHappyPalette.current
     var currentSubpage by remember(initialSubpage) { mutableStateOf(initialSubpage) }
+    val chatStateOrNull = chatController?.uiState?.collectAsState()?.value
 
     val subpageTitle = when (currentSubpage) {
         "stealth" -> "防窥与摸鱼"
@@ -151,21 +159,21 @@ fun SettingsCenterDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+        properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+        val navBottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(palette.bg)
-                .statusBarsPadding()
-                .navigationBarsPadding()
                 .imePadding(),
         ) {
             Surface(color = palette.surface) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .statusBarsPadding()
                         .height(ForHappyDimens.topBarHeight)
                         .padding(horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -190,10 +198,24 @@ fun SettingsCenterDialog(
                 val netStatus by api.rustNetManager.status.collectAsState()
                 val updateState by updateController.state.collectAsState()
                 val isAdminCapable = me?.isAdmin == true || me?.owner == true || me?.canManageAi == true
+                val chatSubtitle = if (chatStateOrNull != null) {
+                    buildString {
+                        append(if (chatStateOrNull.dmEnabled) "私信已开启" else "私信已关闭")
+                        if (chatStateOrNull.swipeSwitchGroups) append(" · 左右滑切群")
+                        append(" · 滚动与干净铭牌")
+                    }
+                } else {
+                    "消息滚动策略、私信开关与左右滑切群"
+                }
 
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(14.dp),
+                    contentPadding = PaddingValues(
+                        start = 14.dp,
+                        top = 14.dp,
+                        end = 14.dp,
+                        bottom = 14.dp + navBottomPad,
+                    ),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     item {
@@ -217,7 +239,7 @@ fun SettingsCenterDialog(
                             SettingsNavRow(
                                 icon = Icons.Rounded.Tune,
                                 title = "群聊与私信",
-                                subtitle = "消息滚动策略与干净铭牌模式",
+                                subtitle = chatSubtitle,
                                 onClick = { currentSubpage = "chat" },
                             )
                             HorizontalDivider(color = palette.line.copy(alpha = 0.6f))
@@ -308,7 +330,12 @@ fun SettingsCenterDialog(
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(rememberScrollState())
-                        .padding(14.dp),
+                        .padding(
+                            start = 14.dp,
+                            top = 14.dp,
+                            end = 14.dp,
+                            bottom = 14.dp + navBottomPad,
+                        ),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     when (currentSubpage) {
@@ -324,7 +351,7 @@ fun SettingsCenterDialog(
                             onChangeIconAlias = onChangeIconAlias,
                         )
                         "browse" -> BrowseDefaultsSubpage(api = api)
-                        "chat" -> ChatPrefsSubpage(api = api)
+                        "chat" -> ChatPrefsSubpage(api = api, chatController = chatController)
                         "appearance" -> AppearanceSubpage(
                             api = api,
                             themeMode = themeMode,
@@ -569,42 +596,129 @@ private fun BrowseDefaultsSubpage(api: ForHappyApiClient) {
 }
 
 @Composable
-private fun ChatPrefsSubpage(api: ForHappyApiClient) {
+private fun ChatPrefsSubpage(
+    api: ForHappyApiClient,
+    chatController: ChatSessionController?,
+) {
     val palette = LocalForHappyPalette.current
     val scope = rememberCoroutineScope()
-    var scrollPolicy by remember { mutableStateOf("SMART") }
-    var cleanMode by remember { mutableStateOf(false) }
+    val controllerState = chatController?.uiState?.collectAsState()?.value
+
+    var localDmEnabled by remember { mutableStateOf(true) }
+    var localSwipeSwitch by remember { mutableStateOf(false) }
+    var localScrollPolicy by remember { mutableStateOf(ChatScrollPolicy.SMART) }
+    var localCleanMode by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        scrollPolicy = api.getPref("ui.chat.scroll_policy") ?: "SMART"
-        cleanMode = api.getPref("ui.chat.clean_mode") == "true"
+        if (chatController == null) {
+            localDmEnabled = api.getPref(ChatSessionController.KV_DM_ENABLED)?.let { it != "0" && it != "false" } ?: true
+            localSwipeSwitch = api.getPref(ChatSessionController.KV_SWIPE_SWITCH_GROUPS)?.let { it == "1" || it == "true" } ?: false
+            localScrollPolicy = ChatScrollPolicy.fromKey(api.getPref("ui.chat.scroll_policy"))
+            localCleanMode = api.getPref("ui.chat.clean_mode") == "true"
+        }
     }
 
+    val dmEnabled = controllerState?.dmEnabled ?: localDmEnabled
+    val swipeSwitchGroups = controllerState?.swipeSwitchGroups ?: localSwipeSwitch
+    val scrollPolicy = controllerState?.scrollPolicy ?: localScrollPolicy
+    val cleanMode = controllerState?.cleanDecoMode ?: localCleanMode
+
     SettingsGroupCard {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("开启私信功能", color = palette.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    Text(
+                        "关闭后隐藏私信入口与未读数；仅 1 个群聊（或开启左右滑切群）时点「消息」直接进入群聊，无需进入群聊选择界面",
+                        color = palette.muted,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                    )
+                }
+                Switch(
+                    checked = dmEnabled,
+                    onCheckedChange = { enabled ->
+                        localDmEnabled = enabled
+                        if (chatController != null) {
+                            chatController.setDmEnabled(enabled)
+                        } else {
+                            scope.launch { api.putPref(ChatSessionController.KV_DM_ENABLED, if (enabled) "1" else "0") }
+                        }
+                    },
+                )
+            }
+
+            HorizontalDivider(color = palette.line.copy(alpha = 0.6f))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("左右滑动快速切换群聊", color = palette.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    Text(
+                        "拥有多个群聊时，在聊天界面左右滑动即可快速切群（顶部同步显示群切换胶囊）；配合关闭私信可直接免选列表",
+                        color = palette.muted,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                    )
+                }
+                Switch(
+                    checked = swipeSwitchGroups,
+                    onCheckedChange = { enabled ->
+                        localSwipeSwitch = enabled
+                        if (chatController != null) {
+                            chatController.setSwipeSwitchGroups(enabled)
+                        } else {
+                            scope.launch { api.putPref(ChatSessionController.KV_SWIPE_SWITCH_GROUPS, if (enabled) "1" else "0") }
+                        }
+                    },
+                )
+            }
+
+            HorizontalDivider(color = palette.line.copy(alpha = 0.6f))
+
             Text("新消息到来时的自动滚动行为", color = palette.muted, fontSize = 12.sp)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("SMART" to "智能定位", "ALWAYS" to "始终回底", "NEVER" to "保持当前位置").forEach { (id, label) ->
+            Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(
+                    ChatScrollPolicy.SMART to "智能定位",
+                    ChatScrollPolicy.AUTO_FOLLOW to "始终回底",
+                    ChatScrollPolicy.MANUAL to "保持当前位置",
+                ).forEach { (policy, label) ->
                     FilterChip(
-                        selected = scrollPolicy == id,
+                        selected = scrollPolicy == policy,
                         onClick = {
-                            scrollPolicy = id
-                            scope.launch { api.putPref("ui.chat.scroll_policy", id) }
+                            localScrollPolicy = policy
+                            chatController?.setScrollPolicy(policy)
+                            scope.launch { api.putPref("ui.chat.scroll_policy", policy.key) }
                         },
                         label = { Text(label, fontSize = 12.sp) },
                     )
                 }
             }
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("群聊极简干净模式", color = palette.text, fontSize = 13.sp)
+
+            HorizontalDivider(color = palette.line.copy(alpha = 0.6f))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("群聊极简干净模式", color = palette.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     Text("隐藏花哨称号与装扮气泡背景", color = palette.muted, fontSize = 11.sp)
                 }
                 Switch(
                     checked = cleanMode,
-                    onCheckedChange = {
-                        cleanMode = it
-                        scope.launch { api.putPref("ui.chat.clean_mode", it.toString()) }
+                    onCheckedChange = { enabled ->
+                        localCleanMode = enabled
+                        chatController?.setCleanDecoMode(enabled)
+                        scope.launch { api.putPref("ui.chat.clean_mode", enabled.toString()) }
                     },
                 )
             }

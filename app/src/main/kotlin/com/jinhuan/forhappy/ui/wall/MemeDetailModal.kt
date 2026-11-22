@@ -342,7 +342,7 @@ fun MemeDetailModal(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+        properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = topBarSolid && !palette.isDark)
         AnimatedVisibility(

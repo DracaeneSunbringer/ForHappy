@@ -147,6 +147,7 @@ import com.jinhuan.forhappy.ui.theme.LocalBossKeyActive
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.theme.TABULAR_FONT_FEATURE
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
+import com.jinhuan.forhappy.ui.wall.FullscreenDialogProperties
 import com.jinhuan.forhappy.ui.wall.ImmersiveMediaStage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -2642,7 +2643,7 @@ private fun LinuxDoComposerSheet(
             if (stagedItems.isNotEmpty()) {
                 Dialog(
                     onDismissRequest = { maskEditorIndex = null },
-                    properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+                    properties = FullscreenDialogProperties,
                 ) {
                     ConfigureFullscreenDialogWindow(darkStatusIcons = false)
                     ImageMaskEditorScreen(

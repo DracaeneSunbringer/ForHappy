@@ -142,11 +142,10 @@ fun LoginWebSheet(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
                 .navigationBarsPadding(),
         ) {
             Surface(color = palette.surface) {
-                Column(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.fillMaxWidth().statusBarsPadding()) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()

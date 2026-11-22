@@ -145,6 +145,7 @@ import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.theme.TABULAR_FONT_FEATURE
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
+import com.jinhuan.forhappy.ui.wall.FullscreenDialogProperties
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -956,22 +957,21 @@ fun ComposeWorkbench(
 
     Dialog(
         onDismissRequest = { attemptClose() },
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+        properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
 
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(palette.bg)
-                .statusBarsPadding()
-                .navigationBarsPadding(),
+                .background(palette.bg),
         ) {
             // Top Bar: ✕  发帖 / 编辑  (●图文 | 文字 | 链接)
             Surface(color = palette.surface) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .statusBarsPadding()
                         .height(ForHappyDimens.topBarHeight)
                         .padding(horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1833,6 +1833,7 @@ fun ComposeWorkbench(
                 color = palette.surface,
                 modifier = Modifier
                     .fillMaxWidth()
+                    .navigationBarsPadding()
                     .imePadding(),
             ) {
                 Column {

@@ -100,6 +100,7 @@ import com.jinhuan.forhappy.ui.components.ForHappyAvatar
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
+import com.jinhuan.forhappy.ui.wall.FullscreenDialogProperties
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -241,74 +242,75 @@ fun GuessRoomSheet(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+        properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(palette.bg)
-                .statusBarsPadding()
                 .navigationBarsPadding(),
         ) {
             // Header
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(palette.surface)
-                    .height(ForHappyDimens.topBarHeight)
-                    .padding(horizontal = 6.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
-                    }
-                    Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = palette.gold, modifier = Modifier.size(18.dp))
-                    Text("欢欢猜词屋", color = palette.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    if (selectedMid != null && subTab == "live") {
-                        BadgePill(
-                            text = "切回最新",
-                            containerColor = palette.surface2,
-                            contentColor = palette.primary,
-                            modifier = Modifier.clickable {
-                                selectedMid = null
-                                receiptId = null
-                                loadOverview()
-                            },
-                        )
-                    }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Surface(
-                        color = palette.primaryContainer,
-                        shape = RoundedCornerShape(999.dp),
-                        modifier = Modifier.clickable {
-                            if (me == null) onRequireLogin() else showCreateRoundSheet = true
-                        },
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(3.dp),
-                        ) {
-                            Icon(Icons.Rounded.Add, contentDescription = null, tint = palette.primary, modifier = Modifier.size(14.dp))
-                            Text("发起一局", color = palette.primary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Surface(color = palette.surface) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .height(ForHappyDimens.topBarHeight)
+                        .padding(horizontal = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
+                        }
+                        Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = palette.gold, modifier = Modifier.size(18.dp))
+                        Text("欢欢猜词屋", color = palette.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        if (selectedMid != null && subTab == "live") {
+                            BadgePill(
+                                text = "切回最新",
+                                containerColor = palette.surface2,
+                                contentColor = palette.primary,
+                                modifier = Modifier.clickable {
+                                    selectedMid = null
+                                    receiptId = null
+                                    loadOverview()
+                                },
+                            )
                         }
                     }
-                    IconButton(
-                        onClick = {
-                            when (subTab) {
-                                "live" -> loadOverview()
-                                "history" -> loadHistory()
-                                "stats" -> loadStats()
-                                "queue" -> loadQueue()
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Surface(
+                            color = palette.primaryContainer,
+                            shape = RoundedCornerShape(999.dp),
+                            modifier = Modifier.clickable {
+                                if (me == null) onRequireLogin() else showCreateRoundSheet = true
+                            },
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                            ) {
+                                Icon(Icons.Rounded.Add, contentDescription = null, tint = palette.primary, modifier = Modifier.size(14.dp))
+                                Text("发起一局", color = palette.primary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                             }
-                        },
-                        modifier = Modifier.size(34.dp),
-                    ) {
-                        Icon(Icons.Rounded.Refresh, contentDescription = "刷新", tint = palette.primary)
+                        }
+                        IconButton(
+                            onClick = {
+                                when (subTab) {
+                                    "live" -> loadOverview()
+                                    "history" -> loadHistory()
+                                    "stats" -> loadStats()
+                                    "queue" -> loadQueue()
+                                }
+                            },
+                            modifier = Modifier.size(34.dp),
+                        ) {
+                            Icon(Icons.Rounded.Refresh, contentDescription = "刷新", tint = palette.primary)
+                        }
                     }
                 }
             }

@@ -114,6 +114,7 @@ import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.theme.LocalPrivacyStealthConfig
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
+import com.jinhuan.forhappy.ui.wall.FullscreenDialogProperties
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -161,12 +162,19 @@ fun MessagesListView(
     val items = remember(
         state.groups,
         state.dmThreads,
+        state.dmEnabled,
         state.pinnedSessionKeys,
         state.mutedDmIds,
         state.activeGuessRoundByGroup,
         selectedFilter,
     ) {
         controller.buildUnifiedConversationItems(filter = selectedFilter)
+    }
+
+    LaunchedEffect(state.dmEnabled) {
+        if (!state.dmEnabled && selectedFilter == "dm") {
+            onSelectFilter("all")
+        }
     }
 
     LaunchedEffect(statusBanner) {
@@ -210,18 +218,20 @@ fun MessagesListView(
                             modifier = Modifier.size(20.dp),
                         )
                     }
-                    IconButton(
-                        onClick = {
-                            if (me == null) onRequireLogin() else showNewDmSheet = true
-                        },
-                        modifier = Modifier.size(36.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Create,
-                            contentDescription = "发起私信",
-                            tint = palette.text,
-                            modifier = Modifier.size(20.dp),
-                        )
+                    if (state.dmEnabled) {
+                        IconButton(
+                            onClick = {
+                                if (me == null) onRequireLogin() else showNewDmSheet = true
+                            },
+                            modifier = Modifier.size(36.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Create,
+                                contentDescription = "发起私信",
+                                tint = palette.text,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
                     }
                     Box(
                         contentAlignment = Alignment.Center,
@@ -259,6 +269,15 @@ fun MessagesListView(
 
                 // Filter Capsules Row
                 val atMeTotal = state.totalAtMeCount
+                val filterChips = remember(state.dmEnabled, atMeTotal, state.totalUnreadCount) {
+                    buildList {
+                        add("all" to "全部")
+                        add("groups" to "群聊")
+                        if (state.dmEnabled) add("dm" to "私信")
+                        add("at" to if (atMeTotal > 0) "@我 $atMeTotal" else "@我")
+                        add("unread" to if (state.totalUnreadCount > 0) "未读 ${state.totalUnreadCount}" else "未读")
+                    }
+                }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -267,13 +286,7 @@ fun MessagesListView(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    listOf(
-                        "all" to "全部",
-                        "groups" to "群聊",
-                        "dm" to "私信",
-                        "at" to if (atMeTotal > 0) "@我 $atMeTotal" else "@我",
-                        "unread" to if (state.totalUnreadCount > 0) "未读 ${state.totalUnreadCount}" else "未读",
-                    ).forEach { (key, label) ->
+                    filterChips.forEach { (key, label) ->
                         val selected = selectedFilter == key
                         Surface(
                             color = if (selected) palette.primary else palette.surface2,
@@ -949,14 +962,18 @@ private fun GlobalMessagesSearchDialog(
     var searchingRemote by remember { mutableStateOf(false) }
     var msgHits by remember { mutableStateOf<List<Pair<ChatGroup, ChatMessage>>>(emptyList()) }
 
-    val matchingSessions = remember(query, state.groups, state.dmThreads) {
+    val matchingSessions = remember(query, state.groups, state.dmThreads, state.dmEnabled) {
         val q = query.trim().lowercase()
         if (q.isEmpty()) emptyList()
         else {
             val gHits = state.groups.filter { it.name.lowercase().contains(q) }.map { it to null }
-            val dHits = state.dmThreads.filter {
-                (it.peerName.orEmpty() + it.peerUsername.orEmpty()).lowercase().contains(q)
-            }.map { null to it }
+            val dHits = if (state.dmEnabled) {
+                state.dmThreads.filter {
+                    (it.peerName.orEmpty() + it.peerUsername.orEmpty()).lowercase().contains(q)
+                }.map { null to it }
+            } else {
+                emptyList()
+            }
             gHits + dHits
         }
     }
@@ -983,34 +1000,35 @@ private fun GlobalMessagesSearchDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+        properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(palette.bg)
-                .statusBarsPadding()
                 .navigationBarsPadding(),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(palette.surface)
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
+            Surface(color = palette.surface) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
+                    }
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        placeholder = { Text("搜群聊、好友或聊天记录…", fontSize = 13.sp) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    placeholder = { Text("搜群聊、好友或聊天记录…", fontSize = 13.sp) },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                )
             }
             HorizontalDivider(color = palette.line)
 
@@ -1123,6 +1141,7 @@ fun GroupInfoDialog(
     var noticeDraft by remember(group.notice, group.desc) { mutableStateOf(group.notice ?: group.desc ?: "") }
     var noticeFeedback by remember { mutableStateOf<String?>(null) }
     var showLeaveConfirm by remember { mutableStateOf(false) }
+    var joiningGoneGroupId by remember { mutableStateOf<Long?>(null) }
     var busy by remember { mutableStateOf(false) }
 
     LaunchedEffect(group.id, canManage) {
@@ -1140,28 +1159,29 @@ fun GroupInfoDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+        properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(palette.bg)
-                .statusBarsPadding()
                 .navigationBarsPadding(),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(palette.surface)
-                    .height(ForHappyDimens.topBarHeight)
-                    .padding(horizontal = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
+            Surface(color = palette.surface) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .height(ForHappyDimens.topBarHeight)
+                        .padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
+                    }
+                    Text("群聊资料与设置", color = palette.text, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 }
-                Text("群聊资料与设置", color = palette.text, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             }
             HorizontalDivider(color = palette.line)
 
@@ -1404,6 +1424,40 @@ fun GroupInfoDialog(
                     }
                 }
 
+                if (state.goneGroups.isNotEmpty()) {
+                    item(key = "gone_groups_card") {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = "可加入的其他群聊 (${state.goneGroups.size})",
+                                color = palette.muted,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            state.goneGroups.forEach { gone ->
+                                GoneGroupRow(
+                                    gone = gone,
+                                    busy = joiningGoneGroupId == gone.id,
+                                    onJoin = {
+                                        if (me == null) return@GoneGroupRow
+                                        joiningGoneGroupId = gone.id
+                                        scope.launch {
+                                            val res = api.applyJoinGroup(gone.id, adultContentAck = true)
+                                            joiningGoneGroupId = null
+                                            res.onSuccess { msg ->
+                                                noticeFeedback = "${gone.name}：$msg"
+                                                controller.refreshGroups()
+                                            }.onFailure { err ->
+                                                noticeFeedback = err.message ?: "操作失败"
+                                            }
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+
                 if (group.id != 1L && me != null) {
                     item {
                         Spacer(Modifier.height(6.dp))
@@ -1456,7 +1510,7 @@ fun MemberProfileSheet(
     me: MeUser?,
     onDismiss: () -> Unit,
     onMentionUser: (String) -> Unit,
-    onSendDm: (ChatUser) -> Unit,
+    onSendDm: ((ChatUser) -> Unit)? = null,
     onViewWall: (String) -> Unit,
     onKicked: () -> Unit = {},
 ) {
@@ -1546,7 +1600,7 @@ fun MemberProfileSheet(
                         Text("@TA", fontSize = 12.sp)
                     }
                 }
-                if (member.id > 0L && member.id != me?.id) {
+                if (onSendDm != null && member.id > 0L && member.id != me?.id) {
                     Button(
                         onClick = {
                             onSendDm(
@@ -1675,29 +1729,30 @@ fun ChatHistorySearchDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+        properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(palette.bg)
-                .statusBarsPadding()
                 .navigationBarsPadding(),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(palette.surface)
-                    .height(ForHappyDimens.topBarHeight)
-                    .padding(horizontal = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
+            Surface(color = palette.surface) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .height(ForHappyDimens.topBarHeight)
+                        .padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
+                    }
+                    Text("搜索「$groupName」聊天记录", color = palette.text, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 }
-                Text("搜索「$groupName」聊天记录", color = palette.text, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             }
             HorizontalDivider(color = palette.line)
 

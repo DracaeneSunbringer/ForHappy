@@ -133,6 +133,7 @@ import com.jinhuan.forhappy.ui.compose.ComposeMediaStager
 import com.jinhuan.forhappy.ui.compose.ImageMaskEditorScreen
 import com.jinhuan.forhappy.ui.theme.LocalBossKeyActive
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
+import com.jinhuan.forhappy.ui.wall.FullscreenDialogProperties
 import com.jinhuan.forhappy.core.clock.ServerClock
 import com.jinhuan.forhappy.core.seen.LocalSeenTracker
 import com.jinhuan.forhappy.core.seen.ObserveMemeSeenDwell
@@ -2652,7 +2653,7 @@ private fun FeishuWorkGroupDetailScreen(
             if (stagedItems.isNotEmpty()) {
                 Dialog(
                     onDismissRequest = { maskEditorIndex = null },
-                    properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+                    properties = FullscreenDialogProperties,
                 ) {
                     ConfigureFullscreenDialogWindow(darkStatusIcons = false)
                     ImageMaskEditorScreen(

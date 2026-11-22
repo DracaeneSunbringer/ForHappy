@@ -11,10 +11,13 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -95,6 +98,7 @@ import com.jinhuan.forhappy.core.moyu.MoyuCalculator
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
+import com.jinhuan.forhappy.ui.wall.FullscreenDialogProperties
 import com.jinhuan.forhappy.ui.wall.saveImageBytesToSystemGallery
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -211,31 +215,31 @@ fun MoyuCalendarDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+        properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(palette.bg)
-                .statusBarsPadding()
-                .navigationBarsPadding()
                 .imePadding(),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .background(palette.surface)
-                    .padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("摸鱼日历", color = palette.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                    Text(snapshot.dayLabel, color = palette.muted, fontSize = 11.sp)
+            Surface(color = palette.surface) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .height(48.dp)
+                        .padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("摸鱼日历", color = palette.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        Text(snapshot.dayLabel, color = palette.muted, fontSize = 11.sp)
+                    }
                 }
             }
             HorizontalDivider(color = palette.line)
@@ -640,6 +644,7 @@ fun MoyuCalendarDialog(
                         }
                     }
                 }
+                Spacer(Modifier.navigationBarsPadding())
             }
         }
     }
@@ -800,24 +805,24 @@ fun NativeRoadDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+        properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+        val navBottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(palette.bg)
-                .statusBarsPadding()
-                .navigationBarsPadding(),
+                .background(palette.bg),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .background(palette.surface)
-                    .padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            Surface(color = palette.surface) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .height(48.dp)
+                        .padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                 IconButton(onClick = onDismiss) {
                     Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
                 }
@@ -846,6 +851,7 @@ fun NativeRoadDialog(
                         Icon(Icons.Rounded.Add, contentDescription = null, tint = palette.onPrimary, modifier = Modifier.size(15.dp))
                         Text("鞭打", color = palette.onPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
+                }
                 }
             }
             HorizontalDivider(color = palette.line)
@@ -921,7 +927,12 @@ fun NativeRoadDialog(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(14.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                        start = 14.dp,
+                        top = 14.dp,
+                        end = 14.dp,
+                        bottom = 14.dp + navBottomPad,
+                    ),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     items(filteredItems, key = { it.id }) { item ->
@@ -1191,37 +1202,37 @@ private fun RoadCommentsDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+        properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(palette.bg)
-                .statusBarsPadding()
-                .navigationBarsPadding()
                 .imePadding(),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .background(palette.surface)
-                    .padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
+            Surface(color = palette.surface) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .height(48.dp)
+                        .padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
+                    }
+                    Text(
+                        roadItem.title,
+                        color = palette.text,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
-                Text(
-                    roadItem.title,
-                    color = palette.text,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
             }
             HorizontalDivider(color = palette.line)
 
@@ -1271,41 +1282,43 @@ private fun RoadCommentsDialog(
             }
 
             HorizontalDivider(color = palette.line)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(palette.surface)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                OutlinedTextField(
-                    value = draft,
-                    onValueChange = { draft = it },
-                    placeholder = { Text("发表评论…") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(
-                    enabled = draft.trim().isNotEmpty() && !sending,
-                    onClick = {
-                        if (me == null) {
-                            onRequireLogin()
-                            return@IconButton
-                        }
-                        sending = true
-                        scope.launch {
-                            val ok = api.postRoadComment(roadItem.id, draft.trim()).isSuccess
-                            sending = false
-                            if (ok) {
-                                draft = ""
-                                onCommentPosted()
-                                loadComments()
-                            }
-                        }
-                    },
+            Surface(color = palette.surface) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = "发送", tint = palette.primary)
+                    OutlinedTextField(
+                        value = draft,
+                        onValueChange = { draft = it },
+                        placeholder = { Text("发表评论…") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(
+                        enabled = draft.trim().isNotEmpty() && !sending,
+                        onClick = {
+                            if (me == null) {
+                                onRequireLogin()
+                                return@IconButton
+                            }
+                            sending = true
+                            scope.launch {
+                                val ok = api.postRoadComment(roadItem.id, draft.trim()).isSuccess
+                                sending = false
+                                if (ok) {
+                                    draft = ""
+                                    onCommentPosted()
+                                    loadComments()
+                                }
+                            }
+                        },
+                    ) {
+                        Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = "发送", tint = palette.primary)
+                    }
                 }
             }
         }

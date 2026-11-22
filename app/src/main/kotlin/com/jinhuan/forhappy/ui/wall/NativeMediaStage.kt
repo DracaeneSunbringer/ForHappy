@@ -8,6 +8,7 @@ import android.media.MediaPlayer
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.view.Gravity
 import android.view.Surface
 import android.view.TextureView
 import android.view.ViewGroup
@@ -68,6 +69,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -125,17 +127,32 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
+ * Full-bleed edge-to-edge [DialogProperties]: keeps `usePlatformDefaultWidth = true` so
+ * Compose UI's `DialogLayout` does not clamp dialog height to `Configuration.screenHeightDp`
+ * (which excludes system bars and leaves top/bottom strips uncovered).
+ */
+val FullscreenDialogProperties = DialogProperties(
+    usePlatformDefaultWidth = true,
+    decorFitsSystemWindows = false,
+)
+
+/**
  * Configures an edge-to-edge Compose [Dialog] window so Android 15 display cutouts and
  * system bars do not shift the dialog root down while measuring full screen height.
  */
 @Composable
 fun ConfigureFullscreenDialogWindow(darkStatusIcons: Boolean) {
     val view = LocalView.current
-    LaunchedEffect(view, darkStatusIcons) {
-        val window = (view.parent as? DialogWindowProvider)?.window ?: return@LaunchedEffect
+    SideEffect {
+        val window = (view.parent as? DialogWindowProvider)?.window ?: return@SideEffect
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.decorView.setPadding(0, 0, 0, 0)
+        window.findViewById<android.view.View>(android.R.id.content)?.setPadding(0, 0, 0, 0)
         window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
-        window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        window.clearFlags(
+            WindowManager.LayoutParams.FLAG_DIM_BEHIND or
+                WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR,
+        )
         window.addFlags(
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS,
@@ -144,26 +161,58 @@ fun ConfigureFullscreenDialogWindow(darkStatusIcons: Boolean) {
         window.statusBarColor = android.graphics.Color.TRANSPARENT
         @Suppress("DEPRECATION")
         window.navigationBarColor = android.graphics.Color.TRANSPARENT
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isStatusBarContrastEnforced = false
+            window.isNavigationBarContrastEnforced = false
+        }
         @Suppress("DEPRECATION")
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
-        val newAttrs = WindowManager.LayoutParams().apply {
-            copyFrom(window.attributes)
-            width = ViewGroup.LayoutParams.MATCH_PARENT
-            height = ViewGroup.LayoutParams.MATCH_PARENT
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                layoutInDisplayCutoutMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-                } else {
-                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+
+        val targetCutoutMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        } else {
+            0
+        }
+        val curAttrs = window.attributes
+        val needAttrUpdate = curAttrs.width != ViewGroup.LayoutParams.MATCH_PARENT ||
+            curAttrs.height != ViewGroup.LayoutParams.MATCH_PARENT ||
+            curAttrs.gravity != (Gravity.TOP or Gravity.START) ||
+            curAttrs.horizontalMargin != 0f ||
+            curAttrs.verticalMargin != 0f ||
+            (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && curAttrs.layoutInDisplayCutoutMode != targetCutoutMode) ||
+            (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && (
+                curAttrs.fitInsetsTypes != 0 ||
+                    curAttrs.fitInsetsSides != 0 ||
+                    !curAttrs.isFitInsetsIgnoringVisibility
+                ))
+
+        if (needAttrUpdate) {
+            val newAttrs = WindowManager.LayoutParams().apply {
+                copyFrom(curAttrs)
+                width = ViewGroup.LayoutParams.MATCH_PARENT
+                height = ViewGroup.LayoutParams.MATCH_PARENT
+                gravity = Gravity.TOP or Gravity.START
+                horizontalMargin = 0f
+                verticalMargin = 0f
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    layoutInDisplayCutoutMode = targetCutoutMode
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    fitInsetsTypes = 0
+                    fitInsetsSides = 0
+                    isFitInsetsIgnoringVisibility = true
                 }
             }
+            window.attributes = newAttrs
+            window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            ViewCompat.requestApplyInsets(window.decorView)
         }
-        window.attributes = newAttrs
-        window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+
         val controller = WindowCompat.getInsetsController(window, view)
         controller.isAppearanceLightStatusBars = darkStatusIcons
         controller.isAppearanceLightNavigationBars = darkStatusIcons
-        ViewCompat.requestApplyInsets(window.decorView)
     }
 }
 
@@ -981,7 +1030,7 @@ fun ImmersiveMediaStage(
             showOriginal = false
             onDismiss()
         },
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+        properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = false)
         Box(

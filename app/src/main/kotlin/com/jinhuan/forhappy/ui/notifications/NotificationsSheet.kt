@@ -11,10 +11,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -82,6 +85,7 @@ import com.jinhuan.forhappy.ui.components.ReactionEmojiView
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
+import com.jinhuan.forhappy.ui.wall.FullscreenDialogProperties
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -158,21 +162,21 @@ fun NotificationsSheet(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+        properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+        val navBottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(palette.bg)
-                .statusBarsPadding()
-                .navigationBarsPadding(),
+                .background(palette.bg),
         ) {
             // 48dp Fullscreen Header
             Surface(color = palette.surface) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .statusBarsPadding()
                         .height(ForHappyDimens.topBarHeight)
                         .padding(horizontal = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -282,7 +286,7 @@ fun NotificationsSheet(
                     Spacer(Modifier.height(8.dp))
                     LazyColumn(
                         modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(bottom = 20.dp),
+                        contentPadding = PaddingValues(bottom = 20.dp + navBottomPad),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         NOTIF_PREF_GROUPS.forEach { (groupTitle, keys) ->
@@ -416,7 +420,12 @@ fun NotificationsSheet(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxWidth(),
-                            contentPadding = PaddingValues(14.dp),
+                            contentPadding = PaddingValues(
+                                start = 14.dp,
+                                top = 14.dp,
+                                end = 14.dp,
+                                bottom = 14.dp + navBottomPad,
+                            ),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             if (pinnedNotices.isNotEmpty() && (activeTab.id == "all" || activeTab.id == "system")) {

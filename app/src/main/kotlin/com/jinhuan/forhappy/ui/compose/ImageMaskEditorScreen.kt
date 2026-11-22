@@ -99,6 +99,7 @@ import com.jinhuan.forhappy.core.compose.MaskToolKind
 import com.jinhuan.forhappy.core.compose.NormPoint
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
+import com.jinhuan.forhappy.ui.wall.FullscreenDialogProperties
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -288,7 +289,7 @@ fun ImageMaskEditorScreen(
 
     Dialog(
         onDismissRequest = { attemptClose() },
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+        properties = FullscreenDialogProperties,
     ) {
         ConfigureFullscreenDialogWindow(darkStatusIcons = false)
 
