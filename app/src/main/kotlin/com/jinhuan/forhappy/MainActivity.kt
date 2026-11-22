@@ -21,6 +21,7 @@ import androidx.lifecycle.lifecycleScope
 import com.jinhuan.forhappy.core.model.AppDisguiseMode
 import com.jinhuan.forhappy.core.model.AppIconAlias
 import com.jinhuan.forhappy.core.model.AppThemeMode
+import com.jinhuan.forhappy.core.model.AppUiStyle
 import com.jinhuan.forhappy.core.model.ForHappyJson
 import com.jinhuan.forhappy.core.model.PrivacyStealthConfig
 import com.jinhuan.forhappy.core.model.ShortcutGestureMode
@@ -39,6 +40,7 @@ class MainActivity : ComponentActivity() {
 
     private data class InitialUiSettings(
         val themeMode: AppThemeMode,
+        val uiStyle: AppUiStyle,
         val privacyConfig: PrivacyStealthConfig,
         val privacyShield: Boolean,
         val iconAlias: AppIconAlias,
@@ -69,6 +71,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val scope = rememberCoroutineScope()
             var themeMode by remember { mutableStateOf(initial.themeMode) }
+            var uiStyle by remember { mutableStateOf(initial.uiStyle) }
             var privacyConfig by remember { mutableStateOf(initial.privacyConfig) }
             var privacyShield by remember { mutableStateOf(initial.privacyShield) }
             var iconAlias by remember { mutableStateOf(initial.iconAlias) }
@@ -181,6 +184,7 @@ class MainActivity : ComponentActivity() {
 
             ForHappyTheme(
                 mode = themeMode,
+                uiStyle = uiStyle,
                 privacyConfig = privacyConfig,
                 seenTracker = app.seenTracker,
                 bossKeyActive = bossKeyActive,
@@ -188,6 +192,7 @@ class MainActivity : ComponentActivity() {
                 ForHappyShell(
                     app = app,
                     themeMode = themeMode,
+                    uiStyle = uiStyle,
                     privacyConfig = privacyConfig,
                     bossKeyActive = bossKeyActive,
                     privacyShieldEnabled = privacyShield,
@@ -196,6 +201,10 @@ class MainActivity : ComponentActivity() {
                     onChangeTheme = { next ->
                         themeMode = next
                         scope.launch { app.db.putKv("ui.theme_mode", next.name) }
+                    },
+                    onChangeUiStyle = { next ->
+                        uiStyle = next
+                        scope.launch { app.db.putKv(AppUiStyle.KV_KEY, next.key) }
                     },
                     onChangeDisguise = ::switchDisguiseMode,
                     onUpdatePrivacyConfig = { next -> persistPrivacyConfig(next) },
@@ -306,12 +315,14 @@ class MainActivity : ComponentActivity() {
                 null -> Unit
             }
         }
+        val savedUiStyle = AppUiStyle.fromKey(app.db.getKvBlocking(AppUiStyle.KV_KEY))
         val shield = app.db.getKvBlocking("ui.privacy_shield")?.toBooleanStrictOrNull() ?: false
         val alias = app.db.getKvBlocking("ui.icon_alias")?.let { saved ->
             runCatching { AppIconAlias.valueOf(saved) }.getOrNull()
         } ?: AppIconAlias.JINHUAN
         return InitialUiSettings(
             themeMode = theme,
+            uiStyle = savedUiStyle,
             privacyConfig = privacy,
             privacyShield = shield,
             iconAlias = alias,

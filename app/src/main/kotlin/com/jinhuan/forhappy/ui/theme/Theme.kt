@@ -1,5 +1,6 @@
 package com.jinhuan.forhappy.ui.theme
 
+import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -10,14 +11,18 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
 import com.jinhuan.forhappy.core.model.AppDisguiseMode
 import com.jinhuan.forhappy.core.model.AppThemeMode
+import com.jinhuan.forhappy.core.model.AppUiStyle
 import com.jinhuan.forhappy.core.model.PrivacyStealthConfig
 import com.jinhuan.forhappy.core.seen.LocalSeenTracker
 import com.jinhuan.forhappy.core.seen.SeenTracker
@@ -51,18 +56,21 @@ val ForHappyTypography = Typography(
     displaySmall = TextStyle(
         fontSize = 28.sp,
         lineHeight = 36.sp,
-        fontWeight = FontWeight.SemiBold,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = (-0.3).sp,
         fontFeatureSettings = TABULAR_FONT_FEATURE,
     ),
     titleLarge = TextStyle(
         fontSize = 20.sp,
         lineHeight = 28.sp,
-        fontWeight = FontWeight.SemiBold,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = (-0.3).sp,
     ),
     titleMedium = TextStyle(
         fontSize = 18.sp,
         lineHeight = 26.sp,
         fontWeight = FontWeight.SemiBold,
+        letterSpacing = (-0.3).sp,
     ),
     titleSmall = TextStyle(
         fontSize = 16.sp,
@@ -122,6 +130,10 @@ data class ForHappyPalette(
     val blurOverlay: Color = Color.Black.copy(alpha = if (isDark) 0.24f else 0.12f),
     val bubbleSelf: Color = primaryContainer,
     val success: Color = primary,
+    val isModernUi: Boolean = false,
+    val glassSurface: Color = surface.copy(alpha = if (isDark) 0.86f else 0.90f),
+    val glassBorder: Color = line,
+    val cardBorder: Color = line.copy(alpha = 0.7f),
 ) {
     val surfaceVariant: Color get() = surface2
     val outline: Color get() = line
@@ -343,26 +355,86 @@ val LinuxDoDarkPalette = ForHappyPalette(
     success = Color(0xFF22C55E),
 )
 
-val LocalForHappyPalette = staticCompositionLocalOf { WarmPaperLightPalette }
+val ModernAiryLightPalette = ForHappyPalette(
+    bg = Color(0xFFF3F5FA),
+    surface = Color(0xFFFFFFFF),
+    surface2 = Color(0xFFE9EDF5),
+    text = Color(0xFF0F172A),
+    muted = Color(0xFF64748B),
+    primary = Color(0xFFFF5A36),
+    onPrimary = Color(0xFFFFFFFF),
+    accent = Color(0xFF0EA5E9),
+    gold = Color(0xFFD97706),
+    line = Color(0x120F172A),
+    danger = Color(0xFFE11D48),
+    isDark = false,
+    appDisplayName = "尽欢",
+    surfaceRaised = Color(0xFFFFFFFF),
+    textDisabled = Color(0xFF94A3B8),
+    primaryContainer = Color(0xFFFFEAE4),
+    redpacket = Color(0xFFE53935),
+    like = Color(0xFFFF3B5C),
+    badge = Color(0xFFFF4757),
+    highlight = Color(0xFFFFF3C4),
+    scrim = Color.Black.copy(alpha = 0.40f),
+    blurOverlay = Color.Black.copy(alpha = 0.12f),
+    bubbleSelf = Color(0xFFFFE8E1),
+    success = Color(0xFF10B981),
+    isModernUi = true,
+    glassSurface = Color(0xF5F8FAFE),
+    glassBorder = Color(0x140F172A),
+    cardBorder = Color.Transparent,
+)
+
+val ModernObsidianDarkPalette = ForHappyPalette(
+    bg = Color(0xFF0A0C10),
+    surface = Color(0xFF131720),
+    surface2 = Color(0xFF1C2230),
+    text = Color(0xFFF1F5F9),
+    muted = Color(0xFF8B98AF),
+    primary = Color(0xFFFF6642),
+    onPrimary = Color(0xFFFFFFFF),
+    accent = Color(0xFF38BDF8),
+    gold = Color(0xFFFBBF24),
+    line = Color(0x14FFFFFF),
+    danger = Color(0xFFFB7185),
+    isDark = true,
+    appDisplayName = "尽欢",
+    surfaceRaised = Color(0xFF212838),
+    textDisabled = Color(0xFF525E73),
+    primaryContainer = Color(0xFF331C19),
+    redpacket = Color(0xFFEF5350),
+    like = Color(0xFFFF5470),
+    badge = Color(0xFFFF5263),
+    highlight = Color(0xFF4A3B10),
+    scrim = Color.Black.copy(alpha = 0.62f),
+    blurOverlay = Color.Black.copy(alpha = 0.26f),
+    bubbleSelf = Color(0xFF2E1D1B),
+    success = Color(0xFF34D399),
+    isModernUi = true,
+    glassSurface = Color(0xF5141923),
+    glassBorder = Color(0x22FFFFFF),
+    cardBorder = Color(0x0FFFFFFF),
+)
+
+val LocalForHappyPalette = staticCompositionLocalOf { ModernAiryLightPalette }
+val LocalAppUiStyle = staticCompositionLocalOf { AppUiStyle.MODERN }
 val LocalPrivacyStealthConfig = staticCompositionLocalOf { PrivacyStealthConfig() }
 val LocalBossKeyActive = staticCompositionLocalOf { false }
 
 private val ForHappyShapes = Shapes(
     small = RoundedCornerShape(12.dp),
-    medium = RoundedCornerShape(16.dp),
+    medium = RoundedCornerShape(18.dp),
     large = RoundedCornerShape(24.dp),
     extraLarge = RoundedCornerShape(28.dp),
 )
 
-@Composable
-fun ForHappyTheme(
+fun resolveForHappyPalette(
     mode: AppThemeMode,
+    uiStyle: AppUiStyle = AppUiStyle.MODERN,
     privacyConfig: PrivacyStealthConfig = PrivacyStealthConfig(),
-    seenTracker: SeenTracker? = null,
-    bossKeyActive: Boolean = false,
-    content: @Composable () -> Unit,
-) {
-    val systemDark = isSystemInDarkTheme()
+    systemDark: Boolean = false,
+): ForHappyPalette {
     val useDark = when (mode) {
         AppThemeMode.WARM_PAPER_LIGHT -> false
         AppThemeMode.PINE_NIGHT_DARK -> true
@@ -376,10 +448,44 @@ fun ForHappyTheme(
         mode == AppThemeMode.LINUX_DO -> AppDisguiseMode.LINUX_DO
         else -> AppDisguiseMode.NONE
     }
-    val palette = when (effectiveDisguise) {
+    return when (effectiveDisguise) {
         AppDisguiseMode.FEISHU -> if (useDark) FeishuWorkDarkPalette else FeishuWorkPalette
         AppDisguiseMode.LINUX_DO -> if (useDark) LinuxDoDarkPalette else LinuxDoPalette
-        AppDisguiseMode.NONE -> if (useDark) PineNightDarkPalette else WarmPaperLightPalette
+        AppDisguiseMode.NONE -> when (uiStyle) {
+            AppUiStyle.MODERN -> if (useDark) ModernObsidianDarkPalette else ModernAiryLightPalette
+            AppUiStyle.CLASSIC_WEB -> if (useDark) PineNightDarkPalette else WarmPaperLightPalette
+        }
+    }
+}
+
+@Composable
+fun ForHappyTheme(
+    mode: AppThemeMode,
+    uiStyle: AppUiStyle = AppUiStyle.MODERN,
+    privacyConfig: PrivacyStealthConfig = PrivacyStealthConfig(),
+    seenTracker: SeenTracker? = null,
+    bossKeyActive: Boolean = false,
+    content: @Composable () -> Unit,
+) {
+    val systemDark = isSystemInDarkTheme()
+    val palette = resolveForHappyPalette(
+        mode = mode,
+        uiStyle = uiStyle,
+        privacyConfig = privacyConfig,
+        systemDark = systemDark,
+    )
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            var ctx = view.context
+            while (ctx is android.content.ContextWrapper && ctx !is Activity) {
+                ctx = ctx.baseContext
+            }
+            val window = (ctx as? Activity)?.window ?: return@SideEffect
+            val controller = WindowCompat.getInsetsController(window, view)
+            controller.isAppearanceLightStatusBars = !palette.isDark
+            controller.isAppearanceLightNavigationBars = !palette.isDark
+        }
     }
 
     val colorScheme = if (palette.isDark) {
@@ -387,15 +493,22 @@ fun ForHappyTheme(
             primary = palette.primary,
             onPrimary = palette.onPrimary,
             primaryContainer = palette.primaryContainer,
+            onPrimaryContainer = palette.primary,
             secondary = palette.accent,
             onSecondary = palette.onPrimary,
+            secondaryContainer = palette.primaryContainer,
+            onSecondaryContainer = palette.primary,
             background = palette.bg,
             onBackground = palette.text,
             surface = palette.surface,
             onSurface = palette.text,
             surfaceVariant = palette.surface2,
             onSurfaceVariant = palette.muted,
+            surfaceContainer = palette.surface,
+            surfaceContainerHigh = palette.surfaceRaised,
+            surfaceContainerHighest = palette.surface2,
             outline = palette.line,
+            outlineVariant = palette.line,
             error = palette.danger,
         )
     } else {
@@ -403,21 +516,29 @@ fun ForHappyTheme(
             primary = palette.primary,
             onPrimary = palette.onPrimary,
             primaryContainer = palette.primaryContainer,
+            onPrimaryContainer = palette.primary,
             secondary = palette.accent,
             onSecondary = palette.text,
+            secondaryContainer = palette.primaryContainer,
+            onSecondaryContainer = palette.primary,
             background = palette.bg,
             onBackground = palette.text,
             surface = palette.surface,
             onSurface = palette.text,
             surfaceVariant = palette.surface2,
             onSurfaceVariant = palette.muted,
+            surfaceContainer = palette.surface,
+            surfaceContainerHigh = palette.surfaceRaised,
+            surfaceContainerHighest = palette.surface2,
             outline = palette.line,
+            outlineVariant = palette.line,
             error = palette.danger,
         )
     }
 
     CompositionLocalProvider(
         LocalForHappyPalette provides palette,
+        LocalAppUiStyle provides uiStyle,
         LocalPrivacyStealthConfig provides privacyConfig,
         LocalSeenTracker provides seenTracker,
         LocalBossKeyActive provides bossKeyActive,

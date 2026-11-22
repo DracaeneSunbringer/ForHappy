@@ -409,7 +409,10 @@ fun WalletDetailDialog(
                     }
                 }
             }
-            HorizontalDivider(color = palette.line)
+            HorizontalDivider(
+                color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+            )
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -439,7 +442,17 @@ fun WalletDetailDialog(
                         shape = RoundedCornerShape(16.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(1.dp, palette.line, RoundedCornerShape(16.dp)),
+                            .then(
+                                if (palette.isModernUi && palette.cardBorder == Color.Transparent) {
+                                    Modifier
+                                } else {
+                                    Modifier.border(
+                                        1.dp,
+                                        if (palette.isModernUi) palette.cardBorder else palette.line,
+                                        RoundedCornerShape(16.dp),
+                                    )
+                                },
+                            ),
                     ) {
                         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("当前余额", color = palette.muted, fontSize = 12.sp)
@@ -482,7 +495,17 @@ fun WalletDetailDialog(
                         shape = RoundedCornerShape(16.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(1.dp, palette.line, RoundedCornerShape(16.dp)),
+                            .then(
+                                if (palette.isModernUi && palette.cardBorder == Color.Transparent) {
+                                    Modifier
+                                } else {
+                                    Modifier.border(
+                                        1.dp,
+                                        if (palette.isModernUi) palette.cardBorder else palette.line,
+                                        RoundedCornerShape(16.dp),
+                                    )
+                                },
+                            ),
                     ) {
                         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -743,7 +766,10 @@ fun Cards52bDialog(
                     }
                 }
             }
-            HorizontalDivider(color = palette.line)
+            HorizontalDivider(
+                color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+            )
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -761,7 +787,17 @@ fun Cards52bDialog(
                         shape = RoundedCornerShape(16.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(1.dp, palette.line, RoundedCornerShape(16.dp)),
+                            .then(
+                                if (palette.isModernUi && palette.cardBorder == Color.Transparent) {
+                                    Modifier
+                                } else {
+                                    Modifier.border(
+                                        1.dp,
+                                        if (palette.isModernUi) palette.cardBorder else palette.line,
+                                        RoundedCornerShape(16.dp),
+                                    )
+                                },
+                            ),
                     ) {
                         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -1109,7 +1145,10 @@ fun DecoStudioDialog(
                     }
                 }
             }
-            HorizontalDivider(color = palette.line)
+            HorizontalDivider(
+                color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+            )
 
             // Fixed Top 4-Scene Realtime Preview Pager
             Column(
@@ -1292,7 +1331,10 @@ fun DecoStudioDialog(
                     }
                 }
             }
-            HorizontalDivider(color = palette.line)
+            HorizontalDivider(
+                color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+            )
 
             bannerText?.let { msg ->
                 Text(
@@ -1320,7 +1362,10 @@ fun DecoStudioDialog(
                     )
                 }
             }
-            HorizontalDivider(color = palette.line)
+            HorizontalDivider(
+                color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+            )
 
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 if (activeTab == 2) {
@@ -1508,7 +1553,10 @@ fun DecoStudioDialog(
                                     }
                                 }
 
-                                HorizontalDivider(color = palette.line)
+                                HorizontalDivider(
+                color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+            )
 
                                 OutlinedTextField(
                                     value = config.customTitle,
@@ -1607,7 +1655,10 @@ fun DecoStudioDialog(
                                     }
                                 }
 
-                                HorizontalDivider(color = palette.line)
+                                HorizontalDivider(
+                color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+            )
 
                                 Text("开源社区投稿气泡皮肤（meme-hall-skins）", color = palette.muted, fontSize = 12.sp)
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1877,7 +1928,10 @@ fun InviteCodesDialog(
                     }
                 }
             }
-            HorizontalDivider(color = palette.line)
+            HorizontalDivider(
+                color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+            )
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),

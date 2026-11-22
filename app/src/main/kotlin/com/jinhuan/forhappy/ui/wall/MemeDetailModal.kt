@@ -511,7 +511,10 @@ fun MemeDetailModal(
                                             )
                                         }
                                     }
-                                    HorizontalDivider(color = palette.line)
+                                    HorizontalDivider(
+                                        color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                                        thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+                                    )
                                 }
 
                                 // Strict 4-layer hierarchy: Tier 3 Quick Replies ABOVE Tier 2 Stickers (`02b §1.1`)
@@ -631,7 +634,17 @@ fun MemeDetailModal(
                                                     color = palette.surface2,
                                                     shape = RoundedCornerShape(999.dp),
                                                     modifier = Modifier
-                                                        .border(1.dp, palette.line, RoundedCornerShape(999.dp))
+                                                        .then(
+                                                            if (palette.isModernUi && palette.cardBorder == Color.Transparent) {
+                                                                Modifier
+                                                            } else {
+                                                                Modifier.border(
+                                                                    1.dp,
+                                                                    if (palette.isModernUi) palette.cardBorder else palette.line,
+                                                                    RoundedCornerShape(999.dp),
+                                                                )
+                                                            },
+                                                        )
                                                         .clickable {
                                                             if (me == null) onRequireLogin() else showBoostSheet = true
                                                         },
@@ -680,7 +693,17 @@ fun MemeDetailModal(
                                                     color = palette.surface2,
                                                     shape = RoundedCornerShape(999.dp),
                                                     modifier = Modifier
-                                                        .border(1.dp, palette.line, RoundedCornerShape(999.dp))
+                                                        .then(
+                                                            if (palette.isModernUi && palette.cardBorder == Color.Transparent) {
+                                                                Modifier
+                                                            } else {
+                                                                Modifier.border(
+                                                                    1.dp,
+                                                                    if (palette.isModernUi) palette.cardBorder else palette.line,
+                                                                    RoundedCornerShape(999.dp),
+                                                                )
+                                                            },
+                                                        )
                                                         .clickable {
                                                             if (me == null) onRequireLogin() else showStickerSheet = true
                                                         },
@@ -697,7 +720,10 @@ fun MemeDetailModal(
                                             }
                                         }
                                     }
-                                    HorizontalDivider(color = palette.line)
+                                    HorizontalDivider(
+                                        color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                                        thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+                                    )
                                 }
 
                                 // Embedded Multi-Layer Puzzle Card (`02b §3`)
@@ -725,7 +751,10 @@ fun MemeDetailModal(
                                                 statusBanner = "已复制奖励内容"
                                             },
                                         )
-                                        HorizontalDivider(color = palette.line)
+                                        HorizontalDivider(
+                                        color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                                        thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+                                    )
                                     }
                                 }
 
@@ -802,7 +831,10 @@ fun MemeDetailModal(
                                     .imePadding(),
                             ) {
                                 Column {
-                                    HorizontalDivider(color = palette.line)
+                                    HorizontalDivider(
+                                        color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                                        thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+                                    )
                                     if (!commentEditing) {
                                         Row(
                                             modifier = Modifier

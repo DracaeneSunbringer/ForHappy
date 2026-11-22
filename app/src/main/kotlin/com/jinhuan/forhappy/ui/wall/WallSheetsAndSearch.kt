@@ -85,6 +85,7 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -239,7 +240,10 @@ fun WallBrowseSettingsSheet(
                 }
             }
 
-            HorizontalDivider(color = palette.line)
+            HorizontalDivider(
+                color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+            )
 
             LazyColumn(
                 modifier = Modifier
@@ -395,7 +399,17 @@ fun WallBrowseSettingsSheet(
                                         shape = RoundedCornerShape(10.dp),
                                         modifier = Modifier
                                             .width(124.dp)
-                                            .border(1.dp, palette.line, RoundedCornerShape(10.dp))
+                                            .then(
+                                                if (palette.isModernUi && palette.cardBorder == Color.Transparent) {
+                                                    Modifier
+                                                } else {
+                                                    Modifier.border(
+                                                        1.dp,
+                                                        if (palette.isModernUi) palette.cardBorder else palette.line,
+                                                        RoundedCornerShape(10.dp),
+                                                    )
+                                                },
+                                            )
                                             .clickable {
                                                 onJumpAnchor(anchor)
                                                 onDismiss()
@@ -445,7 +459,17 @@ fun WallBrowseSettingsSheet(
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(1.dp, palette.line, RoundedCornerShape(12.dp))
+                            .then(
+                                if (palette.isModernUi && palette.cardBorder == Color.Transparent) {
+                                    Modifier
+                                } else {
+                                    Modifier.border(
+                                        1.dp,
+                                        if (palette.isModernUi) palette.cardBorder else palette.line,
+                                        RoundedCornerShape(12.dp),
+                                    )
+                                },
+                            )
                             .clickable {
                                 onDismiss()
                                 onOpenAuthorTagFilter()
@@ -864,7 +888,17 @@ fun WallSearchScreen(
                         modifier = Modifier
                             .weight(1f)
                             .height(40.dp)
-                            .border(1.dp, palette.line, RoundedCornerShape(999.dp)),
+                            .then(
+                                if (palette.isModernUi && palette.cardBorder == Color.Transparent) {
+                                    Modifier
+                                } else {
+                                    Modifier.border(
+                                        1.dp,
+                                        if (palette.isModernUi) palette.cardBorder else palette.line,
+                                        RoundedCornerShape(999.dp),
+                                    )
+                                },
+                            ),
                     ) {
                         Row(
                             modifier = Modifier
@@ -923,7 +957,10 @@ fun WallSearchScreen(
                     }
                 }
             }
-            HorizontalDivider(color = palette.line)
+            HorizontalDivider(
+                color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+            )
 
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when (activeSegment) {
@@ -1287,7 +1324,10 @@ fun SeriesIndexDialog(
                     WallSheetPill(label = label, selected = sortKey == k) { sortKey = k }
                 }
             }
-            HorizontalDivider(color = palette.line)
+            HorizontalDivider(
+                color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+            )
 
             if (loading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -1745,7 +1785,10 @@ fun MemeQuickActionsSheet(
                                 }
                             }
                         }
-                        HorizontalDivider(color = palette.line)
+                        HorizontalDivider(
+                color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+            )
                     }
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1829,7 +1872,10 @@ fun MemeQuickActionsSheet(
                     }
 
                     if (canManage) {
-                        HorizontalDivider(color = palette.line)
+                        HorizontalDivider(
+                color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+            )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             QuickActionButton(
                                 icon = Icons.Rounded.Edit,

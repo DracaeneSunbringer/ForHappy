@@ -242,7 +242,10 @@ fun MoyuCalendarDialog(
                     }
                 }
             }
-            HorizontalDivider(color = palette.line)
+            HorizontalDivider(
+                color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+            )
 
             Column(
                 modifier = Modifier
@@ -279,7 +282,7 @@ fun MoyuCalendarDialog(
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, palette.line, RoundedCornerShape(16.dp)),
+                        .then(if (palette.isModernUi && palette.cardBorder == Color.Transparent) Modifier else Modifier.border(1.dp, if (palette.isModernUi) palette.cardBorder else palette.line, RoundedCornerShape(16.dp))),
                 ) {
                     Column(
                         modifier = Modifier.padding(16.dp),
@@ -340,7 +343,7 @@ fun MoyuCalendarDialog(
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, palette.line, RoundedCornerShape(16.dp)),
+                        .then(if (palette.isModernUi && palette.cardBorder == Color.Transparent) Modifier else Modifier.border(1.dp, if (palette.isModernUi) palette.cardBorder else palette.line, RoundedCornerShape(16.dp))),
                 ) {
                     Row(
                         modifier = Modifier.padding(16.dp),
@@ -377,7 +380,7 @@ fun MoyuCalendarDialog(
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, palette.line, RoundedCornerShape(16.dp)),
+                        .then(if (palette.isModernUi && palette.cardBorder == Color.Transparent) Modifier else Modifier.border(1.dp, if (palette.isModernUi) palette.cardBorder else palette.line, RoundedCornerShape(16.dp))),
                 ) {
                     Column(
                         modifier = Modifier.padding(16.dp),
@@ -497,7 +500,7 @@ fun MoyuCalendarDialog(
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, palette.line, RoundedCornerShape(16.dp)),
+                        .then(if (palette.isModernUi && palette.cardBorder == Color.Transparent) Modifier else Modifier.border(1.dp, if (palette.isModernUi) palette.cardBorder else palette.line, RoundedCornerShape(16.dp))),
                 ) {
                     Column(
                         modifier = Modifier.padding(16.dp),
@@ -570,7 +573,10 @@ fun MoyuCalendarDialog(
                             Switch(checked = showPetOnCard, onCheckedChange = { showPetOnCard = it })
                         }
 
-                        HorizontalDivider(color = palette.line)
+                        HorizontalDivider(
+                color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+            )
                         Text(
                             "自定义假日 (${holidays.size}/20)",
                             color = palette.text,
@@ -854,7 +860,10 @@ fun NativeRoadDialog(
                 }
                 }
             }
-            HorizontalDivider(color = palette.line)
+            HorizontalDivider(
+                color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+            )
 
             // 4 kind filters + 5 status filters
             Column(
@@ -902,7 +911,10 @@ fun NativeRoadDialog(
                     }
                 }
             }
-            HorizontalDivider(color = palette.line)
+            HorizontalDivider(
+                color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+            )
 
             feedbackBanner?.let { msg ->
                 Text(
@@ -941,7 +953,17 @@ fun NativeRoadDialog(
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .border(1.dp, palette.line, RoundedCornerShape(14.dp)),
+                                .then(
+                                    if (palette.isModernUi && palette.cardBorder == Color.Transparent) {
+                                        Modifier
+                                    } else {
+                                        Modifier.border(
+                                            1.dp,
+                                            if (palette.isModernUi) palette.cardBorder else palette.line,
+                                            RoundedCornerShape(14.dp),
+                                        )
+                                    },
+                                ),
                         ) {
                             Column(
                                 modifier = Modifier.padding(14.dp),
@@ -1234,7 +1256,10 @@ private fun RoadCommentsDialog(
                     )
                 }
             }
-            HorizontalDivider(color = palette.line)
+            HorizontalDivider(
+                color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+            )
 
             LazyColumn(
                 modifier = Modifier
@@ -1281,7 +1306,10 @@ private fun RoadCommentsDialog(
                 }
             }
 
-            HorizontalDivider(color = palette.line)
+            HorizontalDivider(
+                color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+            )
             Surface(color = palette.surface) {
                 Row(
                     modifier = Modifier

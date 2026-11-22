@@ -9,6 +9,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -26,6 +28,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -34,6 +37,7 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.AdminPanelSettings
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Notifications
@@ -92,6 +96,7 @@ import com.jinhuan.forhappy.core.chat.ChatSessionController
 import com.jinhuan.forhappy.core.model.AppDisguiseMode
 import com.jinhuan.forhappy.core.model.AppIconAlias
 import com.jinhuan.forhappy.core.model.AppThemeMode
+import com.jinhuan.forhappy.core.model.AppUiStyle
 import com.jinhuan.forhappy.core.model.ChatScrollPolicy
 import com.jinhuan.forhappy.core.model.CustomEdgeNode
 import com.jinhuan.forhappy.core.model.MeUser
@@ -124,11 +129,13 @@ fun SettingsCenterDialog(
     me: MeUser?,
     chatController: ChatSessionController? = null,
     themeMode: AppThemeMode,
+    uiStyle: AppUiStyle = AppUiStyle.MODERN,
     privacyConfig: PrivacyStealthConfig,
     privacyShieldEnabled: Boolean,
     activeIconAlias: AppIconAlias,
     initialSubpage: String? = null,
     onChangeTheme: (AppThemeMode) -> Unit,
+    onChangeUiStyle: (AppUiStyle) -> Unit = {},
     onChangeDisguise: (AppDisguiseMode) -> Unit,
     onUpdatePrivacyConfig: (PrivacyStealthConfig) -> Unit,
     onTogglePrivacyShield: (Boolean) -> Unit,
@@ -169,12 +176,12 @@ fun SettingsCenterDialog(
                 .background(palette.bg)
                 .imePadding(),
         ) {
-            Surface(color = palette.surface) {
+            Surface(color = if (palette.isModernUi) palette.glassSurface else palette.surface) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .statusBarsPadding()
-                        .height(ForHappyDimens.topBarHeight)
+                        .height(if (palette.isModernUi) 52.dp else ForHappyDimens.topBarHeight)
                         .padding(horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -189,10 +196,18 @@ fun SettingsCenterDialog(
                     ) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
                     }
-                    Text(subpageTitle, color = palette.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        subpageTitle,
+                        color = palette.text,
+                        fontSize = if (palette.isModernUi) 18.sp else 16.sp,
+                        fontWeight = if (palette.isModernUi) FontWeight.Bold else FontWeight.SemiBold,
+                    )
                 }
             }
-            HorizontalDivider(color = palette.line)
+            HorizontalDivider(
+                color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+            )
 
             if (currentSubpage == null) {
                 val netStatus by api.rustNetManager.status.collectAsState()
@@ -256,7 +271,7 @@ fun SettingsCenterDialog(
                             SettingsNavRow(
                                 icon = Icons.Rounded.Palette,
                                 title = "外观",
-                                subtitle = themeMode.label,
+                                subtitle = "${uiStyle.label} · ${themeMode.displayLabel(uiStyle)}",
                                 onClick = { currentSubpage = "appearance" },
                             )
                         }
@@ -341,6 +356,7 @@ fun SettingsCenterDialog(
                     when (currentSubpage) {
                         "stealth" -> StealthAndPracticeSubpage(
                             themeMode = themeMode,
+                            uiStyle = uiStyle,
                             privacyConfig = privacyConfig,
                             privacyShieldEnabled = privacyShieldEnabled,
                             activeIconAlias = activeIconAlias,
@@ -355,7 +371,9 @@ fun SettingsCenterDialog(
                         "appearance" -> AppearanceSubpage(
                             api = api,
                             themeMode = themeMode,
+                            uiStyle = uiStyle,
                             onChangeTheme = onChangeTheme,
+                            onChangeUiStyle = onChangeUiStyle,
                         )
                         "account" -> AccountSecuritySubpage(
                             api = api,
@@ -387,6 +405,7 @@ fun SettingsCenterDialog(
 @Composable
 private fun StealthAndPracticeSubpage(
     themeMode: AppThemeMode,
+    uiStyle: AppUiStyle = AppUiStyle.MODERN,
     privacyConfig: PrivacyStealthConfig,
     privacyShieldEnabled: Boolean,
     activeIconAlias: AppIconAlias,
@@ -524,6 +543,7 @@ private fun StealthAndPracticeSubpage(
         Box(modifier = Modifier.padding(14.dp)) {
             PrivacyStealthSettingsContent(
                 themeMode = themeMode,
+                uiStyle = uiStyle,
                 privacyConfig = privacyConfig,
                 privacyShieldEnabled = privacyShieldEnabled,
                 activeIconAlias = activeIconAlias,
@@ -726,11 +746,14 @@ private fun ChatPrefsSubpage(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AppearanceSubpage(
     api: ForHappyApiClient,
     themeMode: AppThemeMode,
+    uiStyle: AppUiStyle,
     onChangeTheme: (AppThemeMode) -> Unit,
+    onChangeUiStyle: (AppUiStyle) -> Unit,
 ) {
     val palette = LocalForHappyPalette.current
     val scope = rememberCoroutineScope()
@@ -744,15 +767,90 @@ private fun AppearanceSubpage(
 
     SettingsGroupCard {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("界面视觉风格", color = palette.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text("切换应用默认原生视觉或怀旧原站风格（不影响飞书 / LINUX DO 伪装模式）", color = palette.muted, fontSize = 11.sp)
+            AppUiStyle.entries.forEach { style ->
+                val selected = uiStyle == style
+                val swatches = when (style) {
+                    AppUiStyle.MODERN -> listOf(
+                        Color(0xFFF3F5FA),
+                        Color(0xFF0A0C10),
+                        Color(0xFFFF5A36),
+                        Color(0xFF0EA5E9),
+                    )
+                    AppUiStyle.CLASSIC_WEB -> listOf(
+                        Color(0xFFF7F6F0),
+                        Color(0xFF14261F),
+                        Color(0xFF1F6B4F),
+                        Color(0xFFB7CE78),
+                    )
+                }
+                val optionShape = RoundedCornerShape(14.dp)
+                Surface(
+                    color = if (selected) palette.primaryContainer else palette.surface2.copy(alpha = 0.7f),
+                    shape = optionShape,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (selected) {
+                                Modifier.border(1.5.dp, palette.primary, optionShape)
+                            } else {
+                                Modifier
+                            },
+                        )
+                        .clip(optionShape)
+                        .clickable { onChangeUiStyle(style) },
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            swatches.forEach { sw ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(12.dp)
+                                        .clip(CircleShape)
+                                        .background(sw)
+                                        .border(0.5.dp, palette.glassBorder, CircleShape),
+                                )
+                            }
+                        }
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(style.label, color = palette.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text(style.subtitle, color = palette.muted, fontSize = 11.sp, lineHeight = 15.sp)
+                        }
+                        if (selected) {
+                            Icon(Icons.Rounded.CheckCircle, contentDescription = "当前启用", tint = palette.primary, modifier = Modifier.size(19.dp))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    SettingsGroupCard {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("日夜主题", color = palette.muted, fontSize = 12.sp)
-            Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 AppThemeMode.dayNightEntries.forEach { mode ->
-                    FilterChip(selected = themeMode == mode, onClick = { onChangeTheme(mode) }, label = { Text(mode.label, fontSize = 12.sp) })
+                    FilterChip(
+                        selected = themeMode == mode,
+                        onClick = { onChangeTheme(mode) },
+                        label = { Text(mode.displayLabel(uiStyle), fontSize = 12.sp) },
+                    )
                 }
             }
             HorizontalDivider(color = palette.line)
             Text("背景风格", color = palette.muted, fontSize = 12.sp)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 listOf("solid" to "纯色宣纸/松夜", "wallpaper" to "柔光质感壁纸").forEach { (id, label) ->
                     FilterChip(
                         selected = wallpaperMode == id,
@@ -1208,10 +1306,20 @@ private fun SettingsGroupHeader(title: String) {
 @Composable
 private fun SettingsGroupCard(content: @Composable () -> Unit) {
     val palette = LocalForHappyPalette.current
+    val shape = RoundedCornerShape(if (palette.isModernUi) 20.dp else 16.dp)
     Surface(
         color = palette.surface,
-        shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth().border(1.dp, palette.line, RoundedCornerShape(16.dp)),
+        shape = shape,
+        shadowElevation = if (palette.isModernUi && !palette.isDark) 1.dp else 0.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (palette.isModernUi) {
+                    if (palette.cardBorder != Color.Transparent) Modifier.border(1.dp, palette.cardBorder, shape) else Modifier
+                } else {
+                    Modifier.border(1.dp, palette.line, shape)
+                },
+            ),
     ) {
         Column { content() }
     }
@@ -1234,7 +1342,19 @@ private fun SettingsNavRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Icon(icon, contentDescription = null, tint = palette.primary, modifier = Modifier.size(20.dp))
+        if (palette.isModernUi) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(palette.primary.copy(alpha = 0.12f)),
+            ) {
+                Icon(icon, contentDescription = null, tint = palette.primary, modifier = Modifier.size(18.dp))
+            }
+        } else {
+            Icon(icon, contentDescription = null, tint = palette.primary, modifier = Modifier.size(20.dp))
+        }
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(title, color = palette.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)

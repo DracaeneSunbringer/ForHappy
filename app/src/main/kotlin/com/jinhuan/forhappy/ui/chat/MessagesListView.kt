@@ -14,10 +14,13 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -184,52 +187,65 @@ fun MessagesListView(
         }
     }
 
+    val navBottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(palette.bg),
     ) {
-        // 48dp Top Bar
-        Surface(color = palette.surface) {
-            Column {
+        // Top Bar
+        Surface(color = if (palette.isModernUi) palette.glassSurface else palette.surface) {
+            Column(
+                modifier = if (palette.isModernUi) Modifier.fillMaxWidth().statusBarsPadding() else Modifier.fillMaxWidth(),
+            ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(ForHappyDimens.topBarHeight)
-                        .padding(horizontal = 14.dp),
+                        .height(if (palette.isModernUi) 52.dp else ForHappyDimens.topBarHeight)
+                        .padding(horizontal = if (palette.isModernUi) 16.dp else 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(if (palette.isModernUi) 6.dp else 4.dp),
                 ) {
                     Text(
                         text = "消息",
                         color = palette.text,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
+                        fontSize = if (palette.isModernUi) 22.sp else 18.sp,
+                        fontWeight = if (palette.isModernUi) FontWeight.ExtraBold else FontWeight.Bold,
+                        letterSpacing = if (palette.isModernUi) (-0.5).sp else TextStyle.Default.letterSpacing,
                         modifier = Modifier.weight(1f),
                     )
-                    IconButton(
-                        onClick = { showGlobalSearch = true },
-                        modifier = Modifier.size(36.dp),
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .let { if (palette.isModernUi) it.background(palette.surface2.copy(alpha = 0.78f)) else it }
+                            .clickable { showGlobalSearch = true },
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Search,
                             contentDescription = "搜索会话与消息",
                             tint = palette.text,
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(if (palette.isModernUi) 19.dp else 20.dp),
                         )
                     }
                     if (state.dmEnabled) {
-                        IconButton(
-                            onClick = {
-                                if (me == null) onRequireLogin() else showNewDmSheet = true
-                            },
-                            modifier = Modifier.size(36.dp),
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .let { if (palette.isModernUi) it.background(palette.surface2.copy(alpha = 0.78f)) else it }
+                                .clickable {
+                                    if (me == null) onRequireLogin() else showNewDmSheet = true
+                                },
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.Create,
                                 contentDescription = "发起私信",
                                 tint = palette.text,
-                                modifier = Modifier.size(20.dp),
+                                modifier = Modifier.size(if (palette.isModernUi) 19.dp else 20.dp),
                             )
                         }
                     }
@@ -238,13 +254,14 @@ fun MessagesListView(
                         modifier = Modifier
                             .size(36.dp)
                             .clip(CircleShape)
+                            .let { if (palette.isModernUi) it.background(palette.surface2.copy(alpha = 0.78f)) else it }
                             .clickable { onOpenNotifications() },
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Notifications,
                             contentDescription = "通知中心",
                             tint = palette.text,
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(if (palette.isModernUi) 19.dp else 20.dp),
                         )
                         if (notifUnreadCount > 0) {
                             Box(
@@ -282,8 +299,8 @@ fun MessagesListView(
                     modifier = Modifier
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        .padding(horizontal = if (palette.isModernUi) 14.dp else 12.dp, vertical = if (palette.isModernUi) 7.dp else 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(if (palette.isModernUi) 8.dp else 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     filterChips.forEach { (key, label) ->
@@ -292,11 +309,18 @@ fun MessagesListView(
                             color = if (selected) palette.primary else palette.surface2,
                             shape = RoundedCornerShape(999.dp),
                             modifier = Modifier
-                                .border(
-                                    1.dp,
-                                    if (selected) palette.primary else palette.line,
-                                    RoundedCornerShape(999.dp),
+                                .then(
+                                    if (palette.isModernUi) {
+                                        Modifier
+                                    } else {
+                                        Modifier.border(
+                                            1.dp,
+                                            if (selected) palette.primary else palette.line,
+                                            RoundedCornerShape(999.dp),
+                                        )
+                                    },
                                 )
+                                .clip(RoundedCornerShape(999.dp))
                                 .clickable { onSelectFilter(key) },
                         ) {
                             Text(
@@ -308,12 +332,15 @@ fun MessagesListView(
                                 },
                                 fontSize = 12.sp,
                                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                                modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.dp),
+                                modifier = Modifier.padding(horizontal = if (palette.isModernUi) 13.dp else 11.dp, vertical = if (palette.isModernUi) 6.dp else 5.dp),
                             )
                         }
                     }
                 }
-                HorizontalDivider(color = palette.line.copy(alpha = 0.7f))
+                HorizontalDivider(
+                    color = if (palette.isModernUi) palette.glassBorder else palette.line.copy(alpha = 0.7f),
+                    thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+                )
             }
         }
 
@@ -346,7 +373,13 @@ fun MessagesListView(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
-                contentPadding = PaddingValues(vertical = 6.dp),
+                contentPadding = PaddingValues(
+                    start = if (palette.isModernUi) 12.dp else 0.dp,
+                    end = if (palette.isModernUi) 12.dp else 0.dp,
+                    top = if (palette.isModernUi) 10.dp else 6.dp,
+                    bottom = if (palette.isModernUi) navBottomPad + 90.dp else 6.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(if (palette.isModernUi) 8.dp else 0.dp),
             ) {
                 if (items.isEmpty()) {
                     item(key = "empty_list") {
@@ -624,157 +657,180 @@ private fun SessionRowCard(
         }
     }
 
-    val rowBg = if (session.isPinned) palette.surface2.copy(alpha = 0.55f) else Color.Transparent
+    val cardShape = RoundedCornerShape(18.dp)
+    val modernRowBg = if (session.isPinned) palette.surfaceRaised else palette.surface
+    val classicRowBg = if (session.isPinned) palette.surface2.copy(alpha = 0.55f) else Color.Transparent
 
-    Row(
+    Surface(
+        color = if (palette.isModernUi) modernRowBg else classicRowBg,
+        shape = if (palette.isModernUi) cardShape else RoundedCornerShape(0.dp),
+        shadowElevation = if (palette.isModernUi && !palette.isDark) 1.dp else 0.dp,
         modifier = Modifier
             .fillMaxWidth()
-            .background(rowBg)
+            .then(
+                if (palette.isModernUi && palette.cardBorder != Color.Transparent) {
+                    Modifier.border(1.dp, palette.cardBorder, cardShape)
+                } else {
+                    Modifier
+                },
+            )
+            .let { if (palette.isModernUi) it.clip(cardShape) else it }
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
-            )
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ),
     ) {
-        Box {
-            if (isDm) {
-                ForHappyAvatar(
-                    username = avatarName,
-                    avatarUrl = avatarUrl,
-                    imageLoader = api.imageLoader,
-                    size = ForHappyDimens.avatarConversation,
-                )
-            } else {
-                Surface(
-                    color = palette.primary.copy(alpha = 0.14f),
-                    shape = CircleShape,
-                    modifier = Modifier
-                        .size(ForHappyDimens.avatarConversation)
-                        .border(1.dp, palette.primary.copy(alpha = 0.28f), CircleShape),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Rounded.Groups,
-                            contentDescription = title,
-                            tint = palette.primary,
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
-                }
-            }
-            if (session.isPinned) {
-                Surface(
-                    color = palette.surface,
-                    shape = CircleShape,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .size(16.dp)
-                        .border(1.dp, palette.line, CircleShape),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Rounded.PushPin,
-                            contentDescription = "置顶",
-                            tint = palette.primary,
-                            modifier = Modifier.size(10.dp),
-                        )
-                    }
-                }
-            }
-        }
-
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-            ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = if (palette.isModernUi) 12.dp else 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box {
                 if (isDm) {
+                    ForHappyAvatar(
+                        username = avatarName,
+                        avatarUrl = avatarUrl,
+                        imageLoader = api.imageLoader,
+                        size = ForHappyDimens.avatarConversation,
+                    )
+                } else {
                     Surface(
-                        color = palette.primary.copy(alpha = 0.14f),
-                        shape = RoundedCornerShape(4.dp),
+                        color = if (palette.isModernUi) palette.primaryContainer else palette.primary.copy(alpha = 0.14f),
+                        shape = if (palette.isModernUi) RoundedCornerShape(15.dp) else CircleShape,
+                        modifier = Modifier
+                            .size(ForHappyDimens.avatarConversation)
+                            .then(
+                                if (palette.isModernUi) Modifier else Modifier.border(1.dp, palette.primary.copy(alpha = 0.28f), CircleShape),
+                            ),
                     ) {
-                        Text(
-                            text = "私",
-                            color = palette.primary,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                        )
-                    }
-                }
-                Text(
-                    text = title,
-                    color = palette.text,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                if (session.isMuted) {
-                    Icon(
-                        imageVector = Icons.Rounded.NotificationsOff,
-                        contentDescription = "免打扰",
-                        tint = palette.muted,
-                        modifier = Modifier.size(14.dp),
-                    )
-                }
-                if (timeText.isNotEmpty()) {
-                    Text(
-                        text = timeText,
-                        color = palette.muted,
-                        fontSize = 11.sp,
-                    )
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                if (atMeCount > 0) {
-                    Text(
-                        text = "[@我]",
-                        color = palette.danger,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-                Text(
-                    text = preview,
-                    color = if (hasActiveGuess) palette.primary else palette.muted,
-                    fontSize = 13.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                val badgeCount = session.unreadCount
-                when {
-                    badgeCount > 0 -> {
-                        Surface(
-                            color = if (atMeCount > 0 || !session.isMuted) palette.badge else palette.muted,
-                            shape = RoundedCornerShape(999.dp),
-                        ) {
-                            Text(
-                                text = if (badgeCount > 99) "99+" else badgeCount.toString(),
-                                color = Color.White,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Rounded.Groups,
+                                contentDescription = title,
+                                tint = palette.primary,
+                                modifier = Modifier.size(22.dp),
                             )
                         }
                     }
-                    session.isMuted && mutedRawUnread > 0 -> {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(palette.muted.copy(alpha = 0.65f)),
+                }
+                if (session.isPinned) {
+                    Surface(
+                        color = palette.surface,
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .size(16.dp)
+                            .border(
+                                if (palette.isModernUi) 0.5.dp else 1.dp,
+                                if (palette.isModernUi) palette.glassBorder else palette.line,
+                                CircleShape,
+                            ),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Rounded.PushPin,
+                                contentDescription = "置顶",
+                                tint = palette.primary,
+                                modifier = Modifier.size(10.dp),
+                            )
+                        }
+                    }
+                }
+            }
+
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    if (isDm) {
+                        Surface(
+                            color = palette.primary.copy(alpha = 0.14f),
+                            shape = RoundedCornerShape(4.dp),
+                        ) {
+                            Text(
+                                text = "私",
+                                color = palette.primary,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                            )
+                        }
+                    }
+                    Text(
+                        text = title,
+                        color = palette.text,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (session.isMuted) {
+                        Icon(
+                            imageVector = Icons.Rounded.NotificationsOff,
+                            contentDescription = "免打扰",
+                            tint = palette.muted,
+                            modifier = Modifier.size(14.dp),
                         )
+                    }
+                    if (timeText.isNotEmpty()) {
+                        Text(
+                            text = timeText,
+                            color = palette.muted,
+                            fontSize = 11.sp,
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    if (atMeCount > 0) {
+                        Text(
+                            text = "[@我]",
+                            color = palette.danger,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    Text(
+                        text = preview,
+                        color = if (hasActiveGuess) palette.primary else palette.muted,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    val badgeCount = session.unreadCount
+                    when {
+                        badgeCount > 0 -> {
+                            Surface(
+                                color = if (atMeCount > 0 || !session.isMuted) palette.badge else palette.muted,
+                                shape = RoundedCornerShape(999.dp),
+                            ) {
+                                Text(
+                                    text = if (badgeCount > 99) "99+" else badgeCount.toString(),
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                                )
+                            }
+                        }
+                        session.isMuted && mutedRawUnread > 0 -> {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(palette.muted.copy(alpha = 0.65f)),
+                            )
+                        }
                     }
                 }
             }

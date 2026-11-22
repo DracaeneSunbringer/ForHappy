@@ -17,13 +17,17 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -81,6 +85,7 @@ import com.jinhuan.forhappy.core.chat.ChatSessionController
 import com.jinhuan.forhappy.core.model.AppDisguiseMode
 import com.jinhuan.forhappy.core.model.AppIconAlias
 import com.jinhuan.forhappy.core.model.AppThemeMode
+import com.jinhuan.forhappy.core.model.AppUiStyle
 import com.jinhuan.forhappy.core.model.FolderItem
 import com.jinhuan.forhappy.core.model.MeUser
 import com.jinhuan.forhappy.core.model.MemeItem
@@ -128,6 +133,7 @@ fun MeScreen(
     updateController: AppUpdateController,
     me: MeUser?,
     themeMode: AppThemeMode,
+    uiStyle: AppUiStyle = AppUiStyle.MODERN,
     privacyConfig: PrivacyStealthConfig,
     privacyShieldEnabled: Boolean,
     activeIconAlias: AppIconAlias,
@@ -135,6 +141,7 @@ fun MeScreen(
     @Suppress("UNUSED_PARAMETER") notifTotalCount: Int = 0,
     onOpenNotifications: () -> Unit = {},
     onChangeTheme: (AppThemeMode) -> Unit,
+    onChangeUiStyle: (AppUiStyle) -> Unit = {},
     onChangeDisguise: (AppDisguiseMode) -> Unit,
     onUpdatePrivacyConfig: (PrivacyStealthConfig) -> Unit,
     onTogglePrivacyShield: (Boolean) -> Unit,
@@ -156,6 +163,7 @@ fun MeScreen(
     val stealth = LocalPrivacyStealthConfig.current
     val scope = rememberCoroutineScope()
     val updateState by updateController.state.collectAsState()
+    val navBottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     var stats by remember { mutableStateOf<JsonObject?>(null) }
     var wallet by remember { mutableStateOf<WalletSummary?>(null) }
@@ -257,33 +265,86 @@ fun MeScreen(
     val ownedBadges = remember(me?.badges, me?.farmBadgeProgress) {
         BadgeAndCosmeticRegistry.parseOwnedBadges(me?.badges, me?.farmBadgeProgress.orEmpty())
     }
+    val renderAssetTiles = @Composable { rowModifier: Modifier ->
+        Row(modifier = rowModifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val coinsVal = wallet?.let { NumberFormat.getNumberInstance(Locale.CHINA).format(it.resolvedCoins) } ?: "--"
+            val cardsVal = if (cards52b.isNotEmpty()) "${cards52b.count { it.owned }}/${cards52b.size}" else "--"
+
+            AssetGridCell(
+                emoji = "🪙",
+                value = coinsVal,
+                label = "D币",
+                onClick = { if (me == null) onRequireLogin() else showWalletDialog = true },
+                modifier = Modifier.weight(1f),
+            )
+            AssetGridCell(
+                emoji = "🃏",
+                value = cardsVal,
+                label = "52B集卡",
+                onClick = { if (me == null) onRequireLogin() else showCardsDialog = true },
+                modifier = Modifier.weight(1f),
+            )
+            AssetGridCell(
+                emoji = "🎨",
+                value = if (me != null && ownedBadges.isNotEmpty()) "${ownedBadges.size}枚" else "装扮",
+                label = "装扮与徽章",
+                onClick = { if (me == null) onRequireLogin() else showDecoDialog = true },
+                modifier = Modifier.weight(1f),
+            )
+            AssetGridCell(
+                emoji = "🎟",
+                value = "邀请",
+                label = "邀请码",
+                onClick = { if (me == null) onRequireLogin() else showInvitesDialog = true },
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(palette.bg),
     ) {
-        // 48dp Top Header: `我的`, `🔔`, `⚙•`
-        Surface(color = palette.surface) {
-            Column {
+        // Top Header: `我的`, `🔔`, `⚙•`
+        Surface(color = if (palette.isModernUi) palette.glassSurface else palette.surface) {
+            Column(
+                modifier = if (palette.isModernUi) Modifier.fillMaxWidth().statusBarsPadding() else Modifier.fillMaxWidth(),
+            ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(ForHappyDimens.topBarHeight)
-                        .padding(horizontal = 14.dp),
+                        .height(if (palette.isModernUi) 52.dp else ForHappyDimens.topBarHeight)
+                        .padding(horizontal = if (palette.isModernUi) 16.dp else 14.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("我的", color = palette.text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "我的",
+                        color = palette.text,
+                        fontSize = if (palette.isModernUi) 22.sp else 18.sp,
+                        fontWeight = if (palette.isModernUi) FontWeight.ExtraBold else FontWeight.Bold,
+                        letterSpacing = if (palette.isModernUi) (-0.5).sp else TextStyle.Default.letterSpacing,
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(if (palette.isModernUi) 6.dp else 0.dp),
+                    ) {
                         if (me != null) {
-                            IconButton(onClick = onOpenNotifications, modifier = Modifier.size(40.dp)) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(if (palette.isModernUi) 36.dp else 40.dp)
+                                    .clip(CircleShape)
+                                    .let { if (palette.isModernUi) it.background(palette.surface2.copy(alpha = 0.78f)) else it }
+                                    .clickable { onOpenNotifications() },
+                            ) {
                                 Box(contentAlignment = Alignment.TopEnd) {
                                     Icon(
                                         Icons.Rounded.NotificationsNone,
                                         contentDescription = "通知",
                                         tint = if (notifUnreadCount > 0) palette.text else palette.muted,
-                                        modifier = Modifier.size(21.dp),
+                                        modifier = Modifier.size(if (palette.isModernUi) 19.dp else 21.dp),
                                     )
                                     if (notifUnreadCount > 0) {
                                         Box(
@@ -310,18 +371,22 @@ fun MeScreen(
                                 contentColor = palette.onPrimary,
                                 modifier = Modifier.clickable { onRequireLogin() },
                             )
-                            Spacer(Modifier.width(4.dp))
+                            if (!palette.isModernUi) Spacer(Modifier.width(4.dp))
                         }
 
-                        IconButton(
-                            onClick = {
-                                settingsSubpageArg = null
-                                showSettingsDialog = true
-                            },
-                            modifier = Modifier.size(40.dp),
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(if (palette.isModernUi) 36.dp else 40.dp)
+                                .clip(CircleShape)
+                                .let { if (palette.isModernUi) it.background(palette.surface2.copy(alpha = 0.78f)) else it }
+                                .clickable {
+                                    settingsSubpageArg = null
+                                    showSettingsDialog = true
+                                },
                         ) {
                             Box(contentAlignment = Alignment.TopEnd) {
-                                Icon(Icons.Rounded.Settings, contentDescription = "设置", tint = palette.text, modifier = Modifier.size(21.dp))
+                                Icon(Icons.Rounded.Settings, contentDescription = "设置", tint = palette.text, modifier = Modifier.size(if (palette.isModernUi) 19.dp else 21.dp))
                                 if (showUpdateDot) {
                                     Box(
                                         modifier = Modifier
@@ -334,168 +399,182 @@ fun MeScreen(
                         }
                     }
                 }
-                HorizontalDivider(color = palette.line)
+                HorizontalDivider(
+                    color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                    thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+                )
             }
         }
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 18.dp),
+            contentPadding = PaddingValues(bottom = if (palette.isModernUi) navBottomPad + 92.dp else 18.dp),
         ) {
-            // Compact <= 260dp Profile Header + 4 Asset Row
+            // Compact Profile Hero + 4 Asset Bento Row
             item(key = "compact_profile_header") {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(palette.surface)
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                val isModern = palette.isModernUi
+                val heroShape = RoundedCornerShape(if (isModern) 24.dp else 0.dp)
+                val heroGlow = Brush.linearGradient(
+                    listOf(
+                        Color.Transparent,
+                        palette.primary.copy(alpha = if (palette.isDark) 0.14f else 0.07f),
+                    ),
+                )
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Surface(
+                        color = palette.surface,
+                        shape = heroShape,
+                        shadowElevation = if (isModern && !palette.isDark) 3.dp else 0.dp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .let { mod ->
+                                if (isModern) {
+                                    mod.padding(horizontal = 14.dp, vertical = 10.dp)
+                                        .then(if (palette.cardBorder != Color.Transparent) Modifier.border(1.dp, palette.cardBorder, heroShape) else Modifier)
+                                } else {
+                                    mod
+                                }
+                            },
                     ) {
-                        Box(
+                        Column(
                             modifier = Modifier
-                                .clip(CircleShape)
-                                .clickable(enabled = !me?.avatar.isNullOrBlank()) { showAvatarFullscreen = true },
+                                .fillMaxWidth()
+                                .let { if (isModern) it.background(heroGlow) else it }
+                                .padding(horizontal = if (isModern) 16.dp else 14.dp, vertical = if (isModern) 16.dp else 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            ForHappyAvatar(
-                                username = me?.displayName ?: "guest",
-                                avatarUrl = me?.avatar,
-                                imageLoader = api.imageLoader,
-                                size = ForHappyDimens.avatarProfile,
-                            )
-                        }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .clickable(enabled = !me?.avatar.isNullOrBlank()) { showAvatarFullscreen = true },
+                                ) {
+                                    ForHappyAvatar(
+                                        username = me?.displayName ?: "guest",
+                                        avatarUrl = me?.avatar,
+                                        imageLoader = api.imageLoader,
+                                        size = if (isModern) 68.dp else ForHappyDimens.avatarProfile,
+                                    )
+                                }
 
-                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            if (me == null) {
-                                Text("尚未登录", color = palette.text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                                Text("登录 52dmeme.com 解锁 D币、集卡、收藏与同步", color = palette.muted, fontSize = 12.sp)
-                            } else {
-                                val grad = remember(equippedIdentity.nickGradientHexes, decoConfig.nickGradient, palette.text) {
-                                    val fromIdentity = equippedIdentity.nickGradientHexes.map { parseSafeHex(it, palette.text) }
-                                    when {
-                                        fromIdentity.size >= 2 -> fromIdentity
-                                        decoConfig.nickGradient == "pine" -> listOf(Color(0xFF1B7F4B), Color(0xFF34A853))
-                                        decoConfig.nickGradient == "sunset" -> listOf(Color(0xFFEA580C), Color(0xFFEC4899))
-                                        decoConfig.nickGradient == "aurora" -> listOf(Color(0xFF06B6D4), Color(0xFF8B5CF6))
-                                        decoConfig.nickGradient == "gold" -> listOf(Color(0xFFD97706), Color(0xFFF59E0B))
-                                        else -> null
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    if (me == null) {
+                                        Text("尚未登录", color = palette.text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                                        Text("登录 52dmeme.com 解锁 D币、集卡、收藏与同步", color = palette.muted, fontSize = 12.sp)
+                                    } else {
+                                        val grad = remember(equippedIdentity.nickGradientHexes, decoConfig.nickGradient, palette.text) {
+                                            val fromIdentity = equippedIdentity.nickGradientHexes.map { parseSafeHex(it, palette.text) }
+                                            when {
+                                                fromIdentity.size >= 2 -> fromIdentity
+                                                decoConfig.nickGradient == "pine" -> listOf(Color(0xFF1B7F4B), Color(0xFF34A853))
+                                                decoConfig.nickGradient == "sunset" -> listOf(Color(0xFFEA580C), Color(0xFFEC4899))
+                                                decoConfig.nickGradient == "aurora" -> listOf(Color(0xFF06B6D4), Color(0xFF8B5CF6))
+                                                decoConfig.nickGradient == "gold" -> listOf(Color(0xFFD97706), Color(0xFFF59E0B))
+                                                else -> null
+                                            }
+                                        }
+                                        FlowRow(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                                        ) {
+                                            Text(
+                                                text = me.displayName,
+                                                style = if (grad != null) {
+                                                    TextStyle(brush = Brush.horizontalGradient(grad), fontSize = if (isModern) 19.sp else 18.sp, fontWeight = FontWeight.Bold)
+                                                } else {
+                                                    TextStyle(color = palette.text, fontSize = if (isModern) 19.sp else 18.sp, fontWeight = FontWeight.Bold)
+                                                },
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                            equippedIdentity.title?.let { titleChip ->
+                                                TitleChipView(title = titleChip)
+                                            }
+                                            equippedIdentity.badge?.let { badgeChip ->
+                                                BadgeChipView(
+                                                    badge = badgeChip,
+                                                    imageLoader = api.imageLoader,
+                                                    mini = false,
+                                                    onClick = { showDecoDialog = true },
+                                                )
+                                            }
+                                        }
+                                        val joinDate = me.createdAt?.takeIf { it > 0L }?.let {
+                                            " · ${SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(Date(it * 1000L))} 加入"
+                                        }.orEmpty()
+                                        Text("@${me.username}$joinDate", color = palette.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        me.bio?.takeIf { it.isNotBlank() }?.let { bio ->
+                                            Text(bio, color = palette.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        }
                                     }
                                 }
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                                ) {
-                                    Text(
-                                        text = me.displayName,
-                                        style = if (grad != null) {
-                                            TextStyle(brush = Brush.horizontalGradient(grad), fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                                        } else {
-                                            TextStyle(color = palette.text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                                        },
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    equippedIdentity.title?.let { titleChip ->
-                                        TitleChipView(title = titleChip)
+
+                                if (me != null) {
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .let { if (isModern) it.background(palette.surface2.copy(alpha = 0.8f)) else it }
+                                            .clickable { showProfileEdit = true },
+                                    ) {
+                                        Icon(Icons.Rounded.Edit, contentDescription = "编辑资料", tint = palette.muted, modifier = Modifier.size(18.dp))
                                     }
-                                    equippedIdentity.badge?.let { badgeChip ->
-                                        BadgeChipView(
-                                            badge = badgeChip,
-                                            imageLoader = api.imageLoader,
-                                            mini = false,
-                                            onClick = { showDecoDialog = true },
+                                } else {
+                                    Button(
+                                        onClick = onRequireLogin,
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                    ) {
+                                        Text("去登录", fontSize = 12.sp)
+                                    }
+                                }
+                            }
+
+                            // Conditional account restriction alert
+                            if (me != null && me.limits.isNotEmpty()) {
+                                Surface(
+                                    color = palette.danger.copy(alpha = 0.10f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.fillMaxWidth().border(1.dp, palette.danger.copy(alpha = 0.3f), RoundedCornerShape(10.dp)),
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        Icon(Icons.Rounded.WarningAmber, contentDescription = null, tint = palette.danger, modifier = Modifier.size(16.dp))
+                                        val lim = me.limits.first()
+                                        Text(
+                                            text = "账号受限 (${lim.kind})：${lim.reason ?: "详情请留意系统通知"}",
+                                            color = palette.danger,
+                                            fontSize = 12.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
                                         )
                                     }
                                 }
-                                val joinDate = me.createdAt?.takeIf { it > 0L }?.let {
-                                    " · ${SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(Date(it * 1000L))} 加入"
-                                }.orEmpty()
-                                Text("@${me.username}$joinDate", color = palette.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                me.bio?.takeIf { it.isNotBlank() }?.let { bio ->
-                                    Text(bio, color = palette.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
                             }
-                        }
 
-                        if (me != null) {
-                            IconButton(onClick = { showProfileEdit = true }, modifier = Modifier.size(36.dp)) {
-                                Icon(Icons.Rounded.Edit, contentDescription = "编辑资料", tint = palette.muted, modifier = Modifier.size(18.dp))
-                            }
-                        } else {
-                            Button(
-                                onClick = onRequireLogin,
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                            ) {
-                                Text("去登录", fontSize = 12.sp)
+                            if (!isModern) {
+                                renderAssetTiles(Modifier.fillMaxWidth())
                             }
                         }
                     }
-
-                    // Conditional account restriction alert
-                    if (me != null && me.limits.isNotEmpty()) {
-                        Surface(
-                            color = palette.danger.copy(alpha = 0.10f),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.fillMaxWidth().border(1.dp, palette.danger.copy(alpha = 0.3f), RoundedCornerShape(10.dp)),
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                Icon(Icons.Rounded.WarningAmber, contentDescription = null, tint = palette.danger, modifier = Modifier.size(16.dp))
-                                val lim = me.limits.first()
-                                Text(
-                                    text = "账号受限 (${lim.kind})：${lim.reason ?: "详情请留意系统通知"}",
-                                    color = palette.danger,
-                                    fontSize = 12.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                        }
-                    }
-
-                    // 4 Asset Tiles
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val coinsVal = wallet?.let { NumberFormat.getNumberInstance(Locale.CHINA).format(it.resolvedCoins) } ?: "--"
-                        val cardsVal = if (cards52b.isNotEmpty()) "${cards52b.count { it.owned }}/${cards52b.size}" else "--"
-
-                        AssetGridCell(
-                            emoji = "🪙",
-                            value = coinsVal,
-                            label = "D币",
-                            onClick = { if (me == null) onRequireLogin() else showWalletDialog = true },
-                            modifier = Modifier.weight(1f),
+                    if (isModern) {
+                        renderAssetTiles(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp)
+                                .padding(bottom = 8.dp),
                         )
-                        AssetGridCell(
-                            emoji = "🃏",
-                            value = cardsVal,
-                            label = "52B集卡",
-                            onClick = { if (me == null) onRequireLogin() else showCardsDialog = true },
-                            modifier = Modifier.weight(1f),
-                        )
-                        AssetGridCell(
-                            emoji = "🎨",
-                            value = if (me != null && ownedBadges.isNotEmpty()) "${ownedBadges.size}枚" else "装扮",
-                            label = "装扮与徽章",
-                            onClick = { if (me == null) onRequireLogin() else showDecoDialog = true },
-                            modifier = Modifier.weight(1f),
-                        )
-                        AssetGridCell(
-                            emoji = "🎟",
-                            value = "邀请",
-                            label = "邀请码",
-                            onClick = { if (me == null) onRequireLogin() else showInvitesDialog = true },
-                            modifier = Modifier.weight(1f),
-                        )
+                    } else {
+                        HorizontalDivider(color = palette.line)
                     }
                 }
-                HorizontalDivider(color = palette.line)
             }
 
             // Sticky 6-Tab Stream & Toolbar Header
@@ -503,7 +582,7 @@ fun MeScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(palette.surface)
+                        .background(if (palette.isModernUi) palette.bg.copy(alpha = 0.96f) else palette.surface)
                         .padding(top = 8.dp, bottom = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
@@ -512,23 +591,46 @@ fun MeScreen(
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState())
                             .padding(horizontal = 14.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(if (palette.isModernUi) 8.dp else 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         ME_STREAM_TABS.forEach { (tabId, label) ->
                             val cnt = stats?.get(tabId)?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() && it != "0" }
-                            FilterChip(
-                                selected = activeStreamTab == tabId,
-                                onClick = {
-                                    activeStreamTab = tabId
-                                    if (tabId != "fav") selectedFolderId = null
-                                },
-                                label = { Text(if (cnt != null) "$label $cnt" else label, fontSize = 12.sp) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = palette.primary.copy(alpha = 0.14f),
-                                    selectedLabelColor = palette.primary,
-                                ),
-                            )
+                            val selected = activeStreamTab == tabId
+                            val tabLabel = if (cnt != null) "$label $cnt" else label
+                            if (palette.isModernUi) {
+                                Surface(
+                                    color = if (selected) palette.primary else palette.surface2,
+                                    shape = CircleShape,
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .clickable {
+                                            activeStreamTab = tabId
+                                            if (tabId != "fav") selectedFolderId = null
+                                        },
+                                ) {
+                                    Text(
+                                        text = tabLabel,
+                                        color = if (selected) palette.onPrimary else palette.text,
+                                        fontSize = 12.sp,
+                                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                                        modifier = Modifier.padding(horizontal = 13.dp, vertical = 6.dp),
+                                    )
+                                }
+                            } else {
+                                FilterChip(
+                                    selected = selected,
+                                    onClick = {
+                                        activeStreamTab = tabId
+                                        if (tabId != "fav") selectedFolderId = null
+                                    },
+                                    label = { Text(tabLabel, fontSize = 12.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = palette.primary.copy(alpha = 0.14f),
+                                        selectedLabelColor = palette.primary,
+                                    ),
+                                )
+                            }
                         }
                     }
 
@@ -542,19 +644,49 @@ fun MeScreen(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            FilterChip(
-                                selected = selectedFolderId == null,
-                                onClick = { selectedFolderId = null },
-                                label = { Text("全部收藏", fontSize = 11.sp) },
-                            )
+                            if (palette.isModernUi) {
+                                val allSelected = selectedFolderId == null
+                                Surface(
+                                    color = if (allSelected) palette.primaryContainer else palette.surface2,
+                                    shape = CircleShape,
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .then(
+                                            if (allSelected) Modifier.border(1.dp, palette.primary, CircleShape) else Modifier,
+                                        )
+                                        .clickable { selectedFolderId = null },
+                                ) {
+                                    Text(
+                                        text = "全部收藏",
+                                        color = if (allSelected) palette.primary else palette.text,
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    )
+                                }
+                            } else {
+                                FilterChip(
+                                    selected = selectedFolderId == null,
+                                    onClick = { selectedFolderId = null },
+                                    label = { Text("全部收藏", fontSize = 11.sp) },
+                                )
+                            }
                             folders.forEach { f ->
                                 val selected = selectedFolderId == f.id
                                 Surface(
-                                    color = if (selected) palette.primary.copy(alpha = 0.16f) else palette.surface2,
+                                    color = if (selected) palette.primaryContainer else palette.surface2,
                                     shape = RoundedCornerShape(999.dp),
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(999.dp))
-                                        .border(1.dp, if (selected) palette.primary else palette.line, RoundedCornerShape(999.dp))
+                                        .then(
+                                            when {
+                                                palette.isModernUi && !selected -> Modifier
+                                                else -> Modifier.border(
+                                                    1.dp,
+                                                    if (selected) palette.primary else palette.line,
+                                                    RoundedCornerShape(999.dp),
+                                                )
+                                            },
+                                        )
                                         .combinedClickable(
                                             onClick = { selectedFolderId = f.id },
                                             onLongClick = { managingFolder = f },
@@ -598,11 +730,13 @@ fun MeScreen(
                         ) {
                             Surface(
                                 color = palette.surface2,
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.clickable { sortMode = if (sortMode == "new") "old" else "new" },
+                                shape = RoundedCornerShape(if (palette.isModernUi) 999.dp else 8.dp),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(if (palette.isModernUi) 999.dp else 8.dp))
+                                    .clickable { sortMode = if (sortMode == "new") "old" else "new" },
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 ) {
@@ -633,11 +767,13 @@ fun MeScreen(
                                 Spacer(Modifier.weight(1f))
                                 Surface(
                                     color = palette.surface2,
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.clickable { searchExpanded = true },
+                                    shape = RoundedCornerShape(if (palette.isModernUi) 999.dp else 8.dp),
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(if (palette.isModernUi) 999.dp else 8.dp))
+                                        .clickable { searchExpanded = true },
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                                     ) {
@@ -648,7 +784,10 @@ fun MeScreen(
                             }
                         }
                     }
-                    HorizontalDivider(color = palette.line)
+                    HorizontalDivider(
+                        color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                        thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+                    )
                 }
             }
 
@@ -790,11 +929,13 @@ fun MeScreen(
             me = me,
             chatController = chatController,
             themeMode = themeMode,
+            uiStyle = uiStyle,
             privacyConfig = privacyConfig,
             privacyShieldEnabled = privacyShieldEnabled,
             activeIconAlias = activeIconAlias,
             initialSubpage = settingsSubpageArg,
             onChangeTheme = onChangeTheme,
+            onChangeUiStyle = onChangeUiStyle,
             onChangeDisguise = onChangeDisguise,
             onUpdatePrivacyConfig = onUpdatePrivacyConfig,
             onTogglePrivacyShield = onTogglePrivacyShield,
@@ -901,24 +1042,44 @@ private fun AssetGridCell(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalForHappyPalette.current
+    val tileShape = RoundedCornerShape(if (palette.isModernUi) 18.dp else 12.dp)
     Surface(
-        color = palette.surface2,
-        shape = RoundedCornerShape(12.dp),
+        color = if (palette.isModernUi) palette.surface else palette.surface2,
+        shape = tileShape,
+        shadowElevation = if (palette.isModernUi && !palette.isDark) 2.dp else 0.dp,
         modifier = modifier
-            .border(1.dp, palette.line, RoundedCornerShape(12.dp))
-            .clip(RoundedCornerShape(12.dp))
+            .then(
+                if (palette.isModernUi) {
+                    if (palette.cardBorder != Color.Transparent) Modifier.border(1.dp, palette.cardBorder, tileShape) else Modifier
+                } else {
+                    Modifier.border(1.dp, palette.line, tileShape)
+                },
+            )
+            .clip(tileShape)
             .clickable(onClick = onClick),
     ) {
         Column(
-            modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
+            modifier = Modifier.padding(vertical = if (palette.isModernUi) 10.dp else 8.dp, horizontal = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            verticalArrangement = Arrangement.spacedBy(if (palette.isModernUi) 4.dp else 2.dp),
         ) {
-            Text(emoji, fontSize = 16.sp)
+            if (palette.isModernUi) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(palette.primaryContainer),
+                ) {
+                    Text(emoji, fontSize = 16.sp)
+                }
+            } else {
+                Text(emoji, fontSize = 16.sp)
+            }
             Text(
                 value,
                 color = palette.text,
-                fontSize = 12.sp,
+                fontSize = if (palette.isModernUi) 13.sp else 12.sp,
                 fontWeight = FontWeight.Bold,
                 style = TextStyle(fontFeatureSettings = TABULAR_FONT_FEATURE),
                 maxLines = 1,
@@ -941,12 +1102,20 @@ private fun MeStreamCard(
     val imgUrl = remember(meme.id, meme.primaryImageUrl) {
         meme.primaryImageUrl?.let { MediaUrlRewriter.rewriteWithExtProxy(it) }
     }
+    val cardShape = RoundedCornerShape(if (palette.isModernUi) 16.dp else 12.dp)
     Surface(
         color = palette.surface,
-        shape = RoundedCornerShape(12.dp),
+        shape = cardShape,
+        shadowElevation = if (palette.isModernUi && !palette.isDark) 2.dp else 0.dp,
         modifier = modifier
-            .border(1.dp, palette.line, RoundedCornerShape(12.dp))
-            .clip(RoundedCornerShape(12.dp))
+            .then(
+                if (palette.isModernUi) {
+                    if (palette.cardBorder != Color.Transparent) Modifier.border(1.dp, palette.cardBorder, cardShape) else Modifier
+                } else {
+                    Modifier.border(1.dp, palette.line, cardShape)
+                },
+            )
+            .clip(cardShape)
             .clickable(onClick = onClick),
     ) {
         Column {
@@ -996,6 +1165,7 @@ private fun MeStreamCard(
 @Composable
 fun PrivacyStealthSettingsContent(
     themeMode: AppThemeMode,
+    uiStyle: AppUiStyle = AppUiStyle.MODERN,
     privacyConfig: PrivacyStealthConfig,
     privacyShieldEnabled: Boolean,
     activeIconAlias: AppIconAlias,
@@ -1051,7 +1221,7 @@ fun PrivacyStealthSettingsContent(
                 FilterChip(
                     selected = themeMode == mode,
                     onClick = { onChangeTheme(mode) },
-                    label = { Text(mode.label, fontSize = 12.sp) },
+                    label = { Text(mode.displayLabel(uiStyle), fontSize = 12.sp) },
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = palette.primary,
                         selectedLabelColor = palette.onPrimary,

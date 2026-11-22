@@ -110,7 +110,11 @@ fun ForHappyAvatar(
             .size(size)
             .clip(CircleShape)
             .background(bgTint)
-            .border(1.dp, palette.line, CircleShape),
+            .border(
+                width = if (palette.isModernUi) 0.5.dp else 1.dp,
+                color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                shape = CircleShape,
+            ),
     ) {
         if (!imageLoaded || hideAvatarForFeishu) {
             Text(
@@ -261,13 +265,27 @@ fun ReactionChip(
 ) {
     val palette = LocalForHappyPalette.current
     Surface(
-        color = if (mine) palette.primary.copy(alpha = 0.18f) else palette.surface2,
+        color = when {
+            palette.isModernUi && mine -> palette.primaryContainer
+            mine -> palette.primary.copy(alpha = 0.18f)
+            else -> palette.surface2
+        },
         shape = RoundedCornerShape(999.dp),
         modifier = modifier
-            .border(
-                width = 1.dp,
-                color = if (mine) palette.primary.copy(alpha = 0.50f) else palette.line.copy(alpha = 0.65f),
-                shape = RoundedCornerShape(999.dp),
+            .then(
+                when {
+                    palette.isModernUi && mine -> Modifier.border(
+                        width = 1.dp,
+                        color = palette.primary.copy(alpha = 0.35f),
+                        shape = RoundedCornerShape(999.dp),
+                    )
+                    palette.isModernUi -> Modifier
+                    else -> Modifier.border(
+                        width = 1.dp,
+                        color = if (mine) palette.primary.copy(alpha = 0.50f) else palette.line.copy(alpha = 0.65f),
+                        shape = RoundedCornerShape(999.dp),
+                    )
+                },
             )
             .clickable { onClick() },
     ) {

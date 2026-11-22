@@ -22,14 +22,19 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -94,6 +99,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -222,6 +228,7 @@ fun WallScreen(
     moyuHeaderPillText: String? = null,
     onClickMoyuPill: (() -> Unit)? = null,
     forceUnseenSignal: Int = 0,
+    onDockScrollHideChanged: (Boolean) -> Unit = {},
 ) {
     val palette = LocalForHappyPalette.current
     val privacyConfig = LocalPrivacyStealthConfig.current
@@ -279,13 +286,25 @@ fun WallScreen(
     var showJumpTopPill by remember { mutableStateOf(false) }
     var didInitialResume by remember { mutableStateOf(false) }
 
+    val statusTopPad = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val navBottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
     // Collapsible topBar & FAB scroll tracking
-    val topBarHeightPx = with(density) { ForHappyDimens.topBarHeight.toPx() }
+    val topBarCollapseSpanPx = with(density) {
+        (if (palette.isModernUi) statusTopPad + 64.dp else ForHappyDimens.topBarHeight).toPx()
+    }
     var topBarOffsetPx by remember { mutableFloatStateOf(0f) }
     var fabVisible by remember { mutableStateOf(true) }
     var feedViewportRect by remember { mutableStateOf(RectF()) }
     var scrollSpeedDpPerSec by remember { mutableFloatStateOf(0f) }
     var lastVelocitySampleMs by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(fabVisible, filter.viewMode) {
+        onDockScrollHideChanged(!fabVisible && filter.viewMode != "pager")
+    }
+    DisposableEffect(Unit) {
+        onDispose { onDockScrollHideChanged(false) }
+    }
 
     LaunchedEffect(inlineToast) {
         if (inlineToast != null) {
@@ -304,7 +323,7 @@ fun WallScreen(
         }
     }
 
-    val nestedScrollConnection = remember(topBarHeightPx) {
+    val nestedScrollConnection = remember(topBarCollapseSpanPx) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 val dy = available.y
@@ -318,7 +337,7 @@ fun WallScreen(
                     scrollSpeedDpPerSec = with(density) { speedPxPerSec / this.density }
                 }
 
-                val next = (topBarOffsetPx + dy).coerceIn(-topBarHeightPx, 0f)
+                val next = (topBarOffsetPx + dy).coerceIn(-topBarCollapseSpanPx, 0f)
                 topBarOffsetPx = next
                 return Offset.Zero
             }
@@ -672,151 +691,187 @@ fun WallScreen(
     }
     val topBarDpOffset = with(density) { topBarOffsetPx.roundToInt() }
     val showTopBarVisible = filter.viewMode != "pager"
+    val collapsedFrac = (-topBarOffsetPx / topBarCollapseSpanPx.coerceAtLeast(1f)).coerceIn(0f, 1f)
+    val classicBarHeight = ForHappyDimens.topBarHeight * (1f - collapsedFrac)
+    val classicTopFeedPad = when {
+        palette.isModernUi || !showTopBarVisible -> 0.dp
+        activeNotice != null -> classicBarHeight + 33.dp
+        classicBarHeight > 1.dp -> classicBarHeight + 1.dp
+        else -> 0.dp
+    }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(palette.bg),
-    ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // Single 48dp collapsible gallery topbar (`02a §1`)
-            if (showTopBarVisible) {
-                val collapsedFrac = (-topBarOffsetPx / topBarHeightPx).coerceIn(0f, 1f)
-                val barHeight = ForHappyDimens.topBarHeight * (1f - collapsedFrac)
-                if (barHeight > 1.dp) {
-                    Surface(
-                        color = palette.surface,
+    @Composable
+    fun WallHeaderContent(isModern: Boolean) {
+        val barColor = if (isModern) palette.glassSurface else palette.surface
+        val rowHeight = if (isModern) 52.dp else classicBarHeight
+        Surface(
+            color = barColor,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(
+                modifier = if (isModern) Modifier.fillMaxWidth().statusBarsPadding() else Modifier.fillMaxWidth(),
+            ) {
+                if (isModern || classicBarHeight > 1.dp) {
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(barHeight),
+                            .height(rowHeight)
+                            .let { mod -> if (isModern) mod else mod.offset { IntOffset(0, topBarDpOffset) } }
+                            .padding(horizontal = if (isModern) 16.dp else 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Row(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .offset { IntOffset(0, topBarDpOffset) }
-                                .padding(horizontal = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.weight(1f),
                             verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(if (isModern) 10.dp else 8.dp),
                         ) {
-                            Row(
-                                modifier = Modifier.weight(1f),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                when {
-                                    filter.series.isNotBlank() -> ActiveHeaderFilterChip(
-                                        label = filter.series,
-                                        onClear = { applyFilter(filter.copy(series = "", fromDay = null, focusMemeId = null)) },
-                                    )
-                                    filter.author.isNotBlank() -> ActiveHeaderFilterChip(
-                                        label = "@${filter.author.substringBefore(',')}",
-                                        onClear = { applyFilter(filter.copy(author = "", fromDay = null, focusMemeId = null)) },
-                                    )
-                                    filter.tags.isNotEmpty() -> ActiveHeaderFilterChip(
-                                        label = "#${filter.tags.first()}" + if (filter.tags.size > 1) " +${filter.tags.size - 1}" else "",
-                                        onClear = { applyFilter(filter.copy(tags = emptySet(), fromDay = null, focusMemeId = null)) },
-                                    )
-                                    else -> Text(
+                            when {
+                                filter.series.isNotBlank() -> ActiveHeaderFilterChip(
+                                    label = filter.series,
+                                    onClear = { applyFilter(filter.copy(series = "", fromDay = null, focusMemeId = null)) },
+                                )
+                                filter.author.isNotBlank() -> ActiveHeaderFilterChip(
+                                    label = "@${filter.author.substringBefore(',')}",
+                                    onClear = { applyFilter(filter.copy(author = "", fromDay = null, focusMemeId = null)) },
+                                )
+                                filter.tags.isNotEmpty() -> ActiveHeaderFilterChip(
+                                    label = "#${filter.tags.first()}" + if (filter.tags.size > 1) " +${filter.tags.size - 1}" else "",
+                                    onClear = { applyFilter(filter.copy(tags = emptySet(), fromDay = null, focusMemeId = null)) },
+                                )
+                                isModern -> Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    Text(
                                         text = "图廊",
                                         color = palette.text,
-                                        fontSize = 18.sp,
-                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 22.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        letterSpacing = (-0.5).sp,
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(palette.primary),
                                     )
                                 }
-
-                                Surface(
-                                    color = palette.surface2,
-                                    shape = RoundedCornerShape(999.dp),
-                                    modifier = Modifier
-                                        .border(1.dp, palette.line, RoundedCornerShape(999.dp))
-                                        .clickable { showBrowseSettings = true },
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                    ) {
-                                        Text(
-                                            text = filter.summaryCapsuleLabel(),
-                                            color = palette.text,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                        Icon(
-                                            imageVector = Icons.Rounded.ArrowDropDown,
-                                            contentDescription = "浏览设置",
-                                            tint = palette.muted,
-                                            modifier = Modifier.size(16.dp),
-                                        )
-                                    }
-                                }
+                                else -> Text(
+                                    text = "图廊",
+                                    color = palette.text,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
                             }
 
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                moyuHeaderPillText?.takeIf { it.isNotBlank() }?.let { pill ->
-                                    Surface(
-                                        color = palette.gold.copy(alpha = 0.14f),
-                                        shape = RoundedCornerShape(999.dp),
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(999.dp))
-                                            .clickable(enabled = onClickMoyuPill != null) { onClickMoyuPill?.invoke() },
-                                    ) {
-                                        Text(
-                                            text = pill,
-                                            color = palette.gold,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            maxLines = 1,
-                                            style = TextStyle(fontFeatureSettings = TABULAR_FONT_FEATURE),
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                        )
-                                    }
-                                    Spacer(Modifier.width(4.dp))
-                                }
-                                IconButton(
-                                    onClick = { showSearchScreen = true },
-                                    modifier = Modifier.size(40.dp),
-                                ) {
-                                    Icon(Icons.Rounded.Search, contentDescription = "搜索", tint = palette.text, modifier = Modifier.size(21.dp))
-                                }
-
-                                if (me == null) {
-                                    BadgePill(
-                                        text = "登录",
-                                        containerColor = palette.primary,
-                                        contentColor = palette.onPrimary,
-                                        modifier = Modifier.clickable { onRequireLogin() },
+                            Surface(
+                                color = if (isModern) palette.surface2.copy(alpha = 0.9f) else palette.surface2,
+                                shape = RoundedCornerShape(999.dp),
+                                modifier = Modifier
+                                    .then(
+                                        if (isModern) Modifier else Modifier.border(1.dp, palette.line, RoundedCornerShape(999.dp)),
                                     )
-                                } else {
-                                    IconButton(
-                                        onClick = onOpenNotifications,
-                                        modifier = Modifier.size(40.dp),
-                                    ) {
-                                        Box(contentAlignment = Alignment.TopEnd) {
-                                            Icon(
-                                                imageVector = Icons.Rounded.NotificationsNone,
-                                                contentDescription = "通知",
-                                                tint = if (notifUnreadCount > 0) palette.text else palette.muted,
-                                                modifier = Modifier.size(21.dp),
-                                            )
-                                            if (notifUnreadCount > 0) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .offset(x = 5.dp, y = (-3).dp)
-                                                        .clip(RoundedCornerShape(999.dp))
-                                                        .background(palette.badge)
-                                                        .padding(horizontal = 4.dp, vertical = 1.dp),
-                                                ) {
-                                                    Text(
-                                                        text = if (notifUnreadCount > 99) "99+" else "$notifUnreadCount",
-                                                        color = Color.White,
-                                                        fontSize = 9.sp,
-                                                        fontWeight = FontWeight.SemiBold,
-                                                        style = TextStyle(fontFeatureSettings = TABULAR_FONT_FEATURE),
-                                                    )
-                                                }
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .clickable { showBrowseSettings = true },
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = if (isModern) 5.dp else 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                ) {
+                                    Text(
+                                        text = filter.summaryCapsuleLabel(),
+                                        color = palette.text,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Rounded.ArrowDropDown,
+                                        contentDescription = "浏览设置",
+                                        tint = palette.muted,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                            }
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(if (isModern) 6.dp else 0.dp),
+                        ) {
+                            moyuHeaderPillText?.takeIf { it.isNotBlank() }?.let { pill ->
+                                Surface(
+                                    color = palette.gold.copy(alpha = 0.14f),
+                                    shape = RoundedCornerShape(999.dp),
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(999.dp))
+                                        .clickable(enabled = onClickMoyuPill != null) { onClickMoyuPill?.invoke() },
+                                ) {
+                                    Text(
+                                        text = pill,
+                                        color = palette.gold,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        style = TextStyle(fontFeatureSettings = TABULAR_FONT_FEATURE),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    )
+                                }
+                                if (!isModern) Spacer(Modifier.width(4.dp))
+                            }
+
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(if (isModern) 36.dp else 40.dp)
+                                    .clip(CircleShape)
+                                    .let { if (isModern) it.background(palette.surface2.copy(alpha = 0.78f)) else it }
+                                    .clickable { showSearchScreen = true },
+                            ) {
+                                Icon(Icons.Rounded.Search, contentDescription = "搜索", tint = palette.text, modifier = Modifier.size(if (isModern) 19.dp else 21.dp))
+                            }
+
+                            if (me == null) {
+                                BadgePill(
+                                    text = "登录",
+                                    containerColor = palette.primary,
+                                    contentColor = palette.onPrimary,
+                                    modifier = Modifier.clickable { onRequireLogin() },
+                                )
+                            } else {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .size(if (isModern) 36.dp else 40.dp)
+                                        .clip(CircleShape)
+                                        .let { if (isModern) it.background(palette.surface2.copy(alpha = 0.78f)) else it }
+                                        .clickable { onOpenNotifications() },
+                                ) {
+                                    Box(contentAlignment = Alignment.TopEnd) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.NotificationsNone,
+                                            contentDescription = "通知",
+                                            tint = if (notifUnreadCount > 0) palette.text else palette.muted,
+                                            modifier = Modifier.size(if (isModern) 19.dp else 21.dp),
+                                        )
+                                        if (notifUnreadCount > 0) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .offset(x = 5.dp, y = (-3).dp)
+                                                    .clip(RoundedCornerShape(999.dp))
+                                                    .background(palette.badge)
+                                                    .padding(horizontal = 4.dp, vertical = 1.dp),
+                                            ) {
+                                                Text(
+                                                    text = if (notifUnreadCount > 99) "99+" else "$notifUnreadCount",
+                                                    color = Color.White,
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    style = TextStyle(fontFeatureSettings = TABULAR_FONT_FEATURE),
+                                                )
                                             }
                                         }
                                     }
@@ -824,161 +879,283 @@ fun WallScreen(
                             }
                         }
                     }
-                    HorizontalDivider(color = palette.line)
+                    if (!isModern) HorizontalDivider(color = palette.line)
                 }
-            }
 
-            // Optional 32dp dismissible site notice banner (`02a §1`)
-            if (activeNotice != null && showTopBarVisible) {
-                val plainLine = remember(activeNotice.id, activeNotice.body) {
-                    activeNotice.body.replace("**", "").replace(Regex("\\s+"), " ").trim()
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(32.dp)
-                        .background(palette.primaryContainer.copy(alpha = 0.55f))
-                        .clickable { activeNoticeDetail = activeNotice }
-                        .padding(horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Icon(Icons.Rounded.Campaign, contentDescription = null, tint = palette.primary, modifier = Modifier.size(16.dp))
-                    Text(
-                        text = plainLine,
-                        color = palette.text,
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Icon(
-                        imageVector = Icons.Rounded.Close,
-                        contentDescription = "关闭公告",
-                        tint = palette.muted,
-                        modifier = Modifier
-                            .size(16.dp)
-                            .clickable {
-                                val next = dismissedNoticeIds + activeNotice.id
-                                dismissedNoticeIds = next
-                                scope.launch {
-                                    api.putPref(
-                                        KV_DISMISSED_NOTICES,
-                                        ForHappyJson.encodeToString(ListSerializer(Long.serializer()), next.toList().takeLast(50)),
-                                    )
-                                }
-                            },
-                    )
-                }
-                HorizontalDivider(color = palette.line)
-            }
-
-            // Feed Area (Dual / Single / Immersive Vertical Pager)
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .onGloballyPositioned { coords ->
-                        val b = coords.boundsInWindow()
-                        feedViewportRect = RectF(b.left, b.top, b.right, b.bottom)
-                    },
-            ) {
-                if (loading && memes.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = palette.primary)
+                if (activeNotice != null) {
+                    val plainLine = remember(activeNotice.id, activeNotice.body) {
+                        activeNotice.body.replace("**", "").replace(Regex("\\s+"), " ").trim()
                     }
-                } else if (memes.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (isModern) {
+                        Surface(
+                            color = palette.primaryContainer.copy(alpha = if (palette.isDark) 0.55f else 0.85f),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 14.dp, end = 14.dp, top = 2.dp, bottom = 6.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { activeNoticeDetail = activeNotice },
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Icon(Icons.Rounded.Campaign, contentDescription = null, tint = palette.primary, modifier = Modifier.size(15.dp))
+                                Text(
+                                    text = plainLine,
+                                    color = palette.text,
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Icon(
+                                    imageVector = Icons.Rounded.Close,
+                                    contentDescription = "关闭公告",
+                                    tint = palette.muted,
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .clickable {
+                                            val next = dismissedNoticeIds + activeNotice.id
+                                            dismissedNoticeIds = next
+                                            scope.launch {
+                                                api.putPref(
+                                                    KV_DISMISSED_NOTICES,
+                                                    ForHappyJson.encodeToString(ListSerializer(Long.serializer()), next.toList().takeLast(50)),
+                                                )
+                                            }
+                                        },
+                                )
+                            }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(32.dp)
+                                .background(palette.primaryContainer.copy(alpha = 0.55f))
+                                .clickable { activeNoticeDetail = activeNotice }
+                                .padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(Icons.Rounded.Campaign, contentDescription = null, tint = palette.primary, modifier = Modifier.size(16.dp))
                             Text(
-                                text = when {
-                                    filter.unseenOnly -> "全都看过了"
-                                    filter.searchQuery.isNotBlank() -> "没搜到“${filter.searchQuery}”"
-                                    else -> "当前筛选条件下暂无梗图"
-                                },
-                                color = palette.muted,
-                                fontSize = 14.sp,
+                                text = plainLine,
+                                color = palette.text,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
                             )
-                            if (filter.activeFilterCount > 0 || filter.searchQuery.isNotBlank()) {
-                                OutlinedButton(onClick = { applyFilter(WallFilterState()) }) {
-                                    Text("恢复默认筛选")
-                                }
+                            Icon(
+                                imageVector = Icons.Rounded.Close,
+                                contentDescription = "关闭公告",
+                                tint = palette.muted,
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .clickable {
+                                        val next = dismissedNoticeIds + activeNotice.id
+                                        dismissedNoticeIds = next
+                                        scope.launch {
+                                            api.putPref(
+                                                KV_DISMISSED_NOTICES,
+                                                ForHappyJson.encodeToString(ListSerializer(Long.serializer()), next.toList().takeLast(50)),
+                                            )
+                                        }
+                                    },
+                            )
+                        }
+                        HorizontalDivider(color = palette.line)
+                    }
+                }
+                if (isModern) {
+                    HorizontalDivider(color = palette.glassBorder, thickness = 0.5.dp)
+                }
+            }
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(palette.bg),
+    ) {
+        // Feed Area (Dual / Single / Immersive Vertical Pager)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = classicTopFeedPad)
+                .onGloballyPositioned { coords ->
+                    val b = coords.boundsInWindow()
+                    val headerOccludePx = if (palette.isModernUi && showTopBarVisible && filter.viewMode != "pager") {
+                        with(density) { (statusTopPad + 52.dp + if (activeNotice != null) 40.dp else 0.dp).toPx() + topBarOffsetPx }.coerceAtLeast(0f)
+                    } else {
+                        0f
+                    }
+                    feedViewportRect = RectF(b.left, b.top + headerOccludePx, b.right, b.bottom)
+                },
+        ) {
+            if (loading && memes.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = palette.primary)
+                }
+            } else if (memes.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            text = when {
+                                filter.unseenOnly -> "全都看过了"
+                                filter.searchQuery.isNotBlank() -> "没搜到“${filter.searchQuery}”"
+                                else -> "当前筛选条件下暂无梗图"
+                            },
+                            color = palette.muted,
+                            fontSize = 14.sp,
+                        )
+                        if (filter.activeFilterCount > 0 || filter.searchQuery.isNotBlank()) {
+                            OutlinedButton(onClick = { applyFilter(WallFilterState()) }) {
+                                Text("恢复默认筛选")
                             }
                         }
                     }
-                } else if (filter.viewMode == "pager") {
-                    WallImmersivePagerFeed(
-                        memes = memes,
-                        api = api,
-                        me = me,
-                        filter = filter,
-                        blurAllEnabled = privacyConfig.blurAllEnabled,
-                        hasMore = hasMore,
-                        onLoadMore = { loadMore() },
-                        onOpenBrowseSettings = { showBrowseSettings = true },
-                        onOpenSearch = { showSearchScreen = true },
-                        onRequireLogin = onRequireLogin,
-                        onOpenDetail = { id -> selectedMemeId = id },
-                        onOpenQuickMenu = { m -> quickActionMeme = m },
-                        onMemeUpdated = { updated ->
-                            memes = memes.map { if (it.id == updated.id) updated else it }
-                        },
-                        onToggleLike = { meme ->
-                            if (me == null) {
-                                onRequireLogin()
-                            } else {
-                                scope.launch {
-                                    api.toggleLike(meme.id)
-                                    memes = memes.map { cur ->
-                                        if (cur.id == meme.id) {
-                                            cur.copy(
-                                                liked = !cur.liked,
-                                                likes = if (cur.liked) maxOf(0, cur.likes - 1) else cur.likes + 1,
-                                                likeCount = if (cur.liked) maxOf(0, cur.likeCount - 1) else cur.likeCount + 1,
-                                            )
-                                        } else cur
-                                    }
+                }
+            } else if (filter.viewMode == "pager") {
+                WallImmersivePagerFeed(
+                    memes = memes,
+                    api = api,
+                    me = me,
+                    filter = filter,
+                    blurAllEnabled = privacyConfig.blurAllEnabled,
+                    hasMore = hasMore,
+                    hasFloatingDock = palette.isModernUi,
+                    onLoadMore = { loadMore() },
+                    onOpenBrowseSettings = { showBrowseSettings = true },
+                    onOpenSearch = { showSearchScreen = true },
+                    onRequireLogin = onRequireLogin,
+                    onOpenDetail = { id -> selectedMemeId = id },
+                    onOpenQuickMenu = { m -> quickActionMeme = m },
+                    onMemeUpdated = { updated ->
+                        memes = memes.map { if (it.id == updated.id) updated else it }
+                    },
+                    onToggleLike = { meme ->
+                        if (me == null) {
+                            onRequireLogin()
+                        } else {
+                            scope.launch {
+                                api.toggleLike(meme.id)
+                                memes = memes.map { cur ->
+                                    if (cur.id == meme.id) {
+                                        cur.copy(
+                                            liked = !cur.liked,
+                                            likes = if (cur.liked) maxOf(0, cur.likes - 1) else cur.likes + 1,
+                                            likeCount = if (cur.liked) maxOf(0, cur.likeCount - 1) else cur.likeCount + 1,
+                                        )
+                                    } else cur
                                 }
                             }
-                        },
-                    )
-                } else {
-                    val columns = if (filter.viewMode == "single") 1 else 2
-                    PullToRefreshBox(
-                        isRefreshing = refreshing,
-                        onRefresh = { reload(filter, asRefresh = true) },
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .nestedScroll(nestedScrollConnection),
+                        }
+                    },
+                )
+            } else {
+                val columns = if (filter.viewMode == "single") 1 else 2
+                val modernTopClearance = statusTopPad + 52.dp + (if (activeNotice != null) 42.dp else 0.dp) + 10.dp
+                val modernBottomClearance = navBottomPad + 88.dp
+                PullToRefreshBox(
+                    isRefreshing = refreshing,
+                    onRefresh = { reload(filter, asRefresh = true) },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .nestedScroll(nestedScrollConnection),
+                ) {
+                    LazyVerticalStaggeredGrid(
+                        state = gridState,
+                        columns = StaggeredGridCells.Fixed(columns),
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(
+                            start = if (palette.isModernUi) (if (columns == 1) 14.dp else 10.dp) else (if (columns == 1) 12.dp else 8.dp),
+                            end = if (palette.isModernUi) (if (columns == 1) 14.dp else 10.dp) else (if (columns == 1) 12.dp else 8.dp),
+                            top = if (palette.isModernUi) modernTopClearance else 8.dp,
+                            bottom = if (palette.isModernUi) modernBottomClearance else 8.dp,
+                        ),
+                        horizontalArrangement = Arrangement.spacedBy(if (palette.isModernUi) 10.dp else 8.dp),
+                        verticalItemSpacing = if (palette.isModernUi) 10.dp else 8.dp,
                     ) {
-                        LazyVerticalStaggeredGrid(
-                            state = gridState,
-                            columns = StaggeredGridCells.Fixed(columns),
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(
-                                horizontal = if (columns == 1) 12.dp else 8.dp,
-                                vertical = 8.dp,
-                            ),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalItemSpacing = 8.dp,
-                        ) {
-                            items(
-                                items = entries,
-                                key = { entry ->
-                                    when (entry) {
-                                        is WallFeedEntry.DayHeader -> "day_${entry.day}"
-                                        is WallFeedEntry.MemeCard -> "meme_${entry.meme.id}"
-                                    }
-                                },
-                                span = { entry ->
-                                    when (entry) {
-                                        is WallFeedEntry.DayHeader -> StaggeredGridItemSpan.FullLine
-                                        is WallFeedEntry.MemeCard -> StaggeredGridItemSpan.SingleLane
-                                    }
-                                },
-                            ) { entry ->
+                        items(
+                            items = entries,
+                            key = { entry ->
                                 when (entry) {
-                                    is WallFeedEntry.DayHeader -> {
+                                    is WallFeedEntry.DayHeader -> "day_${entry.day}"
+                                    is WallFeedEntry.MemeCard -> "meme_${entry.meme.id}"
+                                }
+                            },
+                            span = { entry ->
+                                when (entry) {
+                                    is WallFeedEntry.DayHeader -> StaggeredGridItemSpan.FullLine
+                                    is WallFeedEntry.MemeCard -> StaggeredGridItemSpan.SingleLane
+                                }
+                            },
+                        ) { entry ->
+                            when (entry) {
+                                is WallFeedEntry.DayHeader -> {
+                                    if (palette.isModernUi) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .clickable { showDayJumpSheet = true }
+                                                .padding(horizontal = 4.dp, vertical = 6.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            ) {
+                                                Text(
+                                                    text = entry.label,
+                                                    color = palette.text,
+                                                    fontSize = 15.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                )
+                                                Text(
+                                                    text = "${entry.totalCount} 帖",
+                                                    color = palette.muted,
+                                                    fontSize = 12.sp,
+                                                    style = TextStyle(fontFeatureSettings = TABULAR_FONT_FEATURE),
+                                                )
+                                                if (entry.unseenCount > 0) {
+                                                    Surface(
+                                                        color = palette.primaryContainer,
+                                                        shape = CircleShape,
+                                                    ) {
+                                                        Text(
+                                                            text = "未看 ${entry.unseenCount}",
+                                                            color = palette.primary,
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            style = TextStyle(fontFeatureSettings = TABULAR_FONT_FEATURE),
+                                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            Box(
+                                                contentAlignment = Alignment.Center,
+                                                modifier = Modifier
+                                                    .size(30.dp)
+                                                    .clip(CircleShape)
+                                                    .background(palette.surface2.copy(alpha = 0.85f)),
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.CalendarMonth,
+                                                    contentDescription = "跳到哪天",
+                                                    tint = palette.muted,
+                                                    modifier = Modifier.size(16.dp),
+                                                )
+                                            }
+                                        }
+                                    } else {
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -1008,122 +1185,168 @@ fun WallScreen(
                                             )
                                         }
                                     }
+                                }
 
-                                    is WallFeedEntry.MemeCard -> {
-                                        CleanMemeCard(
-                                            meme = entry.meme,
-                                            api = api,
-                                            me = me,
-                                            filter = filter,
-                                            isSingleColumn = columns == 1,
-                                            blurAllEnabled = privacyConfig.blurAllEnabled,
-                                            viewportRect = feedViewportRect,
-                                            scrollSpeedDpPerSec = scrollSpeedDpPerSec,
-                                            showPeekHint = peekHintCount < 3,
-                                            onIncrementPeekHint = {
-                                                if (peekHintCount < 3) {
-                                                    val next = peekHintCount + 1
-                                                    peekHintCount = next
-                                                    scope.launch { api.putPref(KV_PEEK_HINT_COUNT, next.toString()) }
-                                                }
-                                            },
-                                            onRequireLogin = onRequireLogin,
-                                            onOpenDetail = { selectedMemeId = entry.meme.id },
-                                            onOpenFullscreen = { immersiveViewerTarget = entry.meme },
-                                            onLongPress = { quickActionMeme = entry.meme },
-                                            onMemeUpdated = { updated ->
-                                                memes = memes.map { if (it.id == updated.id) updated else it }
-                                            },
-                                            onToggleLike = {
-                                                if (me == null) {
-                                                    onRequireLogin()
-                                                } else {
-                                                    scope.launch {
-                                                        api.toggleLike(entry.meme.id)
-                                                        memes = memes.map { cur ->
-                                                            if (cur.id == entry.meme.id) {
-                                                                cur.copy(
-                                                                    liked = !cur.liked,
-                                                                    likes = if (cur.liked) maxOf(0, cur.likes - 1) else cur.likes + 1,
-                                                                    likeCount = if (cur.liked) maxOf(0, cur.likeCount - 1) else cur.likeCount + 1,
-                                                                )
-                                                            } else cur
-                                                        }
+                                is WallFeedEntry.MemeCard -> {
+                                    CleanMemeCard(
+                                        meme = entry.meme,
+                                        api = api,
+                                        me = me,
+                                        filter = filter,
+                                        isSingleColumn = columns == 1,
+                                        blurAllEnabled = privacyConfig.blurAllEnabled,
+                                        viewportRect = feedViewportRect,
+                                        scrollSpeedDpPerSec = scrollSpeedDpPerSec,
+                                        showPeekHint = peekHintCount < 3,
+                                        onIncrementPeekHint = {
+                                            if (peekHintCount < 3) {
+                                                val next = peekHintCount + 1
+                                                peekHintCount = next
+                                                scope.launch { api.putPref(KV_PEEK_HINT_COUNT, next.toString()) }
+                                            }
+                                        },
+                                        onRequireLogin = onRequireLogin,
+                                        onOpenDetail = { selectedMemeId = entry.meme.id },
+                                        onOpenFullscreen = { immersiveViewerTarget = entry.meme },
+                                        onLongPress = { quickActionMeme = entry.meme },
+                                        onMemeUpdated = { updated ->
+                                            memes = memes.map { if (it.id == updated.id) updated else it }
+                                        },
+                                        onToggleLike = {
+                                            if (me == null) {
+                                                onRequireLogin()
+                                            } else {
+                                                scope.launch {
+                                                    api.toggleLike(entry.meme.id)
+                                                    memes = memes.map { cur ->
+                                                        if (cur.id == entry.meme.id) {
+                                                            cur.copy(
+                                                                liked = !cur.liked,
+                                                                likes = if (cur.liked) maxOf(0, cur.likes - 1) else cur.likes + 1,
+                                                                likeCount = if (cur.liked) maxOf(0, cur.likeCount - 1) else cur.likeCount + 1,
+                                                            )
+                                                        } else cur
                                                     }
                                                 }
-                                            },
-                                        )
-                                    }
+                                            }
+                                        },
+                                    )
                                 }
                             }
+                        }
 
-                            item(span = StaggeredGridItemSpan.FullLine) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 14.dp),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    when {
-                                        loadingMore -> CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = palette.primary)
-                                        hasMore -> OutlinedButton(onClick = { loadMore() }) {
-                                            Text("加载更多", fontSize = 12.sp)
-                                        }
-                                        else -> Text("没有更多了", color = palette.muted, fontSize = 12.sp)
+                        item(span = StaggeredGridItemSpan.FullLine) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 14.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                when {
+                                    loadingMore -> CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = palette.primary)
+                                    hasMore -> OutlinedButton(onClick = { loadMore() }) {
+                                        Text("加载更多", fontSize = 12.sp)
                                     }
+                                    else -> Text("没有更多了", color = palette.muted, fontSize = 12.sp)
                                 }
                             }
                         }
                     }
                 }
+            }
 
-                // Floating return-to-today / top pill (`02a §4–5`)
-                val showBackToday = filter.fromDay != null || filter.focusMemeId != null || showJumpTopPill
-                if (showBackToday && filter.viewMode != "pager") {
-                    Surface(
-                        color = palette.primary,
-                        shape = RoundedCornerShape(999.dp),
-                        shadowElevation = 3.dp,
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .padding(top = 10.dp)
-                            .clickable {
-                                if (filter.fromDay != null || filter.focusMemeId != null) {
-                                    applyFilter(filter.copy(fromDay = null, focusMemeId = null))
-                                } else {
-                                    scope.launch {
-                                        gridState.animateScrollToItem(0)
-                                        showJumpTopPill = false
-                                    }
+            // Floating return-to-today / top pill (`02a §4–5`)
+            val showBackToday = filter.fromDay != null || filter.focusMemeId != null || showJumpTopPill
+            if (showBackToday && filter.viewMode != "pager") {
+                val pillTopPad = if (palette.isModernUi) {
+                    statusTopPad + (if (collapsedFrac < 0.7f) 60.dp else 12.dp)
+                } else {
+                    10.dp
+                }
+                Surface(
+                    color = palette.primary,
+                    shape = RoundedCornerShape(999.dp),
+                    shadowElevation = if (palette.isModernUi) 6.dp else 3.dp,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = pillTopPad)
+                        .clickable {
+                            if (filter.fromDay != null || filter.focusMemeId != null) {
+                                applyFilter(filter.copy(fromDay = null, focusMemeId = null))
+                            } else {
+                                scope.launch {
+                                    gridState.animateScrollToItem(0)
+                                    showJumpTopPill = false
                                 }
-                            },
+                            }
+                        },
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            Icon(Icons.Rounded.ArrowUpward, contentDescription = null, tint = palette.onPrimary, modifier = Modifier.size(14.dp))
-                            Text(
-                                text = if (filter.fromDay != null || filter.focusMemeId != null) "回到今天" else "最新",
-                                color = palette.onPrimary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        }
+                        Icon(Icons.Rounded.ArrowUpward, contentDescription = null, tint = palette.onPrimary, modifier = Modifier.size(14.dp))
+                        Text(
+                            text = if (filter.fromDay != null || filter.focusMemeId != null) "回到今天" else "最新",
+                            color = palette.onPrimary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
                     }
                 }
+            }
 
-                inlineToast?.let { msg ->
-                    Surface(
-                        color = Color.Black.copy(alpha = 0.8f),
-                        shape = RoundedCornerShape(999.dp),
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 18.dp),
-                    ) {
-                        Text(msg, color = Color.White, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp))
-                    }
+            inlineToast?.let { msg ->
+                Surface(
+                    color = Color.Black.copy(alpha = 0.8f),
+                    shape = RoundedCornerShape(999.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = if (palette.isModernUi) navBottomPad + 86.dp else 18.dp),
+                ) {
+                    Text(msg, color = Color.White, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp))
+                }
+            }
+        }
+
+        // Overlaid collapsible header in Modern UI; pinned top header in Classic UI
+        if (showTopBarVisible) {
+            if (palette.isModernUi) {
+                // Keep status bar clock & icons readable over scrolled cards even when top header slides away
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .height(statusTopPad + 10.dp)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    palette.bg.copy(alpha = 0.96f),
+                                    palette.bg.copy(alpha = 0.78f),
+                                    Color.Transparent,
+                                ),
+                            ),
+                        ),
+                )
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .graphicsLayer {
+                            translationY = topBarOffsetPx
+                            alpha = (1f - collapsedFrac * 1.15f).coerceIn(0f, 1f)
+                        },
+                ) {
+                    WallHeaderContent(isModern = true)
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth(),
+                ) {
+                    WallHeaderContent(isModern = false)
                 }
             }
         }
@@ -1134,17 +1357,20 @@ fun WallScreen(
             exit = scaleOut() + fadeOut(),
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(16.dp),
+                .padding(
+                    end = if (palette.isModernUi) 18.dp else 16.dp,
+                    bottom = if (palette.isModernUi) navBottomPad + 80.dp else 16.dp,
+                ),
         ) {
             Box {
                 Surface(
                     color = palette.primary,
                     contentColor = palette.onPrimary,
-                    shape = RoundedCornerShape(16.dp),
-                    shadowElevation = 6.dp,
+                    shape = RoundedCornerShape(if (palette.isModernUi) 18.dp else 16.dp),
+                    shadowElevation = if (palette.isModernUi) 10.dp else 6.dp,
                     modifier = Modifier
-                        .size(56.dp)
-                        .clip(RoundedCornerShape(16.dp))
+                        .size(if (palette.isModernUi) 54.dp else 56.dp)
+                        .clip(RoundedCornerShape(if (palette.isModernUi) 18.dp else 16.dp))
                         .combinedClickable(
                             onClick = {
                                 if (me == null) {
@@ -1572,12 +1798,20 @@ private fun CleanMemeCard(
         }
     }
 
+    val cardShape = RoundedCornerShape(if (palette.isModernUi) 18.dp else ForHappyDimens.radiusM)
     Surface(
         color = palette.surface,
-        shape = RoundedCornerShape(ForHappyDimens.radiusM),
+        shape = cardShape,
+        shadowElevation = if (palette.isModernUi && !palette.isDark) 2.dp else 0.dp,
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, palette.line.copy(alpha = 0.7f), RoundedCornerShape(ForHappyDimens.radiusM))
+            .then(
+                if (palette.isModernUi) {
+                    if (palette.cardBorder != Color.Transparent) Modifier.border(1.dp, palette.cardBorder, cardShape) else Modifier
+                } else {
+                    Modifier.border(1.dp, palette.line.copy(alpha = 0.7f), cardShape)
+                },
+            )
             .onGloballyPositioned { coords ->
                 val b = coords.boundsInWindow()
                 itemTopPx = b.top
@@ -1630,13 +1864,13 @@ private fun CleanMemeCard(
                         }
                         if (meme.isRisky) {
                             Surface(
-                                color = Color.Black.copy(alpha = 0.62f),
-                                shape = RoundedCornerShape(6.dp),
+                                color = if (palette.isModernUi) Color(0x990A0C10) else Color.Black.copy(alpha = 0.62f),
+                                shape = RoundedCornerShape(if (palette.isModernUi) 999.dp else 6.dp),
                                 modifier = Modifier
                                     .align(Alignment.BottomStart)
                                     .padding(6.dp),
                             ) {
-                                Text("敏感", color = Color.White, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                Text("敏感", color = Color.White, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp))
                             }
                         }
                     } else {
@@ -1662,8 +1896,8 @@ private fun CleanMemeCard(
                         }
                         if (kindLabel != null) {
                             Surface(
-                                color = Color.Black.copy(alpha = 0.60f),
-                                shape = RoundedCornerShape(6.dp),
+                                color = if (palette.isModernUi) Color(0x990A0C10) else Color.Black.copy(alpha = 0.60f),
+                                shape = RoundedCornerShape(if (palette.isModernUi) 999.dp else 6.dp),
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
                                     .padding(6.dp),
@@ -1674,19 +1908,19 @@ private fun CleanMemeCard(
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     style = TextStyle(fontFeatureSettings = TABULAR_FONT_FEATURE),
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
                                 )
                             }
                         }
                         if (isCroppedLong) {
                             Surface(
-                                color = Color.Black.copy(alpha = 0.60f),
-                                shape = RoundedCornerShape(6.dp),
+                                color = if (palette.isModernUi) Color(0x990A0C10) else Color.Black.copy(alpha = 0.60f),
+                                shape = RoundedCornerShape(if (palette.isModernUi) 999.dp else 6.dp),
                                 modifier = Modifier
                                     .align(Alignment.BottomEnd)
                                     .padding(6.dp),
                             ) {
-                                Text("长图 ▤", color = Color.White, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                Text("长图 ▤", color = Color.White, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp))
                             }
                         }
                     }
@@ -1696,23 +1930,57 @@ private fun CleanMemeCard(
                 val bodyPreview = meme.text?.takeIf { it.isNotBlank() && it != meme.title }
                     ?: meme.content?.takeIf { it.isNotBlank() && it != meme.title }
                     ?: meme.body.orEmpty()
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(palette.surface2.copy(alpha = 0.55f))
-                        .padding(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Text("📝 文字帖", color = palette.primary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                    if (bodyPreview.isNotBlank()) {
-                        Text(
-                            text = bodyPreview,
-                            color = palette.text,
-                            fontSize = 13.sp,
-                            lineHeight = 18.sp,
-                            maxLines = 4,
-                            overflow = TextOverflow.Ellipsis,
+                if (palette.isModernUi) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(palette.surface2.copy(alpha = if (palette.isDark) 0.48f else 0.62f))
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(3.dp)
+                                .height(if (bodyPreview.isNotBlank()) 44.dp else 18.dp)
+                                .clip(CircleShape)
+                                .background(palette.primary),
                         )
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text("文字随笔", color = palette.primary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            if (bodyPreview.isNotBlank()) {
+                                Text(
+                                    text = bodyPreview,
+                                    color = palette.text,
+                                    fontSize = 13.5.sp,
+                                    lineHeight = 19.sp,
+                                    maxLines = 4,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(palette.surface2.copy(alpha = 0.55f))
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text("📝 文字帖", color = palette.primary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        if (bodyPreview.isNotBlank()) {
+                            Text(
+                                text = bodyPreview,
+                                color = palette.text,
+                                fontSize = 13.sp,
+                                lineHeight = 18.sp,
+                                maxLines = 4,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
             }
@@ -1721,7 +1989,7 @@ private fun CleanMemeCard(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                    .padding(horizontal = if (palette.isModernUi) 11.dp else 10.dp, vertical = if (palette.isModernUi) 9.dp else 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 val showTitleText = meme.title?.takeIf { it.isNotBlank() }
@@ -1732,7 +2000,7 @@ private fun CleanMemeCard(
                         color = palette.text,
                         fontSize = 14.sp,
                         lineHeight = 19.sp,
-                        fontWeight = FontWeight.Medium,
+                        fontWeight = if (palette.isModernUi) FontWeight.SemiBold else FontWeight.Medium,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -1751,13 +2019,27 @@ private fun CleanMemeCard(
                         ) {
                             shownBoosts.forEach { qr ->
                                 Surface(
-                                    color = if (qr.mine) palette.primaryContainer else palette.primary.copy(alpha = 0.08f),
+                                    color = when {
+                                        qr.mine -> palette.primaryContainer
+                                        palette.isModernUi -> palette.surface2
+                                        else -> palette.primary.copy(alpha = 0.08f)
+                                    },
                                     shape = RoundedCornerShape(999.dp),
                                     modifier = Modifier
-                                        .border(
-                                            1.dp,
-                                            if (qr.mine) palette.primary else palette.primary.copy(alpha = 0.25f),
-                                            RoundedCornerShape(999.dp),
+                                        .then(
+                                            when {
+                                                palette.isModernUi && !qr.mine -> Modifier
+                                                palette.isModernUi && qr.mine -> Modifier.border(
+                                                    1.dp,
+                                                    palette.primary.copy(alpha = 0.45f),
+                                                    RoundedCornerShape(999.dp),
+                                                )
+                                                else -> Modifier.border(
+                                                    1.dp,
+                                                    if (qr.mine) palette.primary else palette.primary.copy(alpha = 0.25f),
+                                                    RoundedCornerShape(999.dp),
+                                                )
+                                            },
                                         )
                                         .clickable {
                                             if (me == null) {
@@ -1902,6 +2184,7 @@ private fun WallImmersivePagerFeed(
     filter: WallFilterState,
     blurAllEnabled: Boolean,
     hasMore: Boolean,
+    hasFloatingDock: Boolean = false,
     onLoadMore: () -> Unit,
     onOpenBrowseSettings: () -> Unit,
     onOpenSearch: () -> Unit,
@@ -1915,6 +2198,12 @@ private fun WallImmersivePagerFeed(
     val haptic = LocalHapticFeedback.current
     val pagerState = rememberPagerState(pageCount = { memes.size })
     var showChrome by remember { mutableStateOf(true) }
+    val pagerBottomInset = if (hasFloatingDock) 88.dp else 18.dp
+    val pagerBottomSysPad = if (hasFloatingDock) {
+        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    } else {
+        0.dp
+    }
 
     LaunchedEffect(pagerState.currentPage, memes.size, hasMore) {
         if (hasMore && memes.isNotEmpty() && pagerState.currentPage >= memes.size - 4) {
@@ -2028,7 +2317,7 @@ private fun WallImmersivePagerFeed(
                             .align(Alignment.BottomStart)
                             .fillMaxWidth()
                             .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.72f))))
-                            .padding(start = 16.dp, end = 76.dp, top = 28.dp, bottom = 18.dp),
+                            .padding(start = 16.dp, end = 76.dp, top = 28.dp, bottom = pagerBottomInset + pagerBottomSysPad),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Text("@${meme.authorDisplay}", color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
@@ -2039,7 +2328,7 @@ private fun WallImmersivePagerFeed(
                     Column(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
-                            .padding(end = 12.dp, bottom = 22.dp),
+                            .padding(end = 12.dp, bottom = pagerBottomInset + pagerBottomSysPad + 4.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
@@ -2086,6 +2375,7 @@ private fun WallImmersivePagerFeed(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
+                    .let { if (hasFloatingDock) it.statusBarsPadding() else it }
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,

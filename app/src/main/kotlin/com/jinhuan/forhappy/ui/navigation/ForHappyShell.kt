@@ -1,8 +1,14 @@
 package com.jinhuan.forhappy.ui.navigation
 
 import android.content.Intent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -25,6 +31,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -89,6 +96,7 @@ import com.jinhuan.forhappy.core.dynamic.TopbarModuleScanner
 import com.jinhuan.forhappy.core.model.AppDisguiseMode
 import com.jinhuan.forhappy.core.model.AppIconAlias
 import com.jinhuan.forhappy.core.model.AppThemeMode
+import com.jinhuan.forhappy.core.model.AppUiStyle
 import com.jinhuan.forhappy.core.model.ChatOpenSessionRequest
 import com.jinhuan.forhappy.core.model.DynamicModule
 import com.jinhuan.forhappy.core.model.ForHappyJson
@@ -157,12 +165,14 @@ import java.time.ZoneId
 fun ForHappyShell(
     app: ForHappyApp,
     themeMode: AppThemeMode,
+    uiStyle: AppUiStyle = AppUiStyle.MODERN,
     privacyConfig: PrivacyStealthConfig,
     bossKeyActive: Boolean,
     privacyShieldEnabled: Boolean,
     activeIconAlias: AppIconAlias,
     incomingIntents: Flow<Intent> = emptyFlow(),
     onChangeTheme: (AppThemeMode) -> Unit,
+    onChangeUiStyle: (AppUiStyle) -> Unit = {},
     onChangeDisguise: (AppDisguiseMode) -> Unit,
     onUpdatePrivacyConfig: (PrivacyStealthConfig) -> Unit,
     onSetBossKeyActive: (Boolean) -> Unit,
@@ -702,10 +712,14 @@ fun ForHappyShell(
             }
 
             AppDisguiseMode.NONE -> {
+            var wallScrollDockHidden by remember { mutableStateOf(false) }
 
             LaunchedEffect(activeTab) {
                 if (activeTab != "messages") {
                     chatController.isChatForegroundAtBottom = false
+                }
+                if (activeTab != "wall") {
+                    wallScrollDockHidden = false
                 }
             }
 
@@ -731,361 +745,533 @@ fun ForHappyShell(
                 }
             }
 
-            Scaffold(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(palette.bg),
-                snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
-                topBar = {
-                    Surface(
-                        color = palette.surface,
-                        modifier = Modifier.statusBarsPadding(),
-                    ) {
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            if (showNetworkStrip) {
-                                val netFail = !netStatus.running && !netStatus.lastError.isNullOrBlank()
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(ForHappyDimens.inlineBannerHeight)
-                                        .background(palette.surface2)
-                                        .clickable {
-                                            pendingSettingsSubpage = "network"
-                                            activeTab = "me"
+            val onMessagesTabClick: () -> Unit = {
+                if (activeTab == "messages") {
+                    val unreadTargets = buildList {
+                        chatState.groups.filter { g ->
+                            (if (g.muted) g.atMe else g.unread) > 0
+                        }.forEach { g ->
+                            add(ChatOpenSessionRequest(mode = "group", groupId = g.id))
+                        }
+                        if (chatState.dmEnabled) {
+                            chatState.dmThreads.filter { t ->
+                                !t.muted && t.id !in chatState.mutedDmIds && t.unread > 0
+                            }.forEach { t ->
+                                add(ChatOpenSessionRequest(mode = "dm", dmThreadId = t.id))
+                            }
+                        }
+                    }
+                    if (unreadTargets.isNotEmpty()) {
+                        val idx = unreadCycleCursor % unreadTargets.size
+                        unreadCycleCursor++
+                        chatOpenRequest = unreadTargets[idx].copy(requestId = System.nanoTime())
+                    } else if (chatState.shouldBypassSessionList()) {
+                        val joined = chatState.groups.filter { it.joined }
+                        val targetGroupId = if (joined.size >= 2) {
+                            val curIdx = joined.indexOfFirst { it.id == chatState.activeGroupId }
+                            val nextIdx = if (curIdx >= 0) (curIdx + 1) % joined.size else 0
+                            joined[nextIdx].id
+                        } else {
+                            joined.firstOrNull()?.id ?: chatState.activeGroupId
+                        }
+                        chatOpenRequest = ChatOpenSessionRequest(
+                            mode = "group",
+                            groupId = targetGroupId,
+                            requestId = System.nanoTime(),
+                        )
+                    } else {
+                        chatOpenRequest = ChatOpenSessionRequest(mode = "list")
+                    }
+                } else {
+                    activeTab = "messages"
+                }
+            }
+
+            val renderActiveTab = @Composable {
+                when (activeTab) {
+                    "wall" -> WallScreen(
+                        api = api,
+                        me = me,
+                        initialTag = wallTagArg,
+                        initialAuthor = wallAuthorArg,
+                        initialSeries = wallSeriesArg,
+                        initialDetailMemeId = wallMemeArg,
+                        notifUnreadCount = notifUnreadCount,
+                        openBrowseSettingsSignal = openBrowseSettingsSignal,
+                        openSeriesIndexSignal = openSeriesIndexSignal,
+                        scrollToTopSignal = wallScrollToTopSignal,
+                        externalRefreshSignal = wallRefreshSignal,
+                        onConsumeInitialArgs = {
+                            wallTagArg = null
+                            wallAuthorArg = null
+                            wallSeriesArg = null
+                            wallMemeArg = null
+                        },
+                        onOpenNotifications = { showNotifsSheet = true },
+                        onOpenUrl = { url -> webLinkModalUrl = url },
+                        onOpenCompose = { req -> activeComposeRequest = req },
+                        onRequireLogin = { showLoginModal = true },
+                        onToggleBlurAll = { enabled ->
+                            onUpdatePrivacyConfig(privacyConfig.copy(blurAllEnabled = enabled))
+                        },
+                        moyuHeaderPillText = wallMoyuPill,
+                        onClickMoyuPill = {
+                            discoverInitialRoute = "/moyu"
+                            activeTab = "discover"
+                        },
+                        forceUnseenSignal = forceWallUnseenSignal,
+                        onDockScrollHideChanged = { hidden -> wallScrollDockHidden = hidden },
+                    )
+
+                    "messages" -> ChatScreen(
+                        api = api,
+                        controller = chatController,
+                        me = me,
+                        hasFloatingDock = palette.isModernUi,
+                        initialJump = pendingChatJump,
+                        onConsumeInitialJump = { pendingChatJump = null },
+                        onNavigateToMeme = { id ->
+                            wallMemeArg = id
+                            activeTab = "wall"
+                        },
+                        onNavigateToTag = { tag ->
+                            wallTagArg = tag
+                            activeTab = "wall"
+                        },
+                        onOpenUrl = { url -> webLinkModalUrl = url },
+                        onRequireLogin = { showLoginModal = true },
+                        notifUnreadCount = notifUnreadCount,
+                        onOpenNotifications = { showNotifsSheet = true },
+                        openSessionRequest = chatOpenRequest,
+                        onConsumeOpenSessionRequest = { chatOpenRequest = null },
+                        onNavigateToAuthor = { uname ->
+                            wallTagArg = null
+                            wallSeriesArg = null
+                            wallAuthorArg = uname
+                            activeTab = "wall"
+                        },
+                        onOpenDiscoverRoute = { route ->
+                            webLinkModalUrl = if (route.startsWith("http")) route else "https://52dmeme.com$route"
+                        },
+                        onConvertMessageToPost = { msg ->
+                            if (me == null) {
+                                showLoginModal = true
+                            } else {
+                                scope.launch {
+                                    val files = withContext(Dispatchers.IO) {
+                                        msg.allMedia.mapNotNull { media ->
+                                            val u = media.resolvedUrl
+                                            if (u.isNotBlank()) api.fetchCachedMediaFile(u)?.absolutePath else null
                                         }
-                                        .padding(horizontal = 14.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        text = if (netFail) "网络连接失败 · 点按查看" else "网络连接中…",
-                                        color = if (netFail) palette.danger else palette.muted,
-                                        fontSize = 12.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(
-                                        text = "重试",
-                                        color = palette.primary,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(6.dp))
-                                            .clickable {
-                                                if (netStatus.running) {
-                                                    api.rustNetManager.triggerReselect()
-                                                } else {
-                                                    api.rustNetManager.start()
-                                                }
-                                            }
-                                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                                    )
-                                }
-                                HorizontalDivider(color = palette.line)
-                            }
-                        }
-                    }
-                },
-                bottomBar = {
-                    if (!isImeVisible) {
-                        Surface(
-                            color = palette.surface,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Column(modifier = Modifier.navigationBarsPadding()) {
-                                HorizontalDivider(color = palette.line)
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(ForHappyDimens.bottomBarHeight),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    CompactBottomBarItem(
-                                        modifier = Modifier.weight(1f),
-                                        selected = activeTab == "wall",
-                                        icon = Icons.Rounded.Collections,
-                                        label = "图廊",
-                                        palette = palette,
-                                        onClick = {
-                                            if (activeTab == "wall") {
-                                                wallScrollToTopSignal++
-                                            } else {
-                                                activeTab = "wall"
-                                            }
-                                        },
-                                        onLongClick = {
-                                            activeTab = "wall"
-                                            openBrowseSettingsSignal++
-                                        },
-                                    )
-                                    CompactBottomBarItem(
-                                        modifier = Modifier.weight(1f),
-                                        selected = activeTab == "messages",
-                                        icon = Icons.AutoMirrored.Rounded.Chat,
-                                        label = "消息",
-                                        badgeCount = chatState.totalUnreadCount,
-                                        badgeIsMention = chatState.hasUnreadMention,
-                                        palette = palette,
-                                        onClick = {
-                                            if (activeTab == "messages") {
-                                                val unreadTargets = buildList {
-                                                    chatState.groups.filter { g ->
-                                                        (if (g.muted) g.atMe else g.unread) > 0
-                                                    }.forEach { g ->
-                                                        add(ChatOpenSessionRequest(mode = "group", groupId = g.id))
-                                                    }
-                                                    if (chatState.dmEnabled) {
-                                                        chatState.dmThreads.filter { t ->
-                                                            !t.muted && t.id !in chatState.mutedDmIds && t.unread > 0
-                                                        }.forEach { t ->
-                                                            add(ChatOpenSessionRequest(mode = "dm", dmThreadId = t.id))
-                                                        }
-                                                    }
-                                                }
-                                                if (unreadTargets.isNotEmpty()) {
-                                                    val idx = unreadCycleCursor % unreadTargets.size
-                                                    unreadCycleCursor++
-                                                    chatOpenRequest = unreadTargets[idx].copy(requestId = System.nanoTime())
-                                                } else if (chatState.shouldBypassSessionList()) {
-                                                    val joined = chatState.groups.filter { it.joined }
-                                                    val targetGroupId = if (joined.size >= 2) {
-                                                        val curIdx = joined.indexOfFirst { it.id == chatState.activeGroupId }
-                                                        val nextIdx = if (curIdx >= 0) (curIdx + 1) % joined.size else 0
-                                                        joined[nextIdx].id
-                                                    } else {
-                                                        joined.firstOrNull()?.id ?: chatState.activeGroupId
-                                                    }
-                                                    chatOpenRequest = ChatOpenSessionRequest(
-                                                        mode = "group",
-                                                        groupId = targetGroupId,
-                                                        requestId = System.nanoTime(),
-                                                    )
-                                                } else {
-                                                    chatOpenRequest = ChatOpenSessionRequest(mode = "list")
-                                                }
-                                            } else {
-                                                activeTab = "messages"
-                                            }
-                                        },
-                                    )
-                                    CompactBottomBarItem(
-                                        modifier = Modifier.weight(1f),
-                                        selected = activeTab == "discover",
-                                        icon = Icons.Rounded.Explore,
-                                        label = "发现",
-                                        showDot = hasNewDiscoverModule,
-                                        dotColor = palette.badge,
-                                        palette = palette,
-                                        onLongClick = { showDiscoverQuickRing = true },
-                                        onClick = { activeTab = "discover" },
-                                    )
-                                    CompactBottomBarItem(
-                                        modifier = Modifier.weight(1f),
-                                        selected = activeTab == "me",
-                                        icon = Icons.Rounded.Person,
-                                        label = "我的",
-                                        showDot = hasUpdateDot,
-                                        dotColor = palette.primary,
-                                        palette = palette,
-                                        onClick = { activeTab = "me" },
+                                    }
+                                    val srcBody = msg.body.trim()
+                                    val initContent = buildString {
+                                        append("来源：群聊 @${msg.displayAuthor}")
+                                        if (srcBody.isNotBlank()) append("\n$srcBody")
+                                    }
+                                    activeComposeRequest = ComposeLaunchRequest(
+                                        triggerSeq = System.currentTimeMillis(),
+                                        initialGenre = ComposeGenre.IMAGE,
+                                        preStagedPaths = files,
+                                        initialContent = initContent,
                                     )
                                 }
                             }
-                        }
-                    }
-                },
-            ) { innerPadding ->
+                        },
+                    )
+
+                    "discover" -> HubScreen(
+                        api = api,
+                        db = app.db,
+                        me = me,
+                        modules = modules,
+                        initialModuleRoute = discoverInitialRoute,
+                        onConsumeInitialRoute = { discoverInitialRoute = null },
+                        onRefreshModules = {
+                            scope.launch { modules = api.scanDynamicTopbarModules() }
+                        },
+                        onRequireLogin = { showLoginModal = true },
+                        notifUnreadCount = notifUnreadCount,
+                        onOpenNotifications = { showNotifsSheet = true },
+                        onJumpUnseenWall = {
+                            forceWallUnseenSignal++
+                            activeTab = "wall"
+                        },
+                        chatController = chatController,
+                        effectiveDisguise = effectiveDisguise,
+                        bossKeyActive = bossKeyActive,
+                        todayStats = todayStats,
+                        moyuConfig = moyuConfig,
+                        onMoyuConfigUpdated = { moyuConfig = it },
+                        moyuForegroundSec = moyuForegroundSec,
+                        onResetMoyuForeground = {
+                            moyuForegroundSec = 0L
+                            scope.launch { api.putPref(KV_MOYU_FG_SEC, "0") }
+                        },
+                        onPinnedIdsChanged = { pinnedHubIds = it },
+                        onJumpToGroupChat = { gid ->
+                            chatOpenRequest = ChatOpenSessionRequest(mode = "group", groupId = gid)
+                            activeTab = "messages"
+                        },
+                    )
+
+                    "me" -> MeScreen(
+                        api = api,
+                        updateController = app.updateController,
+                        me = me,
+                        themeMode = themeMode,
+                        uiStyle = uiStyle,
+                        privacyConfig = privacyConfig,
+                        privacyShieldEnabled = privacyShieldEnabled,
+                        activeIconAlias = activeIconAlias,
+                        notifUnreadCount = notifUnreadCount,
+                        notifTotalCount = notifs.size,
+                        onOpenNotifications = { showNotifsSheet = true },
+                        onChangeTheme = onChangeTheme,
+                        onChangeUiStyle = onChangeUiStyle,
+                        onChangeDisguise = onChangeDisguise,
+                        onUpdatePrivacyConfig = onUpdatePrivacyConfig,
+                        onTogglePrivacyShield = onTogglePrivacyShield,
+                        onChangeIconAlias = onChangeIconAlias,
+                        onRequireLogin = { showLoginModal = true },
+                        onLoggedOut = {
+                            me = null
+                            notifs = emptyList()
+                            notifUnreadCount = 0
+                            showNotifsSheet = false
+                            todayStats = null
+                        },
+                        onOpenMeme = { id -> shellDetailMemeId = id },
+                        onOpenComposeEdit = { meme ->
+                            activeComposeRequest = ComposeLaunchRequest(
+                                triggerSeq = System.currentTimeMillis(),
+                                editingMeme = meme,
+                            )
+                        },
+                        onOpenWebRoute = { route, _ ->
+                            val clean = route.trim()
+                            if (clean.startsWith("/pets") ||
+                                clean.startsWith("/cards") ||
+                                clean.startsWith("/novels") ||
+                                clean.startsWith("/raffle") ||
+                                clean.startsWith("/road") ||
+                                clean.startsWith("/moyu") ||
+                                clean.startsWith("/arcade")
+                            ) {
+                                discoverInitialRoute = clean
+                                activeTab = "discover"
+                            } else {
+                                webLinkModalUrl = clean
+                            }
+                        },
+                        onOpenNotifSettings = {
+                            openNotifPrefsDirectly = true
+                            showNotifsSheet = true
+                        },
+                        initialSettingsSubpage = pendingSettingsSubpage,
+                        onConsumeSettingsSubpage = { pendingSettingsSubpage = null },
+                        onRefreshMe = { bootstrapSession() },
+                        chatController = chatController,
+                        effectiveDisguise = effectiveDisguise,
+                        bossKeyActive = bossKeyActive,
+                    )
+                }
+            }
+
+            if (palette.isModernUi) {
+                val showDock = !isImeVisible && !wallScrollDockHidden
+                val netFail = !netStatus.running && !netStatus.lastError.isNullOrBlank()
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(innerPadding)
-                        .consumeWindowInsets(innerPadding),
+                        .background(palette.bg),
                 ) {
-                    when (activeTab) {
-                        "wall" -> WallScreen(
-                            api = api,
-                            me = me,
-                            initialTag = wallTagArg,
-                            initialAuthor = wallAuthorArg,
-                            initialSeries = wallSeriesArg,
-                            initialDetailMemeId = wallMemeArg,
-                            notifUnreadCount = notifUnreadCount,
-                            openBrowseSettingsSignal = openBrowseSettingsSignal,
-                            openSeriesIndexSignal = openSeriesIndexSignal,
-                            scrollToTopSignal = wallScrollToTopSignal,
-                            externalRefreshSignal = wallRefreshSignal,
-                            onConsumeInitialArgs = {
-                                wallTagArg = null
-                                wallAuthorArg = null
-                                wallSeriesArg = null
-                                wallMemeArg = null
-                            },
-                            onOpenNotifications = { showNotifsSheet = true },
-                            onOpenUrl = { url -> webLinkModalUrl = url },
-                            onOpenCompose = { req -> activeComposeRequest = req },
-                            onRequireLogin = { showLoginModal = true },
-                            onToggleBlurAll = { enabled ->
-                                onUpdatePrivacyConfig(privacyConfig.copy(blurAllEnabled = enabled))
-                            },
-                            moyuHeaderPillText = wallMoyuPill,
-                            onClickMoyuPill = {
-                                discoverInitialRoute = "/moyu"
-                                activeTab = "discover"
-                            },
-                            forceUnseenSignal = forceWallUnseenSignal,
-                        )
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        renderActiveTab()
+                    }
 
-                        "messages" -> ChatScreen(
-                            api = api,
-                            controller = chatController,
-                            me = me,
-                            initialJump = pendingChatJump,
-                            onConsumeInitialJump = { pendingChatJump = null },
-                            onNavigateToMeme = { id ->
-                                wallMemeArg = id
-                                activeTab = "wall"
-                            },
-                            onNavigateToTag = { tag ->
-                                wallTagArg = tag
-                                activeTab = "wall"
-                            },
-                            onOpenUrl = { url -> webLinkModalUrl = url },
-                            onRequireLogin = { showLoginModal = true },
-                            notifUnreadCount = notifUnreadCount,
-                            onOpenNotifications = { showNotifsSheet = true },
-                            openSessionRequest = chatOpenRequest,
-                            onConsumeOpenSessionRequest = { chatOpenRequest = null },
-                            onNavigateToAuthor = { uname ->
-                                wallTagArg = null
-                                wallSeriesArg = null
-                                wallAuthorArg = uname
-                                activeTab = "wall"
-                            },
-                            onOpenDiscoverRoute = { route ->
-                                webLinkModalUrl = if (route.startsWith("http")) route else "https://52dmeme.com$route"
-                            },
-                            onConvertMessageToPost = { msg ->
-                                if (me == null) {
-                                    showLoginModal = true
-                                } else {
-                                    scope.launch {
-                                        val files = withContext(Dispatchers.IO) {
-                                            msg.allMedia.mapNotNull { media ->
-                                                val u = media.resolvedUrl
-                                                if (u.isNotBlank()) api.fetchCachedMediaFile(u)?.absolutePath else null
+                    if (showNetworkStrip) {
+                        Surface(
+                            color = palette.surfaceRaised,
+                            shape = CircleShape,
+                            shadowElevation = 8.dp,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .navigationBarsPadding()
+                                .padding(
+                                    start = 20.dp,
+                                    end = 20.dp,
+                                    bottom = if (showDock) 80.dp else 14.dp,
+                                )
+                                .border(1.dp, palette.glassBorder, CircleShape)
+                                .clickable {
+                                    pendingSettingsSubpage = "network"
+                                    activeTab = "me"
+                                },
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .clip(CircleShape)
+                                        .background(if (netFail) palette.danger else palette.gold),
+                                )
+                                Text(
+                                    text = if (netFail) "网络连接失败 · 点按查看" else "网络连接中…",
+                                    color = if (netFail) palette.danger else palette.text,
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Surface(
+                                    color = palette.primaryContainer,
+                                    shape = CircleShape,
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .clickable {
+                                            if (netStatus.running) {
+                                                api.rustNetManager.triggerReselect()
+                                            } else {
+                                                api.rustNetManager.start()
                                             }
+                                        },
+                                ) {
+                                    Text(
+                                        text = "重试",
+                                        color = palette.primary,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    SnackbarHost(
+                        hostState = snackbarHostState,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .navigationBarsPadding()
+                            .padding(bottom = if (showDock) 80.dp else 14.dp),
+                    )
+
+                    AnimatedVisibility(
+                        visible = showDock,
+                        enter = slideInVertically { it * 2 } + fadeIn(),
+                        exit = slideOutVertically { it * 2 } + fadeOut(),
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                    ) {
+                        Surface(
+                            color = palette.glassSurface,
+                            shape = CircleShape,
+                            shadowElevation = if (palette.isDark) 16.dp else 10.dp,
+                            modifier = Modifier
+                                .navigationBarsPadding()
+                                .padding(horizontal = 24.dp, vertical = 10.dp)
+                                .widthIn(max = 360.dp)
+                                .fillMaxWidth()
+                                .height(58.dp)
+                                .border(1.dp, palette.glassBorder, CircleShape),
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 6.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                ModernCapsuleDockItem(
+                                    modifier = Modifier.weight(1f),
+                                    selected = activeTab == "wall",
+                                    icon = Icons.Rounded.Collections,
+                                    label = "图廊",
+                                    palette = palette,
+                                    onClick = {
+                                        if (activeTab == "wall") {
+                                            wallScrollToTopSignal++
+                                        } else {
+                                            activeTab = "wall"
                                         }
-                                        val srcBody = msg.body.trim()
-                                        val initContent = buildString {
-                                            append("来源：群聊 @${msg.displayAuthor}")
-                                            if (srcBody.isNotBlank()) append("\n$srcBody")
-                                        }
-                                        activeComposeRequest = ComposeLaunchRequest(
-                                            triggerSeq = System.currentTimeMillis(),
-                                            initialGenre = ComposeGenre.IMAGE,
-                                            preStagedPaths = files,
-                                            initialContent = initContent,
+                                    },
+                                    onLongClick = {
+                                        activeTab = "wall"
+                                        openBrowseSettingsSignal++
+                                    },
+                                )
+                                ModernCapsuleDockItem(
+                                    modifier = Modifier.weight(1f),
+                                    selected = activeTab == "messages",
+                                    icon = Icons.AutoMirrored.Rounded.Chat,
+                                    label = "消息",
+                                    badgeCount = chatState.totalUnreadCount,
+                                    badgeIsMention = chatState.hasUnreadMention,
+                                    palette = palette,
+                                    onClick = onMessagesTabClick,
+                                )
+                                ModernCapsuleDockItem(
+                                    modifier = Modifier.weight(1f),
+                                    selected = activeTab == "discover",
+                                    icon = Icons.Rounded.Explore,
+                                    label = "发现",
+                                    showDot = hasNewDiscoverModule,
+                                    dotColor = palette.badge,
+                                    palette = palette,
+                                    onLongClick = { showDiscoverQuickRing = true },
+                                    onClick = { activeTab = "discover" },
+                                )
+                                ModernCapsuleDockItem(
+                                    modifier = Modifier.weight(1f),
+                                    selected = activeTab == "me",
+                                    icon = Icons.Rounded.Person,
+                                    label = "我的",
+                                    showDot = hasUpdateDot,
+                                    dotColor = palette.primary,
+                                    palette = palette,
+                                    onClick = { activeTab = "me" },
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                Scaffold(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(palette.bg),
+                    snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+                    topBar = {
+                        Surface(
+                            color = palette.surface,
+                            modifier = Modifier.statusBarsPadding(),
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                if (showNetworkStrip) {
+                                    val netFail = !netStatus.running && !netStatus.lastError.isNullOrBlank()
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(ForHappyDimens.inlineBannerHeight)
+                                            .background(palette.surface2)
+                                            .clickable {
+                                                pendingSettingsSubpage = "network"
+                                                activeTab = "me"
+                                            }
+                                            .padding(horizontal = 14.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            text = if (netFail) "网络连接失败 · 点按查看" else "网络连接中…",
+                                            color = if (netFail) palette.danger else palette.muted,
+                                            fontSize = 12.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            text = "重试",
+                                            color = palette.primary,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .clickable {
+                                                    if (netStatus.running) {
+                                                        api.rustNetManager.triggerReselect()
+                                                    } else {
+                                                        api.rustNetManager.start()
+                                                    }
+                                                }
+                                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                        )
+                                    }
+                                    HorizontalDivider(color = palette.line)
+                                }
+                            }
+                        }
+                    },
+                    bottomBar = {
+                        if (!isImeVisible) {
+                            Surface(
+                                color = palette.surface,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Column(modifier = Modifier.navigationBarsPadding()) {
+                                    HorizontalDivider(color = palette.line)
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(ForHappyDimens.bottomBarHeight),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        CompactBottomBarItem(
+                                            modifier = Modifier.weight(1f),
+                                            selected = activeTab == "wall",
+                                            icon = Icons.Rounded.Collections,
+                                            label = "图廊",
+                                            palette = palette,
+                                            onClick = {
+                                                if (activeTab == "wall") {
+                                                    wallScrollToTopSignal++
+                                                } else {
+                                                    activeTab = "wall"
+                                                }
+                                            },
+                                            onLongClick = {
+                                                activeTab = "wall"
+                                                openBrowseSettingsSignal++
+                                            },
+                                        )
+                                        CompactBottomBarItem(
+                                            modifier = Modifier.weight(1f),
+                                            selected = activeTab == "messages",
+                                            icon = Icons.AutoMirrored.Rounded.Chat,
+                                            label = "消息",
+                                            badgeCount = chatState.totalUnreadCount,
+                                            badgeIsMention = chatState.hasUnreadMention,
+                                            palette = palette,
+                                            onClick = onMessagesTabClick,
+                                        )
+                                        CompactBottomBarItem(
+                                            modifier = Modifier.weight(1f),
+                                            selected = activeTab == "discover",
+                                            icon = Icons.Rounded.Explore,
+                                            label = "发现",
+                                            showDot = hasNewDiscoverModule,
+                                            dotColor = palette.badge,
+                                            palette = palette,
+                                            onLongClick = { showDiscoverQuickRing = true },
+                                            onClick = { activeTab = "discover" },
+                                        )
+                                        CompactBottomBarItem(
+                                            modifier = Modifier.weight(1f),
+                                            selected = activeTab == "me",
+                                            icon = Icons.Rounded.Person,
+                                            label = "我的",
+                                            showDot = hasUpdateDot,
+                                            dotColor = palette.primary,
+                                            palette = palette,
+                                            onClick = { activeTab = "me" },
                                         )
                                     }
                                 }
-                            },
-                        )
-
-                        "discover" -> HubScreen(
-                            api = api,
-                            db = app.db,
-                            me = me,
-                            modules = modules,
-                            initialModuleRoute = discoverInitialRoute,
-                            onConsumeInitialRoute = { discoverInitialRoute = null },
-                            onRefreshModules = {
-                                scope.launch { modules = api.scanDynamicTopbarModules() }
-                            },
-                            onRequireLogin = { showLoginModal = true },
-                            notifUnreadCount = notifUnreadCount,
-                            onOpenNotifications = { showNotifsSheet = true },
-                            onJumpUnseenWall = {
-                                forceWallUnseenSignal++
-                                activeTab = "wall"
-                            },
-                            chatController = chatController,
-                            effectiveDisguise = effectiveDisguise,
-                            bossKeyActive = bossKeyActive,
-                            todayStats = todayStats,
-                            moyuConfig = moyuConfig,
-                            onMoyuConfigUpdated = { moyuConfig = it },
-                            moyuForegroundSec = moyuForegroundSec,
-                            onResetMoyuForeground = {
-                                moyuForegroundSec = 0L
-                                scope.launch { api.putPref(KV_MOYU_FG_SEC, "0") }
-                            },
-                            onPinnedIdsChanged = { pinnedHubIds = it },
-                            onJumpToGroupChat = { gid ->
-                                chatOpenRequest = ChatOpenSessionRequest(mode = "group", groupId = gid)
-                                activeTab = "messages"
-                            },
-                        )
-
-                        "me" -> MeScreen(
-                            api = api,
-                            updateController = app.updateController,
-                            me = me,
-                            themeMode = themeMode,
-                            privacyConfig = privacyConfig,
-                            privacyShieldEnabled = privacyShieldEnabled,
-                            activeIconAlias = activeIconAlias,
-                            notifUnreadCount = notifUnreadCount,
-                            notifTotalCount = notifs.size,
-                            onOpenNotifications = { showNotifsSheet = true },
-                            onChangeTheme = onChangeTheme,
-                            onChangeDisguise = onChangeDisguise,
-                            onUpdatePrivacyConfig = onUpdatePrivacyConfig,
-                            onTogglePrivacyShield = onTogglePrivacyShield,
-                            onChangeIconAlias = onChangeIconAlias,
-                            onRequireLogin = { showLoginModal = true },
-                            onLoggedOut = {
-                                me = null
-                                notifs = emptyList()
-                                notifUnreadCount = 0
-                                showNotifsSheet = false
-                                todayStats = null
-                            },
-                            onOpenMeme = { id -> shellDetailMemeId = id },
-                            onOpenComposeEdit = { meme ->
-                                activeComposeRequest = ComposeLaunchRequest(
-                                    triggerSeq = System.currentTimeMillis(),
-                                    editingMeme = meme,
-                                )
-                            },
-                            onOpenWebRoute = { route, _ ->
-                                val clean = route.trim()
-                                if (clean.startsWith("/pets") ||
-                                    clean.startsWith("/cards") ||
-                                    clean.startsWith("/novels") ||
-                                    clean.startsWith("/raffle") ||
-                                    clean.startsWith("/road") ||
-                                    clean.startsWith("/moyu") ||
-                                    clean.startsWith("/arcade")
-                                ) {
-                                    discoverInitialRoute = clean
-                                    activeTab = "discover"
-                                } else {
-                                    webLinkModalUrl = clean
-                                }
-                            },
-                            onOpenNotifSettings = {
-                                openNotifPrefsDirectly = true
-                                showNotifsSheet = true
-                            },
-                            initialSettingsSubpage = pendingSettingsSubpage,
-                            onConsumeSettingsSubpage = { pendingSettingsSubpage = null },
-                            onRefreshMe = { bootstrapSession() },
-                            chatController = chatController,
-                            effectiveDisguise = effectiveDisguise,
-                            bossKeyActive = bossKeyActive,
-                        )
+                            }
+                        }
+                    },
+                ) { innerPadding ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding)
+                            .consumeWindowInsets(innerPadding),
+                    ) {
+                        renderActiveTab()
                     }
                 }
             }
@@ -1151,6 +1337,7 @@ fun ForHappyShell(
                 ) {
                     PrivacyStealthSettingsContent(
                         themeMode = themeMode,
+                        uiStyle = uiStyle,
                         privacyConfig = privacyConfig,
                         privacyShieldEnabled = privacyShieldEnabled,
                         activeIconAlias = activeIconAlias,
@@ -1442,6 +1629,119 @@ fun ForHappyShell(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
+private fun ModernCapsuleDockItem(
+    selected: Boolean,
+    icon: ImageVector,
+    label: String,
+    palette: ForHappyPalette,
+    modifier: Modifier = Modifier,
+    badgeCount: Int = 0,
+    badgeIsMention: Boolean = false,
+    showDot: Boolean = false,
+    dotColor: Color = palette.badge,
+    onLongClick: (() -> Unit)? = null,
+    onClick: () -> Unit,
+) {
+    val fg = if (selected) palette.primary else palette.muted
+    val pillBg = if (selected) {
+        palette.primary.copy(alpha = if (palette.isDark) 0.20f else 0.13f)
+    } else {
+        Color.Transparent
+    }
+    val interaction = remember { MutableInteractionSource() }
+    Column(
+        modifier = modifier
+            .fillMaxHeight()
+            .clip(CircleShape)
+            .background(pillBg)
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
+                onLongClick = onLongClick,
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        DockIconBadge(
+            icon = icon,
+            label = label,
+            tint = fg,
+            iconSize = 21.dp,
+            badgeCount = badgeCount,
+            badgeIsMention = badgeIsMention,
+            showDot = showDot,
+            dotColor = dotColor,
+            palette = palette,
+        )
+        Spacer(Modifier.height(1.dp))
+        Text(
+            text = label,
+            color = fg,
+            fontSize = if (selected) 11.sp else 10.5.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun DockIconBadge(
+    icon: ImageVector,
+    label: String,
+    tint: Color,
+    iconSize: androidx.compose.ui.unit.Dp,
+    badgeCount: Int,
+    badgeIsMention: Boolean,
+    showDot: Boolean,
+    dotColor: Color,
+    palette: ForHappyPalette,
+) {
+    Box(contentAlignment = Alignment.TopEnd) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = tint,
+            modifier = Modifier.size(iconSize),
+        )
+        if (badgeCount > 0 || badgeIsMention) {
+            val badgeBg = if (badgeIsMention) palette.danger else palette.badge
+            val countLabel = if (badgeCount > 99) "99+" else "$badgeCount"
+            val text = when {
+                badgeIsMention && badgeCount > 0 -> "@$countLabel"
+                badgeIsMention -> "@我"
+                else -> countLabel
+            }
+            Box(
+                modifier = Modifier
+                    .offset(x = 8.dp, y = (-4).dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(badgeBg)
+                    .padding(horizontal = 4.dp, vertical = 1.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = text,
+                    color = Color.White,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    style = TextStyle(fontFeatureSettings = TABULAR_FONT_FEATURE),
+                )
+            }
+        } else if (showDot) {
+            Box(
+                modifier = Modifier
+                    .offset(x = 3.dp, y = (-2).dp)
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(dotColor),
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
 private fun CompactBottomBarItem(
     selected: Boolean,
     icon: ImageVector,
@@ -1469,47 +1769,17 @@ private fun CompactBottomBarItem(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Box(contentAlignment = Alignment.TopEnd) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = fg,
-                modifier = Modifier.size(22.dp),
-            )
-            if (badgeCount > 0 || badgeIsMention) {
-                val badgeBg = if (badgeIsMention) palette.danger else palette.badge
-                val countLabel = if (badgeCount > 99) "99+" else "$badgeCount"
-                val text = when {
-                    badgeIsMention && badgeCount > 0 -> "@$countLabel"
-                    badgeIsMention -> "@我"
-                    else -> countLabel
-                }
-                Box(
-                    modifier = Modifier
-                        .offset(x = 8.dp, y = (-4).dp)
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(badgeBg)
-                        .padding(horizontal = 4.dp, vertical = 1.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = text,
-                        color = Color.White,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        style = TextStyle(fontFeatureSettings = TABULAR_FONT_FEATURE),
-                    )
-                }
-            } else if (showDot) {
-                Box(
-                    modifier = Modifier
-                        .offset(x = 3.dp, y = (-2).dp)
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(dotColor),
-                )
-            }
-        }
+        DockIconBadge(
+            icon = icon,
+            label = label,
+            tint = fg,
+            iconSize = 22.dp,
+            badgeCount = badgeCount,
+            badgeIsMention = badgeIsMention,
+            showDot = showDot,
+            dotColor = dotColor,
+            palette = palette,
+        )
         Spacer(Modifier.height(2.dp))
         Text(
             text = label,

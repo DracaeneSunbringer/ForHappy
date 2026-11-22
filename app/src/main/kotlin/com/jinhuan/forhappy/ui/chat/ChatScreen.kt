@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -38,10 +39,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -265,6 +268,7 @@ fun ChatScreen(
     onConsumeOpenSessionRequest: () -> Unit = {},
     onNavigateToAuthor: (String) -> Unit = {},
     onOpenDiscoverRoute: ((String) -> Unit)? = null,
+    hasFloatingDock: Boolean = false,
 ) {
     val palette = LocalForHappyPalette.current
     val stealth = LocalPrivacyStealthConfig.current
@@ -276,6 +280,7 @@ fun ChatScreen(
     val state by controller.uiState.collectAsState()
     val cosmeticCatalogRev by BadgeAndCosmeticRegistry.catalogRevision.collectAsState()
     val isImeVisible = WindowInsets.isImeVisible
+    val navBottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     val isDirectEmbedded = hideChannelHeader || forcedChannelMode != null
     val joinedGroups = remember(state.groups) { state.groups.filter { it.joined } }
@@ -981,17 +986,19 @@ fun ChatScreen(
             .fillMaxSize()
             .background(palette.bg),
     ) {
-        // Level-1 Compact 48dp Chat / DM Top Bar (hidden when inside FeishuDisguiseScreen)
+        // Level-1 Compact 48dp / Modern 52dp Chat / DM Top Bar (hidden when inside FeishuDisguiseScreen)
         if (!hideChannelHeader) {
-            Surface(color = palette.surface) {
-                Column {
+            Surface(color = if (palette.isModernUi) palette.glassSurface else palette.surface) {
+                Column(
+                    modifier = if (palette.isModernUi && !isDirectEmbedded) Modifier.statusBarsPadding() else Modifier,
+                ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(ForHappyDimens.topBarHeight)
-                            .padding(horizontal = 6.dp),
+                            .height(if (palette.isModernUi) 52.dp else ForHappyDimens.topBarHeight)
+                            .padding(horizontal = if (palette.isModernUi) 10.dp else 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(if (palette.isModernUi) 4.dp else 2.dp),
                     ) {
                         if (!bypassSessionList) {
                             IconButton(
@@ -1020,14 +1027,30 @@ fun ChatScreen(
                                     joinedGroups.forEach { grp ->
                                         val selected = grp.id == state.activeGroupId
                                         val badgeCnt = (if (grp.muted) grp.atMe else grp.unread).coerceAtLeast(0)
+                                        val pillBg = when {
+                                            palette.isModernUi && selected -> palette.primary
+                                            selected -> palette.primaryContainer
+                                            else -> palette.surface2
+                                        }
+                                        val pillFg = when {
+                                            palette.isModernUi && selected -> palette.onPrimary
+                                            selected -> palette.primary
+                                            else -> palette.text
+                                        }
                                         Surface(
-                                            color = if (selected) palette.primaryContainer else palette.surface2,
+                                            color = pillBg,
                                             shape = RoundedCornerShape(999.dp),
                                             modifier = Modifier
-                                                .border(
-                                                    1.dp,
-                                                    if (selected) palette.primary else palette.line,
-                                                    RoundedCornerShape(999.dp),
+                                                .then(
+                                                    if (palette.isModernUi) {
+                                                        Modifier
+                                                    } else {
+                                                        Modifier.border(
+                                                            1.dp,
+                                                            if (selected) palette.primary else palette.line,
+                                                            RoundedCornerShape(999.dp),
+                                                        )
+                                                    },
                                                 )
                                                 .clip(RoundedCornerShape(999.dp))
                                                 .clickable {
@@ -1040,13 +1063,13 @@ fun ChatScreen(
                                                 },
                                         ) {
                                             Row(
-                                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                                             ) {
                                                 Text(
                                                     text = grp.name,
-                                                    color = if (selected) palette.primary else palette.text,
+                                                    color = pillFg,
                                                     fontSize = 12.sp,
                                                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                                                     maxLines = 1,
@@ -1055,7 +1078,7 @@ fun ChatScreen(
                                                 if (selected && grp.memberCount > 0) {
                                                     Text(
                                                         text = "(${grp.memberCount})",
-                                                        color = palette.primary.copy(alpha = 0.78f),
+                                                        color = pillFg.copy(alpha = 0.78f),
                                                         fontSize = 10.sp,
                                                         maxLines = 1,
                                                     )
@@ -1097,7 +1120,7 @@ fun ChatScreen(
                                             if ((activeGroup?.memberCount ?: 0) > 0) append(" (${activeGroup!!.memberCount})")
                                         },
                                         color = palette.text,
-                                        fontSize = 15.sp,
+                                        fontSize = if (palette.isModernUi) 17.sp else 15.sp,
                                         fontWeight = FontWeight.Bold,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
@@ -1158,7 +1181,7 @@ fun ChatScreen(
                                 Text(
                                     text = dmTitle,
                                     color = palette.text,
-                                    fontSize = 15.sp,
+                                    fontSize = if (palette.isModernUi) 17.sp else 15.sp,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
@@ -1179,7 +1202,10 @@ fun ChatScreen(
                             }
                         }
                     }
-                    HorizontalDivider(color = palette.line.copy(alpha = 0.7f))
+                    HorizontalDivider(
+                        color = if (palette.isModernUi) palette.glassBorder else palette.line.copy(alpha = 0.7f),
+                        thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+                    )
                 }
             }
         }
@@ -2100,11 +2126,23 @@ fun ChatScreen(
 
         // `[＋]` Attachment Tray (`相册`, `文件`, `发红包`, `欢欢猜词`)
         AnimatedVisibility(visible = showAttachmentTray) {
+            val trayShape = if (palette.isModernUi) {
+                RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+            } else {
+                RoundedCornerShape(0.dp)
+            }
             Surface(
-                color = palette.surface,
+                color = if (palette.isModernUi) palette.surfaceRaised else palette.surface,
+                shape = trayShape,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .border(1.dp, palette.line.copy(alpha = 0.7f)),
+                    .then(
+                        if (palette.isModernUi) {
+                            if (palette.cardBorder != Color.Transparent) Modifier.border(1.dp, palette.cardBorder, trayShape) else Modifier
+                        } else {
+                            Modifier.border(1.dp, palette.line.copy(alpha = 0.7f))
+                        },
+                    ),
             ) {
                 Row(
                     modifier = Modifier
@@ -2167,209 +2205,270 @@ fun ChatScreen(
             }
         }
 
-        // Slim Composer Capsule (`Emoji` + Input + `[＋]` + `Send`; authentic Feishu 7.x bar in FEISHU mode)
+        // Slim Composer Capsule (`Emoji` + Input + `[＋]` + `Send`; modern floating pill when palette.isModernUi; authentic Feishu 7.x bar in FEISHU mode)
         val isFeishuComposer = disguiseMode == AppDisguiseMode.FEISHU
-        val composerSurfaceBg = if (isFeishuComposer) palette.surfaceRaised else palette.surface
-        Surface(color = composerSurfaceBg) {
-            val swipeThresholdPx = with(density) { 48.dp.toPx() }
-            Column {
+        val swipeThresholdPx = with(density) { 48.dp.toPx() }
+        val modernBottomComposerPad = when {
+            isImeVisible -> 6.dp
+            hasFloatingDock -> navBottomPad + 74.dp
+            isDirectEmbedded -> navBottomPad + 6.dp
+            else -> 6.dp
+        }
+        val composerRowContent = @Composable { rowModifier: Modifier ->
+            Row(
+                modifier = rowModifier,
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(if (isFeishuComposer) 8.dp else 5.dp),
+            ) {
                 if (isFeishuComposer) {
-                    HorizontalDivider(color = palette.line, thickness = 0.5.dp)
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .imePadding()
-                        .padding(horizontal = if (isFeishuComposer) 10.dp else 8.dp, vertical = if (isFeishuComposer) 7.dp else 5.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(if (isFeishuComposer) 8.dp else 5.dp),
-                ) {
-                    if (isFeishuComposer) {
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                                .border(1.4.dp, palette.muted.copy(alpha = 0.8f), CircleShape)
-                                .clickable {
-                                    showAttachmentTray = false
-                                    showStickerTray = !showStickerTray
-                                },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.GraphicEq,
-                                contentDescription = "快捷语音短语",
-                                tint = palette.muted,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        }
-                    } else {
-                        IconButton(
-                            onClick = {
-                                showAttachmentTray = false
-                                showStickerTray = !showStickerTray
-                            },
-                            modifier = Modifier.size(34.dp),
-                        ) {
-                            Icon(
-                                Icons.Rounded.EmojiEmotions,
-                                contentDescription = "表情",
-                                tint = if (showStickerTray) palette.primary else palette.muted,
-                                modifier = Modifier.size(21.dp),
-                            )
-                        }
-                    }
-
-                    val inputShape = RoundedCornerShape(if (isFeishuComposer) 8.dp else 18.dp)
-                    Surface(
-                        color = palette.surface2,
-                        shape = inputShape,
+                    Box(
                         modifier = Modifier
-                            .weight(1f)
-                            .then(
-                                if (isFeishuComposer) {
-                                    Modifier
-                                } else {
-                                    Modifier.border(1.dp, palette.line.copy(alpha = 0.8f), inputShape)
-                                },
-                            )
-                            .pointerInput(activePane, activeRound?.messageId, draft, inputMode) {
-                                // Empty input horizontal swipe >= 48dp cycles 聊天 <-> 猜 <-> 问
-                                if (activePane == "group" && activeRound != null && draft.isEmpty()) {
-                                    var totalDx = 0f
-                                    detectHorizontalDragGestures(
-                                        onDragStart = { totalDx = 0f },
-                                        onDragEnd = {
-                                            if (kotlin.math.abs(totalDx) >= swipeThresholdPx) {
-                                                val modes = if (activeRound.canPlay) {
-                                                    listOf(ChatInputMode.CHAT, ChatInputMode.GUESS, ChatInputMode.ASK)
-                                                } else {
-                                                    listOf(ChatInputMode.CHAT)
-                                                }
-                                                if (modes.size > 1) {
-                                                    val idx = modes.indexOf(inputMode)
-                                                    val nextIdx = if (totalDx < 0f) (idx + 1) % modes.size else (idx - 1 + modes.size) % modes.size
-                                                    inputMode = modes[nextIdx]
-                                                    draft = controller.draftForGroup(state.activeGroupId, inputMode)
-                                                }
-                                            }
-                                            totalDx = 0f
-                                        },
-                                        onDragCancel = { totalDx = 0f },
-                                        onHorizontalDrag = { _, delta -> totalDx += delta },
-                                    )
-                                }
-                            },
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                        ) {
-                            if (draft.isEmpty()) {
-                                Text(
-                                    text = when {
-                                        me == null -> if (isFeishuComposer) "登录企业账号后发言" else "登录后参与聊天"
-                                        activePane == "dm" -> if (isFeishuComposer) "发送给同事…" else "发送私信…"
-                                        inputMode == ChatInputMode.GUESS -> if (disguiseMode != AppDisguiseMode.NONE) "输入待提交内容…" else "输入猜词答案（自动加 !）"
-                                        inputMode == ChatInputMode.ASK -> if (disguiseMode != AppDisguiseMode.NONE) "输入提问内容…" else "向欢欢提一个是非问题…"
-                                        isFeishuComposer -> "发送给当前群组…"
-                                        else -> "发消息…"
-                                    },
-                                    color = palette.muted,
-                                    fontSize = 14.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                            BasicTextField(
-                                value = draft,
-                                onValueChange = { next ->
-                                    draft = next
-                                    if (activePane == "group" && state.editTarget == null) {
-                                        controller.updateGroupDraft(state.activeGroupId, inputMode, next)
-                                    }
-                                },
-                                maxLines = 4,
-                                textStyle = TextStyle(color = palette.text, fontSize = 14.sp),
-                                cursorBrush = SolidColor(palette.primary),
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-                    }
-
-                    if (isFeishuComposer) {
-                        IconButton(
-                            onClick = {
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .border(1.4.dp, palette.muted.copy(alpha = 0.8f), CircleShape)
+                            .clickable {
                                 showAttachmentTray = false
                                 showStickerTray = !showStickerTray
                             },
-                            modifier = Modifier.size(30.dp),
-                        ) {
-                            Icon(
-                                Icons.Rounded.EmojiEmotions,
-                                contentDescription = "表情",
-                                tint = if (showStickerTray) palette.primary else palette.muted,
-                                modifier = Modifier.size(22.dp),
-                            )
-                        }
-                    }
-
-                    IconButton(
-                        onClick = {
-                            showStickerTray = false
-                            showAttachmentTray = !showAttachmentTray
-                        },
-                        modifier = Modifier.size(if (isFeishuComposer) 30.dp else 34.dp),
+                        contentAlignment = Alignment.Center,
                     ) {
                         Icon(
-                            imageVector = when {
-                                showAttachmentTray -> Icons.Rounded.Close
-                                isFeishuComposer -> Icons.Rounded.AddCircleOutline
-                                else -> Icons.Rounded.Add
-                            },
-                            contentDescription = "更多功能",
-                            tint = if (showAttachmentTray) palette.primary else palette.muted,
-                            modifier = Modifier.size(if (isFeishuComposer) 23.dp else 21.dp),
+                            imageVector = Icons.Rounded.GraphicEq,
+                            contentDescription = "快捷语音短语",
+                            tint = palette.muted,
+                            modifier = Modifier.size(16.dp),
                         )
                     }
+                } else {
+                    IconButton(
+                        onClick = {
+                            showAttachmentTray = false
+                            showStickerTray = !showStickerTray
+                        },
+                        modifier = Modifier.size(34.dp),
+                    ) {
+                        Icon(
+                            Icons.Rounded.EmojiEmotions,
+                            contentDescription = "表情",
+                            tint = if (showStickerTray) palette.primary else palette.muted,
+                            modifier = Modifier.size(21.dp),
+                        )
+                    }
+                }
 
-                    if (!isFeishuComposer || draft.isNotBlank()) {
-                        if (isFeishuComposer) {
-                            Surface(
-                                color = palette.primary,
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier
-                                    .height(32.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable { submitActiveDraft() },
-                            ) {
-                                Box(
-                                    modifier = Modifier.padding(horizontal = 12.dp),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Icon(
-                                        Icons.AutoMirrored.Rounded.Send,
-                                        contentDescription = "发送",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(16.dp),
-                                    )
-                                }
+                val inputShape = RoundedCornerShape(if (isFeishuComposer) 8.dp else 18.dp)
+                val inputBg = if (palette.isModernUi && !isFeishuComposer) Color.Transparent else palette.surface2
+                Surface(
+                    color = inputBg,
+                    shape = inputShape,
+                    modifier = Modifier
+                        .weight(1f)
+                        .then(
+                            if (isFeishuComposer || palette.isModernUi) {
+                                Modifier
+                            } else {
+                                Modifier.border(1.dp, palette.line.copy(alpha = 0.8f), inputShape)
+                            },
+                        )
+                        .pointerInput(activePane, activeRound?.messageId, draft, inputMode) {
+                            // Empty input horizontal swipe >= 48dp cycles 聊天 <-> 猜 <-> 问
+                            if (activePane == "group" && activeRound != null && draft.isEmpty()) {
+                                var totalDx = 0f
+                                detectHorizontalDragGestures(
+                                    onDragStart = { totalDx = 0f },
+                                    onDragEnd = {
+                                        if (kotlin.math.abs(totalDx) >= swipeThresholdPx) {
+                                            val modes = if (activeRound.canPlay) {
+                                                listOf(ChatInputMode.CHAT, ChatInputMode.GUESS, ChatInputMode.ASK)
+                                            } else {
+                                                listOf(ChatInputMode.CHAT)
+                                            }
+                                            if (modes.size > 1) {
+                                                val idx = modes.indexOf(inputMode)
+                                                val nextIdx = if (totalDx < 0f) (idx + 1) % modes.size else (idx - 1 + modes.size) % modes.size
+                                                inputMode = modes[nextIdx]
+                                                draft = controller.draftForGroup(state.activeGroupId, inputMode)
+                                            }
+                                        }
+                                        totalDx = 0f
+                                    },
+                                    onDragCancel = { totalDx = 0f },
+                                    onHorizontalDrag = { _, delta -> totalDx += delta },
+                                )
                             }
-                        } else {
-                            IconButton(
-                                onClick = { submitActiveDraft() },
-                                modifier = Modifier.size(34.dp),
+                        },
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = if (palette.isModernUi && !isFeishuComposer) 6.dp else 12.dp, vertical = 8.dp),
+                    ) {
+                        if (draft.isEmpty()) {
+                            Text(
+                                text = when {
+                                    me == null -> if (isFeishuComposer) "登录企业账号后发言" else "登录后参与聊天"
+                                    activePane == "dm" -> if (isFeishuComposer) "发送给同事…" else "发送私信…"
+                                    inputMode == ChatInputMode.GUESS -> if (disguiseMode != AppDisguiseMode.NONE) "输入待提交内容…" else "输入猜词答案（自动加 !）"
+                                    inputMode == ChatInputMode.ASK -> if (disguiseMode != AppDisguiseMode.NONE) "输入提问内容…" else "向欢欢提一个是非问题…"
+                                    isFeishuComposer -> "发送给当前群组…"
+                                    else -> "发消息…"
+                                },
+                                color = palette.muted,
+                                fontSize = 14.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        BasicTextField(
+                            value = draft,
+                            onValueChange = { next ->
+                                draft = next
+                                if (activePane == "group" && state.editTarget == null) {
+                                    controller.updateGroupDraft(state.activeGroupId, inputMode, next)
+                                }
+                            },
+                            maxLines = 4,
+                            textStyle = TextStyle(color = palette.text, fontSize = 14.sp),
+                            cursorBrush = SolidColor(palette.primary),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+
+                if (isFeishuComposer) {
+                    IconButton(
+                        onClick = {
+                            showAttachmentTray = false
+                            showStickerTray = !showStickerTray
+                        },
+                        modifier = Modifier.size(30.dp),
+                    ) {
+                        Icon(
+                            Icons.Rounded.EmojiEmotions,
+                            contentDescription = "表情",
+                            tint = if (showStickerTray) palette.primary else palette.muted,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
+
+                IconButton(
+                    onClick = {
+                        showStickerTray = false
+                        showAttachmentTray = !showAttachmentTray
+                    },
+                    modifier = Modifier.size(if (isFeishuComposer) 30.dp else 34.dp),
+                ) {
+                    Icon(
+                        imageVector = when {
+                            showAttachmentTray -> Icons.Rounded.Close
+                            isFeishuComposer -> Icons.Rounded.AddCircleOutline
+                            else -> Icons.Rounded.Add
+                        },
+                        contentDescription = "更多功能",
+                        tint = if (showAttachmentTray) palette.primary else palette.muted,
+                        modifier = Modifier.size(if (isFeishuComposer) 23.dp else 21.dp),
+                    )
+                }
+
+                if (!isFeishuComposer || draft.isNotBlank()) {
+                    if (isFeishuComposer) {
+                        Surface(
+                            color = palette.primary,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .height(32.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { submitActiveDraft() },
+                        ) {
+                            Box(
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                                contentAlignment = Alignment.Center,
                             ) {
                                 Icon(
                                     Icons.AutoMirrored.Rounded.Send,
                                     contentDescription = "发送",
-                                    tint = if (draft.isNotBlank()) palette.primary else palette.muted,
-                                    modifier = Modifier.size(20.dp),
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp),
                                 )
                             }
                         }
+                    } else if (palette.isModernUi) {
+                        val canSend = draft.isNotBlank()
+                        Surface(
+                            color = if (canSend) palette.primary else palette.surface2,
+                            shape = CircleShape,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .clickable { submitActiveDraft() },
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.AutoMirrored.Rounded.Send,
+                                    contentDescription = "发送",
+                                    tint = if (canSend) palette.onPrimary else palette.muted,
+                                    modifier = Modifier.size(17.dp),
+                                )
+                            }
+                        }
+                    } else {
+                        IconButton(
+                            onClick = { submitActiveDraft() },
+                            modifier = Modifier.size(34.dp),
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Rounded.Send,
+                                contentDescription = "发送",
+                                tint = if (draft.isNotBlank()) palette.primary else palette.muted,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
                     }
+                }
+            }
+        }
+
+        if (palette.isModernUi && !isFeishuComposer) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .imePadding()
+                    .padding(
+                        start = 10.dp,
+                        end = 10.dp,
+                        top = 4.dp,
+                        bottom = modernBottomComposerPad,
+                    ),
+            ) {
+                Surface(
+                    color = palette.surfaceRaised,
+                    shape = RoundedCornerShape(26.dp),
+                    shadowElevation = if (palette.isDark) 8.dp else 3.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, palette.glassBorder, RoundedCornerShape(26.dp)),
+                ) {
+                    composerRowContent(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 6.dp, vertical = 5.dp),
+                    )
+                }
+            }
+        } else {
+            val composerSurfaceBg = if (isFeishuComposer) palette.surfaceRaised else palette.surface
+            Surface(color = composerSurfaceBg) {
+                Column {
+                    if (isFeishuComposer) {
+                        HorizontalDivider(color = palette.line, thickness = 0.5.dp)
+                    }
+                    composerRowContent(
+                        Modifier
+                            .fillMaxWidth()
+                            .imePadding()
+                            .padding(horizontal = if (isFeishuComposer) 10.dp else 8.dp, vertical = if (isFeishuComposer) 7.dp else 5.dp),
+                    )
                 }
             }
         }
@@ -3256,6 +3355,8 @@ private fun SwipeableChatRow(
                 isLinuxDo -> Color.Transparent
                 isFeishu && msg.mine -> palette.bubbleSelf
                 isFeishu -> palette.surface
+                palette.isModernUi && msg.mine -> palette.bubbleSelf
+                palette.isModernUi -> palette.surface
                 msg.mine -> palette.primary.copy(alpha = 0.14f)
                 else -> palette.surface
             }
@@ -3263,6 +3364,7 @@ private fun SwipeableChatRow(
                 isLinuxDo -> Color.Transparent
                 highlighted -> palette.gold
                 isFeishu -> Color.Transparent
+                palette.isModernUi -> palette.cardBorder
                 msg.mine -> palette.primary.copy(alpha = 0.35f)
                 else -> palette.line
             }
@@ -3270,6 +3372,18 @@ private fun SwipeableChatRow(
                 isLinuxDo -> RoundedCornerShape(0.dp)
                 isFeishu && msg.mine -> RoundedCornerShape(topStart = 10.dp, topEnd = 2.dp, bottomEnd = 10.dp, bottomStart = 10.dp)
                 isFeishu -> RoundedCornerShape(topStart = 2.dp, topEnd = 10.dp, bottomEnd = 10.dp, bottomStart = 10.dp)
+                palette.isModernUi && msg.mine -> RoundedCornerShape(
+                    topStart = 18.dp,
+                    topEnd = if (isContinuation) 18.dp else 5.dp,
+                    bottomEnd = 18.dp,
+                    bottomStart = 18.dp,
+                )
+                palette.isModernUi -> RoundedCornerShape(
+                    topStart = if (isContinuation) 18.dp else 5.dp,
+                    topEnd = 18.dp,
+                    bottomEnd = 18.dp,
+                    bottomStart = 18.dp,
+                )
                 else -> RoundedCornerShape(15.dp)
             }
 

@@ -1425,6 +1425,27 @@ data class UploadedMedia(
 )
 
 @Serializable
+enum class AppUiStyle(
+    val key: String,
+    val label: String,
+    val subtitle: String,
+) {
+    MODERN("modern", "灵韵透感（默认）", "悬浮毛玻璃胶囊底栏 · 无框层叠卡片 · 冷雾白与深曜石配色"),
+    CLASSIC_WEB("classic_web", "经典网页（暖纸/深松）", "保留原网页宣纸松绿配色、贴底四栏与描边卡片"),
+    ;
+
+    companion object {
+        const val KV_KEY = "ui.visual_style.v1"
+
+        fun fromKey(raw: String?): AppUiStyle =
+            entries.firstOrNull {
+                it.key.equals(raw?.trim(), ignoreCase = true) ||
+                    it.name.equals(raw?.trim(), ignoreCase = true)
+            } ?: MODERN
+    }
+}
+
+@Serializable
 enum class AppThemeMode(val label: String) {
     WARM_PAPER_LIGHT("暖纸松绿（日间）"),
     PINE_NIGHT_DARK("深松暗夜（夜间）"),
@@ -1432,6 +1453,16 @@ enum class AppThemeMode(val label: String) {
     LINUX_DO("LINUX DO 伪装"),
     FOLLOW_SYSTEM("跟随系统（暖纸/深松）"),
     ;
+
+    fun displayLabel(uiStyle: AppUiStyle): String = when (uiStyle) {
+        AppUiStyle.MODERN -> when (this) {
+            FOLLOW_SYSTEM -> "跟随系统（雾白/曜石）"
+            WARM_PAPER_LIGHT -> "浅色 · 冷雾白"
+            PINE_NIGHT_DARK -> "深色 · 深曜石"
+            else -> label
+        }
+        AppUiStyle.CLASSIC_WEB -> label
+    }
 
     companion object {
         val dayNightEntries: List<AppThemeMode>

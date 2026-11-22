@@ -14,12 +14,16 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -49,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -259,35 +264,46 @@ fun HubScreen(
     val moyuSnapshot = remember(nowEpochSec, moyuConfig) {
         MoyuCalculator.compute(nowEpochSec, moyuConfig)
     }
+    val navBottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(palette.bg),
     ) {
-        // 48dp Discover Header
-        Surface(color = palette.surface) {
-            Column {
+        // Discover Header
+        Surface(color = if (palette.isModernUi) palette.glassSurface else palette.surface) {
+            Column(
+                modifier = if (palette.isModernUi) Modifier.fillMaxWidth().statusBarsPadding() else Modifier.fillMaxWidth(),
+            ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(ForHappyDimens.topBarHeight)
-                        .padding(horizontal = 14.dp),
+                        .height(if (palette.isModernUi) 52.dp else ForHappyDimens.topBarHeight)
+                        .padding(horizontal = if (palette.isModernUi) 16.dp else 14.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
                         text = "发现",
                         color = palette.text,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
+                        fontSize = if (palette.isModernUi) 22.sp else 18.sp,
+                        fontWeight = if (palette.isModernUi) FontWeight.ExtraBold else FontWeight.Bold,
+                        letterSpacing = if (palette.isModernUi) (-0.5).sp else TextStyle.Default.letterSpacing,
                     )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(
-                            onClick = onRefreshModules,
-                            modifier = Modifier.size(40.dp),
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(if (palette.isModernUi) 6.dp else 0.dp),
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(if (palette.isModernUi) 36.dp else 40.dp)
+                                .clip(CircleShape)
+                                .let { if (palette.isModernUi) it.background(palette.surface2.copy(alpha = 0.78f)) else it }
+                                .clickable { onRefreshModules() },
                         ) {
-                            Icon(Icons.Rounded.Refresh, contentDescription = "刷新模块", tint = palette.muted, modifier = Modifier.size(20.dp))
+                            Icon(Icons.Rounded.Refresh, contentDescription = "刷新模块", tint = palette.muted, modifier = Modifier.size(19.dp))
                         }
                         if (me == null) {
                             BadgePill(
@@ -297,16 +313,20 @@ fun HubScreen(
                                 modifier = Modifier.clickable { onRequireLogin() },
                             )
                         } else {
-                            IconButton(
-                                onClick = onOpenNotifications,
-                                modifier = Modifier.size(40.dp),
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(if (palette.isModernUi) 36.dp else 40.dp)
+                                    .clip(CircleShape)
+                                    .let { if (palette.isModernUi) it.background(palette.surface2.copy(alpha = 0.78f)) else it }
+                                    .clickable { onOpenNotifications() },
                             ) {
                                 Box(contentAlignment = Alignment.TopEnd) {
                                     Icon(
                                         imageVector = Icons.Rounded.NotificationsNone,
                                         contentDescription = "通知",
                                         tint = if (notifUnreadCount > 0) palette.text else palette.muted,
-                                        modifier = Modifier.size(21.dp),
+                                        modifier = Modifier.size(if (palette.isModernUi) 19.dp else 21.dp),
                                     )
                                     if (notifUnreadCount > 0) {
                                         Box(
@@ -330,51 +350,79 @@ fun HubScreen(
                         }
                     }
                 }
-                HorizontalDivider(color = palette.line)
+                HorizontalDivider(
+                    color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                    thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+                )
             }
         }
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(14.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(
+                start = if (palette.isModernUi) 16.dp else 14.dp,
+                end = if (palette.isModernUi) 16.dp else 14.dp,
+                top = 14.dp,
+                bottom = if (palette.isModernUi) navBottomPad + 92.dp else 14.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(if (palette.isModernUi) 16.dp else 14.dp),
         ) {
             // 1. Moyu Hero Card
             item(key = "moyu_hero") {
                 val showSalary = moyuConfig.monthlySalary > 0.0 &&
                     effectiveDisguise == AppDisguiseMode.NONE &&
                     !bossKeyActive
+                val heroShape = RoundedCornerShape(if (palette.isModernUi) 24.dp else 16.dp)
+                val heroGlow = Brush.linearGradient(
+                    listOf(
+                        palette.primary.copy(alpha = if (palette.isDark) 0.16f else 0.08f),
+                        Color.Transparent,
+                    ),
+                )
                 Surface(
                     color = palette.surface,
-                    shape = RoundedCornerShape(16.dp),
+                    shape = heroShape,
+                    shadowElevation = if (palette.isModernUi && !palette.isDark) 3.dp else 0.dp,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, palette.line, RoundedCornerShape(16.dp))
+                        .then(
+                            if (palette.isModernUi) {
+                                if (palette.cardBorder != Color.Transparent) Modifier.border(1.dp, palette.cardBorder, heroShape) else Modifier
+                            } else {
+                                Modifier.border(1.dp, palette.line, heroShape)
+                            },
+                        )
+                        .clip(heroShape)
                         .clickable { showMoyuDialog = true },
                 ) {
-                    Box(modifier = Modifier.fillMaxWidth()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .let { if (palette.isModernUi) it.background(heroGlow) else it },
+                    ) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                                .padding(if (palette.isModernUi) 18.dp else 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(if (palette.isModernUi) 12.dp else 10.dp),
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Text(
                                         text = "摸鱼看板",
-                                        color = palette.muted,
+                                        color = if (palette.isModernUi) palette.primary else palette.muted,
                                         fontSize = 11.sp,
-                                        fontWeight = FontWeight.Medium,
+                                        fontWeight = FontWeight.SemiBold,
                                     )
                                     Text(
                                         text = moyuSnapshot.countdownText,
                                         color = palette.text,
-                                        style = MaterialTheme.typography.titleMedium,
+                                        fontSize = if (palette.isModernUi) 21.sp else 18.sp,
+                                        style = TextStyle(fontFeatureSettings = TABULAR_FONT_FEATURE),
                                         fontWeight = FontWeight.Bold,
                                     )
                                 }
@@ -400,7 +448,7 @@ fun HubScreen(
                                 progress = { moyuSnapshot.progress },
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(7.dp)
+                                    .height(if (palette.isModernUi) 8.dp else 7.dp)
                                     .clip(RoundedCornerShape(999.dp)),
                                 color = palette.primary,
                                 trackColor = palette.surface2,
@@ -420,17 +468,17 @@ fun HubScreen(
                             val newSeen = todayStats?.let { if (it.newSeen > 0) it.newSeen else it.seen } ?: 0
                             val remaining = (200 - newSeen).coerceAtLeast(0)
                             Surface(
-                                color = palette.primary.copy(alpha = 0.10f),
-                                shape = RoundedCornerShape(10.dp),
+                                color = if (palette.isModernUi) palette.primaryContainer else palette.primary.copy(alpha = 0.10f),
+                                shape = RoundedCornerShape(if (palette.isModernUi) 14.dp else 10.dp),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
+                                    .clip(RoundedCornerShape(if (palette.isModernUi) 14.dp else 10.dp))
                                     .clickable {
                                         if (remaining > 0) onJumpUnseenWall() else showMoyuDialog = true
                                     },
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = if (palette.isModernUi) 10.dp else 8.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
@@ -464,7 +512,7 @@ fun HubScreen(
                                     .size(48.dp)
                                     .clip(CircleShape)
                                     .background(palette.surface2)
-                                    .border(1.dp, palette.line, CircleShape)
+                                    .then(if (palette.isModernUi) Modifier else Modifier.border(1.dp, palette.line, CircleShape))
                                     .clickable { launchRoute("/pets", "鱼鱼谷") },
                             ) {
                                 Text("🐾", fontSize = 22.sp)
@@ -474,7 +522,7 @@ fun HubScreen(
                 }
             }
 
-            // 2. Editable `常用` 8-grid
+            // 2. Editable `常用` Bento / 8-grid
             item(key = "pinned_section") {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(
@@ -485,13 +533,15 @@ fun HubScreen(
                         Text(
                             text = "常用 (${pinnedEntries.size}/8)",
                             color = palette.text,
-                            fontSize = 15.sp,
+                            fontSize = if (palette.isModernUi) 16.sp else 15.sp,
                             fontWeight = FontWeight.Bold,
                         )
                         Surface(
                             color = if (editingPinned) palette.primary else palette.surface2,
                             shape = RoundedCornerShape(999.dp),
-                            modifier = Modifier.clickable { editingPinned = !editingPinned },
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .clickable { editingPinned = !editingPinned },
                         ) {
                             Text(
                                 text = if (editingPinned) "完成" else "编辑",
@@ -503,26 +553,68 @@ fun HubScreen(
                         }
                     }
 
-                    val rows = pinnedEntries.chunked(4)
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        rows.forEach { rowItems ->
+                    if (palette.isModernUi && !editingPinned && pinnedEntries.size >= 2) {
+                        val featured = pinnedEntries.take(2)
+                        val rest = pinnedEntries.drop(2)
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
-                                rowItems.forEach { entry ->
-                                    PinnedGridTile(
+                                featured.forEach { entry ->
+                                    FeaturedBentoTile(
                                         entry = entry,
-                                        editing = editingPinned,
-                                        onClick = {
-                                            if (editingPinned) togglePin(entry.id) else launchModuleEntry(entry)
-                                        },
+                                        onClick = { launchModuleEntry(entry) },
                                         onLongClick = { editingPinned = true },
                                         modifier = Modifier.weight(1f),
                                     )
                                 }
-                                repeat(4 - rowItems.size) {
-                                    Spacer(modifier = Modifier.weight(1f))
+                            }
+                            if (rest.isNotEmpty()) {
+                                val cols = if (rest.size == 4) 4 else 3
+                                rest.chunked(cols).forEach { rowItems ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    ) {
+                                        rowItems.forEach { entry ->
+                                            PinnedGridTile(
+                                                entry = entry,
+                                                editing = false,
+                                                onClick = { launchModuleEntry(entry) },
+                                                onLongClick = { editingPinned = true },
+                                                modifier = Modifier.weight(1f),
+                                            )
+                                        }
+                                        repeat(cols - rowItems.size) {
+                                            Spacer(modifier = Modifier.weight(1f))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        val rows = pinnedEntries.chunked(4)
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            rows.forEach { rowItems ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    rowItems.forEach { entry ->
+                                        PinnedGridTile(
+                                            entry = entry,
+                                            editing = editingPinned,
+                                            onClick = {
+                                                if (editingPinned) togglePin(entry.id) else launchModuleEntry(entry)
+                                            },
+                                            onLongClick = { editingPinned = true },
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                    }
+                                    repeat(4 - rowItems.size) {
+                                        Spacer(modifier = Modifier.weight(1f))
+                                    }
                                 }
                             }
                         }
@@ -541,12 +633,21 @@ fun HubScreen(
                     )
                 }
                 items(moreEntries, key = { it.id }) { entry ->
+                    val rowShape = RoundedCornerShape(if (palette.isModernUi) 18.dp else 14.dp)
                     Surface(
                         color = palette.surface,
-                        shape = RoundedCornerShape(14.dp),
+                        shape = rowShape,
+                        shadowElevation = if (palette.isModernUi && !palette.isDark) 1.dp else 0.dp,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(1.dp, palette.line, RoundedCornerShape(14.dp))
+                            .then(
+                                if (palette.isModernUi) {
+                                    if (palette.cardBorder != Color.Transparent) Modifier.border(1.dp, palette.cardBorder, rowShape) else Modifier
+                                } else {
+                                    Modifier.border(1.dp, palette.line, rowShape)
+                                },
+                            )
+                            .clip(rowShape)
                             .clickable {
                                 if (editingPinned) togglePin(entry.id) else launchModuleEntry(entry)
                             },
@@ -687,6 +788,78 @@ private fun HeroMiniPill(text: String) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
+private fun FeaturedBentoTile(
+    entry: HubModuleEntry,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val palette = LocalForHappyPalette.current
+    val shape = RoundedCornerShape(20.dp)
+    Box(modifier = modifier) {
+        Surface(
+            color = palette.surface,
+            shape = shape,
+            shadowElevation = if (!palette.isDark) 2.dp else 0.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (palette.cardBorder != Color.Transparent) Modifier.border(1.dp, palette.cardBorder, shape) else Modifier)
+                .clip(shape)
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick,
+                ),
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(palette.primaryContainer),
+                ) {
+                    Text(entry.emoji, fontSize = 22.sp)
+                }
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = entry.label,
+                        color = palette.text,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = entry.subtitle,
+                        color = palette.muted,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+        if (entry.isNew) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(palette.badge)
+                    .padding(horizontal = 5.dp, vertical = 1.dp),
+            ) {
+                Text("NEW", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
 private fun PinnedGridTile(
     entry: HubModuleEntry,
     editing: Boolean,
@@ -695,14 +868,22 @@ private fun PinnedGridTile(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalForHappyPalette.current
+    val tileShape = RoundedCornerShape(if (palette.isModernUi) 18.dp else 14.dp)
     Box(modifier = modifier) {
         Surface(
             color = palette.surface,
-            shape = RoundedCornerShape(14.dp),
+            shape = tileShape,
+            shadowElevation = if (palette.isModernUi && !palette.isDark) 1.dp else 0.dp,
             modifier = Modifier
                 .fillMaxWidth()
-                .border(1.dp, palette.line, RoundedCornerShape(14.dp))
-                .clip(RoundedCornerShape(14.dp))
+                .then(
+                    if (palette.isModernUi) {
+                        if (palette.cardBorder != Color.Transparent) Modifier.border(1.dp, palette.cardBorder, tileShape) else Modifier
+                    } else {
+                        Modifier.border(1.dp, palette.line, tileShape)
+                    },
+                )
+                .clip(tileShape)
                 .combinedClickable(
                     onClick = onClick,
                     onLongClick = onLongClick,
@@ -717,7 +898,7 @@ private fun PinnedGridTile(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .size(40.dp)
-                        .clip(RoundedCornerShape(11.dp))
+                        .clip(RoundedCornerShape(if (palette.isModernUi) 13.dp else 11.dp))
                         .background(palette.surface2),
                 ) {
                     Text(entry.emoji, fontSize = 20.sp)
@@ -726,7 +907,7 @@ private fun PinnedGridTile(
                     text = entry.label,
                     color = palette.text,
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = if (palette.isModernUi) FontWeight.SemiBold else FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
