@@ -44,13 +44,122 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
+import com.jinhuan.forhappy.core.cosmetics.BubbleBgImageSpec
 import com.jinhuan.forhappy.core.cosmetics.BubbleOrnament
+import com.jinhuan.forhappy.core.cosmetics.BubblePseudoLayer
 import com.jinhuan.forhappy.core.cosmetics.BubbleShapeKind
 import com.jinhuan.forhappy.core.cosmetics.NineSliceSpec
 import com.jinhuan.forhappy.core.cosmetics.ResolvedChatBubbleStyle
 import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+
+/**
+ * Draws a 9-slice artwork onto this [DrawScope] relative to `(boxX, boxY, boxW, boxH)` with CSS
+ * `border-image-outset` expansion and proportional clamping on compact short-text bubbles.
+ */
+private fun DrawScope.drawNineSliceArtwork(
+    spec: NineSliceSpec,
+    loadedArt: RasterizedArtwork,
+    boxX: Float,
+    boxY: Float,
+    boxW: Float,
+    boxH: Float,
+) {
+    val loaded = loadedArt.bitmap
+    val bw = loaded.width
+    val bh = loaded.height
+    val oTop = spec.outsetTopDp.dp.toPx().coerceAtLeast(0f)
+    val oRight = spec.outsetRightDp.dp.toPx().coerceAtLeast(0f)
+    val oBottom = spec.outsetBottomDp.dp.toPx().coerceAtLeast(0f)
+    val oLeft = spec.outsetLeftDp.dp.toPx().coerceAtLeast(0f)
+
+    val ox = (boxX - oLeft).roundToInt()
+    val oy = (boxY - oTop).roundToInt()
+    val cw = (boxW + oLeft + oRight).roundToInt()
+    val ch = (boxH + oTop + oBottom).roundToInt()
+    if (bw <= 0 || bh <= 0 || cw <= 0 || ch <= 0) return
+
+    val scaleX = bw.toFloat() / loadedArt.intrinsicWidth.coerceAtLeast(1f)
+    val scaleY = bh.toFloat() / loadedArt.intrinsicHeight.coerceAtLeast(1f)
+    fun slicePx(v: Float, bmpTotal: Int, axisScale: Float): Int {
+        if (spec.isPercentSlice) {
+            val ratio = if (v <= 1f) v else v / 100f
+            return (bmpTotal * ratio).roundToInt().coerceAtLeast(0)
+        }
+        return (v * axisScale).roundToInt().coerceAtLeast(0)
+    }
+    var sTop = slicePx(spec.sliceTop, bh, scaleY)
+    var sBottom = slicePx(spec.sliceBottom, bh, scaleY)
+    var sLeft = slicePx(spec.sliceLeft, bw, scaleX)
+    var sRight = slicePx(spec.sliceRight, bw, scaleX)
+
+    if (sLeft + sRight >= bw) {
+        val scale = (bw - 1).coerceAtLeast(1).toFloat() / (sLeft + sRight).coerceAtLeast(1)
+        sLeft = (sLeft * scale).roundToInt().coerceAtLeast(0)
+        sRight = (bw - 1 - sLeft).coerceAtLeast(0)
+    }
+    if (sTop + sBottom >= bh) {
+        val scale = (bh - 1).coerceAtLeast(1).toFloat() / (sTop + sBottom).coerceAtLeast(1)
+        sTop = (sTop * scale).roundToInt().coerceAtLeast(0)
+        sBottom = (bh - 1 - sTop).coerceAtLeast(0)
+    }
+    val sCenterW = (bw - sLeft - sRight).coerceAtLeast(0)
+    val sCenterH = (bh - sTop - sBottom).coerceAtLeast(0)
+
+    var dTopF = spec.borderTopDp.dp.toPx().coerceAtLeast(0f)
+    var dBottomF = spec.borderBottomDp.dp.toPx().coerceAtLeast(0f)
+    var dLeftF = spec.borderLeftDp.dp.toPx().coerceAtLeast(0f)
+    var dRightF = spec.borderRightDp.dp.toPx().coerceAtLeast(0f)
+
+    if (dLeftF + dRightF > cw.toFloat() && (dLeftF + dRightF) > 0f) {
+        val scale = cw.toFloat() / (dLeftF + dRightF)
+        dLeftF *= scale
+        dRightF *= scale
+    }
+    if (dTopF + dBottomF > ch.toFloat() && (dTopF + dBottomF) > 0f) {
+        val scale = ch.toFloat() / (dTopF + dBottomF)
+        dTopF *= scale
+        dBottomF *= scale
+    }
+
+    val lW = dLeftF.roundToInt().coerceIn(0, cw)
+    val rW = dRightF.roundToInt().coerceIn(0, cw - lW)
+    val cW = (cw - lW - rW).coerceAtLeast(0)
+
+    val tH = dTopF.roundToInt().coerceIn(0, ch)
+    val bH = dBottomF.roundToInt().coerceIn(0, ch - tH)
+    val cH = (ch - tH - bH).coerceAtLeast(0)
+
+    fun patch(sx: Int, sy: Int, sw: Int, sh: Int, dx: Int, dy: Int, dw: Int, dh: Int) {
+        if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) return
+        drawImage(
+            image = loaded,
+            srcOffset = IntOffset(sx, sy),
+            srcSize = IntSize(sw, sh),
+            dstOffset = IntOffset(ox + dx, oy + dy),
+            dstSize = IntSize(dw, dh),
+        )
+    }
+
+    // Top row
+    patch(0, 0, sLeft, sTop, 0, 0, lW, tH)
+    patch(sLeft, 0, sCenterW, sTop, lW, 0, cW, tH)
+    patch(sLeft + sCenterW, 0, sRight, sTop, lW + cW, 0, rW, tH)
+
+    // Middle row
+    patch(0, sTop, sLeft, sCenterH, 0, tH, lW, cH)
+    if (spec.fillCenter && !spec.isEdgeTrimOnly) {
+        patch(sLeft, sTop, sCenterW, sCenterH, lW, tH, cW, cH)
+    }
+    patch(sLeft + sCenterW, sTop, sRight, sCenterH, lW + cW, tH, rW, cH)
+
+    // Bottom row
+    patch(0, sTop + sCenterH, sLeft, sBottom, 0, tH + cH, lW, bH)
+    patch(sLeft, sTop + sCenterH, sCenterW, sBottom, lW, tH + cH, cW, bH)
+    patch(sLeft + sCenterW, sTop + sCenterH, sRight, sBottom, lW + cW, tH + cH, rW, bH)
+}
 
 /**
  * Renders 9-slice bitmap borders (`NineSliceSpec`) with proportional clamping on compact
@@ -64,98 +173,117 @@ fun NineSliceFrameCanvas(
 ) {
     val context = LocalContext.current
     val httpClient = LocalCosmeticHttpClient.current
-    val bitmap by produceState<ImageBitmap?>(initialValue = null, spec.sourceUrl) {
-        value = BadgeArtworkCache.getOrFetchBitmap(context, httpClient, spec.sourceUrl, reqSizePx = 1024)
+    val bitmapArt by produceState<RasterizedArtwork?>(initialValue = null, spec.sourceUrl) {
+        value = BadgeArtworkCache.getOrFetchNineSliceArtwork(context, httpClient, spec.sourceUrl, reqSizePx = 1024)
     }
 
-    val loaded = bitmap
-    if (loaded == null) {
+    val loadedArt = bitmapArt
+    if (loadedArt == null) {
         if (fallbackColor != Color.Transparent) {
-            Box(modifier = modifier.background(fallbackColor))
+            Box(modifier = modifier.clip(RoundedCornerShape(14.dp)).background(fallbackColor))
         }
         return
     }
     Canvas(modifier = modifier) {
-        val bw = loaded.width
-        val bh = loaded.height
-        val cw = size.width.roundToInt()
-        val ch = size.height.roundToInt()
-        if (bw <= 0 || bh <= 0 || cw <= 0 || ch <= 0) return@Canvas
+        drawNineSliceArtwork(
+            spec = spec,
+            loadedArt = loadedArt,
+            boxX = 0f,
+            boxY = 0f,
+            boxW = size.width,
+            boxH = size.height,
+        )
+    }
+}
 
-        fun pctOrPx(v: Float, total: Int): Int {
-            if (!spec.isPercentSlice) return v.roundToInt().coerceAtLeast(0)
-            val ratio = if (v <= 1f) v else v / 100f
-            return (total * ratio).roundToInt().coerceAtLeast(0)
+@Composable
+private fun BubblePseudoLayerCanvas(
+    layer: BubblePseudoLayer,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val httpClient = LocalCosmeticHttpClient.current
+    val allUrls = remember(layer) {
+        buildList {
+            layer.bgImagesBottomToTop.forEach { add(it.sourceUrl) }
+            layer.nineSliceSpec?.sourceUrl?.let { add(it) }
         }
-        var sTop = pctOrPx(spec.sliceTop, bh)
-        var sBottom = pctOrPx(spec.sliceBottom, bh)
-        var sLeft = pctOrPx(spec.sliceLeft, bw)
-        var sRight = pctOrPx(spec.sliceRight, bw)
-
-        if (sLeft + sRight >= bw) {
-            val scale = (bw - 1).coerceAtLeast(1).toFloat() / (sLeft + sRight).coerceAtLeast(1)
-            sLeft = (sLeft * scale).roundToInt().coerceAtLeast(0)
-            sRight = (bw - 1 - sLeft).coerceAtLeast(0)
+    }
+    val artMap by produceState<Map<String, RasterizedArtwork>>(initialValue = emptyMap(), allUrls) {
+        val out = LinkedHashMap<String, RasterizedArtwork>(allUrls.size)
+        for (url in allUrls) {
+            BadgeArtworkCache.getOrFetchNineSliceArtwork(context, httpClient, url, reqSizePx = 1024)?.let {
+                out[url] = it
+            }
         }
-        if (sTop + sBottom >= bh) {
-            val scale = (bh - 1).coerceAtLeast(1).toFloat() / (sTop + sBottom).coerceAtLeast(1)
-            sTop = (sTop * scale).roundToInt().coerceAtLeast(0)
-            sBottom = (bh - 1 - sTop).coerceAtLeast(0)
+        value = out
+    }
+    if (artMap.isEmpty()) return
+
+    Canvas(modifier = modifier) {
+        val pw = when {
+            layer.widthDp != null -> layer.widthDp.dp.toPx()
+            layer.leftDp != null && layer.rightDp != null -> (size.width - layer.leftDp.dp.toPx() - layer.rightDp.dp.toPx()).coerceAtLeast(1f)
+            else -> size.width
         }
-        val sCenterW = (bw - sLeft - sRight).coerceAtLeast(0)
-        val sCenterH = (bh - sTop - sBottom).coerceAtLeast(0)
-
-        var dTopF = spec.borderTopDp.dp.toPx().coerceAtLeast(0f)
-        var dBottomF = spec.borderBottomDp.dp.toPx().coerceAtLeast(0f)
-        var dLeftF = spec.borderLeftDp.dp.toPx().coerceAtLeast(0f)
-        var dRightF = spec.borderRightDp.dp.toPx().coerceAtLeast(0f)
-
-        if (dLeftF + dRightF > size.width && (dLeftF + dRightF) > 0f) {
-            val scale = size.width / (dLeftF + dRightF)
-            dLeftF *= scale
-            dRightF *= scale
+        val ph = when {
+            layer.heightDp != null -> layer.heightDp.dp.toPx()
+            layer.topDp != null && layer.bottomDp != null -> (size.height - layer.topDp.dp.toPx() - layer.bottomDp.dp.toPx()).coerceAtLeast(1f)
+            else -> size.height
         }
-        if (dTopF + dBottomF > size.height && (dTopF + dBottomF) > 0f) {
-            val scale = size.height / (dTopF + dBottomF)
-            dTopF *= scale
-            dBottomF *= scale
+        val px0 = when {
+            layer.leftDp != null -> layer.leftDp.dp.toPx()
+            layer.rightDp != null -> size.width - layer.rightDp.dp.toPx() - pw
+            else -> 0f
+        }
+        val py0 = when {
+            layer.topDp != null -> layer.topDp.dp.toPx()
+            layer.bottomDp != null -> size.height - layer.bottomDp.dp.toPx() - ph
+            else -> 0f
         }
 
-        val lW = dLeftF.roundToInt().coerceIn(0, cw)
-        val rW = dRightF.roundToInt().coerceIn(0, cw - lW)
-        val cW = (cw - lW - rW).coerceAtLeast(0)
-
-        val tH = dTopF.roundToInt().coerceIn(0, ch)
-        val bH = dBottomF.roundToInt().coerceIn(0, ch - tH)
-        val cH = (ch - tH - bH).coerceAtLeast(0)
-
-        fun patch(sx: Int, sy: Int, sw: Int, sh: Int, dx: Int, dy: Int, dw: Int, dh: Int) {
-            if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) return
+        layer.bgImagesBottomToTop.forEach { bg: BubbleBgImageSpec ->
+            val art = artMap[bg.sourceUrl] ?: return@forEach
+            val imgW = when {
+                bg.widthSubFromFullDp != null -> (pw - bg.widthSubFromFullDp.dp.toPx()).coerceAtLeast(1f)
+                bg.widthFraction != null -> (pw * bg.widthFraction).coerceAtLeast(1f)
+                bg.widthDp != null -> bg.widthDp.dp.toPx()
+                bg.heightDp != null -> bg.heightDp.dp.toPx() * (art.intrinsicWidth / art.intrinsicHeight.coerceAtLeast(1f))
+                else -> pw
+            }
+            val imgH = when {
+                bg.heightFraction != null -> (ph * bg.heightFraction).coerceAtLeast(1f)
+                bg.heightDp != null -> bg.heightDp.dp.toPx()
+                else -> imgW * (art.intrinsicHeight / art.intrinsicWidth.coerceAtLeast(1f))
+            }
+            val dx = when {
+                bg.alignCenterX -> px0 + (pw - imgW) * 0.5f
+                bg.offsetRightDp != null -> px0 + pw - imgW - bg.offsetRightDp.dp.toPx()
+                else -> px0 + bg.offsetXDp.dp.toPx()
+            }
+            val dy = when {
+                bg.alignCenterY -> py0 + (ph - imgH) * 0.5f
+                bg.offsetBottomDp != null -> py0 + ph - imgH - bg.offsetBottomDp.dp.toPx()
+                else -> py0 + bg.offsetYDp.dp.toPx()
+            }
             drawImage(
-                image = loaded,
-                srcOffset = IntOffset(sx, sy),
-                srcSize = IntSize(sw, sh),
-                dstOffset = IntOffset(dx, dy),
-                dstSize = IntSize(dw, dh),
+                image = art.bitmap,
+                dstOffset = IntOffset(dx.roundToInt(), dy.roundToInt()),
+                dstSize = IntSize(imgW.roundToInt().coerceAtLeast(1), imgH.roundToInt().coerceAtLeast(1)),
             )
         }
 
-        // Top row
-        patch(0, 0, sLeft, sTop, 0, 0, lW, tH)
-        patch(sLeft, 0, sCenterW, sTop, lW, 0, cW, tH)
-        patch(sLeft + sCenterW, 0, sRight, sTop, lW + cW, 0, rW, tH)
-
-        // Middle row
-        patch(0, sTop, sLeft, sCenterH, 0, tH, lW, cH)
-        if (spec.fillCenter && !spec.isEdgeTrimOnly) {
-            patch(sLeft, sTop, sCenterW, sCenterH, lW, tH, cW, cH)
+        layer.nineSliceSpec?.let { ns ->
+            val art = artMap[ns.sourceUrl] ?: return@let
+            drawNineSliceArtwork(
+                spec = ns,
+                loadedArt = art,
+                boxX = px0,
+                boxY = py0,
+                boxW = pw,
+                boxH = ph,
+            )
         }
-        patch(sLeft + sCenterW, sTop, sRight, sCenterH, lW + cW, tH, rW, cH)
-
-        // Bottom row
-        patch(0, sTop + sCenterH, sLeft, sBottom, 0, tH + cH, lW, bH)
-        patch(sLeft, sTop + sCenterH, sCenterW, sBottom, lW, tH + cH, cW, bH)
-        patch(sLeft + sCenterW, sTop + sCenterH, sRight, sBottom, lW + cW, tH + cH, rW, bH)
     }
 }
 
@@ -203,14 +331,20 @@ fun ChatCosmeticBubbleBox(
         }
     }
 
-    val trailingReserveDp = when (val orn = style.ornament) {
-        is BubbleOrnament.RaffleChickengun -> (orn.sizeDp * 0.60f).coerceIn(14f, 30f).dp
-        is BubbleOrnament.PersonalV1Mascot,
-        is BubbleOrnament.PersonalV2Mascot -> 16.dp
-        is BubbleOrnament.RaffleRailcannon -> 18.dp
-        else -> 0.dp
+    val ornamentEndDp = when (val orn = style.ornament) {
+        is BubbleOrnament.RaffleChickengun -> (orn.sizeDp * 0.60f).coerceIn(14f, 30f)
+        is BubbleOrnament.PersonalV1Mascot -> 16f
+        is BubbleOrnament.PersonalV2Mascot -> 18f
+        is BubbleOrnament.RaffleRailcannon -> 18f
+        else -> 0f
     }
-    val topReserveDp = if (style.ornament is BubbleOrnament.RaffleWhalebuddy) 8.dp else 0.dp
+    val startReserveDp = (style.nineSliceSpec?.outsetLeftDp ?: 0f).coerceAtLeast(0f).dp
+    val topReserveDp = (style.nineSliceSpec?.outsetTopDp ?: 0f).coerceAtLeast(0f).dp
+    val bottomReserveDp = (style.nineSliceSpec?.outsetBottomDp ?: 0f).coerceAtLeast(0f).dp
+    val trailingReserveDp = max(
+        max(ornamentEndDp, style.endOverflowReserveDp),
+        (style.nineSliceSpec?.outsetRightDp ?: 0f).coerceAtLeast(0f),
+    ).dp
     val shouldClipContainer = when (val k = style.shapeKind) {
         is BubbleShapeKind.Rounded ->
             k.topStartDp > 0f || k.topEndDp > 0f || k.bottomEndDp > 0f || k.bottomStartDp > 0f
@@ -220,7 +354,7 @@ fun ChatCosmeticBubbleBox(
     Box(
         modifier = modifier
             .alpha(style.opacity.coerceIn(0.2f, 1f))
-            .padding(top = topReserveDp, end = trailingReserveDp),
+            .padding(start = startReserveDp, top = topReserveDp, end = trailingReserveDp, bottom = bottomReserveDp),
     ) {
         // Hard offset shadow (official, pixel, personal v1 accents)
         val (sx, sy) = style.shadowOffsetDp
@@ -272,6 +406,14 @@ fun ChatCosmeticBubbleBox(
                 NineSliceFrameCanvas(
                     spec = spec,
                     fallbackColor = if (hasOpaqueNineSlice) style.fillColor else Color.Transparent,
+                    modifier = Modifier.matchParentSize(),
+                )
+            }
+
+            // 2b. CSS pseudo-element overlays (`::before` / `::after`: tentacles, feet, duck head)
+            style.pseudoLayers.forEach { layer ->
+                BubblePseudoLayerCanvas(
+                    layer = layer,
                     modifier = Modifier.matchParentSize(),
                 )
             }
@@ -622,9 +764,10 @@ private fun BubbleCornerMascotLayer(
                         contentDescription = null,
                         contentScale = ContentScale.Fit,
                         modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .offset(x = 14.dp, y = 2.dp)
-                            .size(26.dp),
+                            .align(Alignment.CenterEnd)
+                            .offset(x = 15.dp, y = 0.dp)
+                            .width(24.dp)
+                            .height(28.dp),
                     )
                 } else {
                     val bmp by produceState<ImageBitmap?>(initialValue = null, ornament.webpUrl) {
@@ -636,9 +779,10 @@ private fun BubbleCornerMascotLayer(
                             contentDescription = null,
                             contentScale = ContentScale.Fit,
                             modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .offset(x = 14.dp, y = 2.dp)
-                                .size(26.dp),
+                                .align(Alignment.CenterEnd)
+                                .offset(x = 15.dp, y = 0.dp)
+                                .width(24.dp)
+                                .height(28.dp),
                         )
                     }
                 }
@@ -705,9 +849,9 @@ private fun BubbleCornerMascotLayer(
                         contentScale = ContentScale.Fit,
                         modifier = Modifier
                             .align(Alignment.TopStart)
-                            .offset(x = 12.dp, y = (-6).dp)
-                            .width(28.dp)
-                            .height(16.5.dp),
+                            .offset(x = 8.dp, y = 0.dp)
+                            .width(36.dp)
+                            .height(21.dp),
                     )
                 } else {
                     val staticUrl = "https://52dmeme.com/assets/raffle/whale-motion/person-still.webp"
@@ -721,9 +865,9 @@ private fun BubbleCornerMascotLayer(
                             contentScale = ContentScale.Fit,
                             modifier = Modifier
                                 .align(Alignment.TopStart)
-                                .offset(x = 12.dp, y = (-6).dp)
-                                .width(28.dp)
-                                .height(16.5.dp),
+                                .offset(x = 8.dp, y = 0.dp)
+                                .width(36.dp)
+                                .height(21.dp),
                         )
                     }
                 }

@@ -27,6 +27,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -55,6 +56,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.asImageBitmap
@@ -99,6 +101,12 @@ import kotlin.math.roundToInt
 
 val LocalCosmeticHttpClient = staticCompositionLocalOf<OkHttpClient?> { null }
 
+data class RasterizedArtwork(
+    val bitmap: ImageBitmap,
+    val intrinsicWidth: Float,
+    val intrinsicHeight: Float,
+)
+
 /**
  * Zero-dependency loader, disk cache & rasterizer for bundled `assets/badges/v4/atlas.webp`,
  * `assets/badges/v5/<id>.svg`, `OFFICIAL_ART` SVGs, remote SVGs/WebPs, sprite-sheet cells,
@@ -106,7 +114,7 @@ val LocalCosmeticHttpClient = staticCompositionLocalOf<OkHttpClient?> { null }
  */
 object BadgeArtworkCache {
     private val svgCache = ConcurrentHashMap<String, ImageBitmap>()
-    private val bitmapCache = ConcurrentHashMap<String, ImageBitmap>()
+    private val artworkCache = ConcurrentHashMap<String, RasterizedArtwork>()
     private val failedUrls = ConcurrentHashMap<String, Boolean>()
 
     @Volatile
@@ -160,25 +168,49 @@ object BadgeArtworkCache {
         okHttpClient: OkHttpClient?,
         source: String,
         reqSizePx: Int = 512,
-    ): ImageBitmap? {
+    ): ImageBitmap? = getOrFetchNineSliceArtwork(context, okHttpClient, source, reqSizePx)?.bitmap
+
+    suspend fun getOrFetchNineSliceArtwork(
+        context: Context,
+        okHttpClient: OkHttpClient?,
+        source: String,
+        reqSizePx: Int = 768,
+    ): RasterizedArtwork? {
         val cacheKey = "$source#$reqSizePx"
-        bitmapCache[cacheKey]?.let { return it }
+        artworkCache[cacheKey]?.let { return it }
         if (failedUrls.containsKey(cacheKey)) return null
 
         val loaded = withContext(Dispatchers.IO) {
             if (source.startsWith("community-css-dark:") || source.startsWith("community-css:")) {
-                loadCommunityCssBitmap(context, okHttpClient, source, reqSizePx)
+                loadCommunityCssArtwork(context, okHttpClient, source, reqSizePx)
             } else {
                 val bytes = fetchBytesWithDiskCache(context, okHttpClient, source) ?: return@withContext null
-                decodeBytesToBitmap(bytes, source, reqSizePx)
+                decodeBytesToArtwork(bytes, source, reqSizePx)
             }
         }
         if (loaded != null) {
-            bitmapCache[cacheKey] = loaded
+            artworkCache[cacheKey] = loaded
         } else {
             failedUrls[cacheKey] = true
         }
         return loaded
+    }
+
+    suspend fun ensureCommunityCssLoaded(
+        context: Context,
+        okHttpClient: OkHttpClient?,
+        spec: String,
+    ) {
+        val parts = spec.split(":")
+        if (parts.size < 3) return
+        val id = parts[0]
+        val kind = parts[1]
+        val sha = parts[2]
+        withContext(Dispatchers.IO) {
+            val cssUrl = "https://52dmeme.com/api/community-skins/css/$id/$kind/$sha"
+            val cssBytes = fetchBytesWithDiskCache(context, okHttpClient, cssUrl) ?: return@withContext
+            ChatBubbleCosmetics.registerParsedCommunityCss(kind, sha, cssBytes.toString(Charsets.UTF_8))
+        }
     }
 
     suspend fun getOrCropSpriteCell(
@@ -192,7 +224,7 @@ object BadgeArtworkCache {
         reqSizePx: Int = 2048,
     ): ImageBitmap? {
         val key = "sprite:$source:${cols}x$rows:$col:$row"
-        bitmapCache[key]?.let { return it }
+        svgCache[key]?.let { return it }
         val sheet = getOrFetchBitmap(context, okHttpClient, source, reqSizePx) ?: return null
         val cropped = withContext(Dispatchers.Default) {
             runCatching {
@@ -211,17 +243,17 @@ object BadgeArtworkCache {
             }.getOrNull()
         }
         if (cropped != null) {
-            bitmapCache[key] = cropped
+            svgCache[key] = cropped
         }
         return cropped
     }
 
-    private fun loadCommunityCssBitmap(
+    private fun loadCommunityCssArtwork(
         context: Context,
         okHttpClient: OkHttpClient?,
         source: String,
         reqSizePx: Int,
-    ): ImageBitmap? {
+    ): RasterizedArtwork? {
         val isDark = source.startsWith("community-css-dark:")
         val rest = source.removePrefix("community-css-dark:").removePrefix("community-css:")
         val parts = rest.split(":")
@@ -229,32 +261,28 @@ object BadgeArtworkCache {
         val id = parts[0]
         val kind = parts[1]
         val sha = parts[2]
+        val explicitIdx = parts.getOrNull(3)?.toIntOrNull()
         val cssUrl = "https://52dmeme.com/api/community-skins/css/$id/$kind/$sha"
         val cssBytes = fetchBytesWithDiskCache(context, okHttpClient, cssUrl) ?: return null
         val cssText = cssBytes.toString(Charsets.UTF_8)
-        val dataUri = extractDataUriFromCss(cssText, preferDark = isDark) ?: return null
-        return decodeDataUriBitmap(dataUri, reqSizePx)
-    }
-
-    private fun extractDataUriFromCss(cssText: String, preferDark: Boolean): String? {
-        val searchSlice = if (preferDark) {
-            val idx = cssText.indexOf("data-theme")
-            if (idx >= 0) cssText.substring(idx) else cssText
+        ChatBubbleCosmetics.registerParsedCommunityCss(kind, sha, cssText)
+        val imageUrls = ChatBubbleCosmetics.extractCssImageUrls(cssText, preferDark = isDark)
+        val pickedUrl = when {
+            imageUrls.isEmpty() -> return null
+            explicitIdx != null -> imageUrls.getOrNull(explicitIdx) ?: return null
+            isDark -> imageUrls.last()
+            else -> imageUrls.first()
+        }
+        return if (pickedUrl.startsWith("data:image/", ignoreCase = true)) {
+            decodeDataUriArtwork(pickedUrl, reqSizePx)
         } else {
-            cssText
+            val fullUrl = if (pickedUrl.startsWith("/")) "https://52dmeme.com$pickedUrl" else pickedUrl
+            val bytes = fetchBytesWithDiskCache(context, okHttpClient, fullUrl) ?: return null
+            decodeBytesToArtwork(bytes, fullUrl, reqSizePx)
         }
-        val regex = Regex("""url\(\s*['"]?(data:image/[^'")]+)['"]?\s*\)""")
-        val matches = regex.findAll(searchSlice).map { it.groupValues[1] }.toList()
-        if (matches.isNotEmpty()) {
-            return if (preferDark && !searchSlice.startsWith("[data-theme")) matches.last() else matches.first()
-        }
-        if (preferDark) {
-            return regex.findAll(cssText).lastOrNull()?.groupValues?.getOrNull(1)
-        }
-        return null
     }
 
-    private fun decodeDataUriBitmap(dataUri: String, reqSizePx: Int): ImageBitmap? {
+    private fun decodeDataUriArtwork(dataUri: String, reqSizePx: Int): RasterizedArtwork? {
         val commaIdx = dataUri.indexOf(',')
         if (commaIdx <= 0) return null
         val header = dataUri.substring(0, commaIdx).lowercase()
@@ -265,24 +293,26 @@ object BadgeArtworkCache {
             } else {
                 URLDecoder.decode(payload.replace("+", "%2B"), "UTF-8")
             }
-            MiniBadgeSvgRasterizer.renderSvgXml(svgXml, min(reqSizePx, 256))
+            MiniBadgeSvgRasterizer.renderSvgDetailed(svgXml, min(reqSizePx, 1024))
         } else if (header.contains(";base64")) {
             val bytes = runCatching { Base64.decode(payload, Base64.DEFAULT) }.getOrNull() ?: return null
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap() ?: return null
+            RasterizedArtwork(bmp, bmp.width.toFloat(), bmp.height.toFloat())
         } else {
             null
         }
     }
 
-    private fun decodeBytesToBitmap(bytes: ByteArray, source: String, reqSizePx: Int): ImageBitmap? {
+    private fun decodeBytesToArtwork(bytes: ByteArray, source: String, reqSizePx: Int): RasterizedArtwork? {
         val cleanUrl = source.substringBefore('?').lowercase()
         val headText = bytes.take(min(bytes.size, 256)).toByteArray().toString(Charsets.UTF_8).trimStart()
         if (cleanUrl.endsWith(".svg") || headText.startsWith("<svg", ignoreCase = true) ||
             (headText.startsWith("<?xml", ignoreCase = true) && headText.contains("<svg", ignoreCase = true))
         ) {
-            return MiniBadgeSvgRasterizer.renderSvgXml(bytes.toString(Charsets.UTF_8), min(reqSizePx, 256))
+            return MiniBadgeSvgRasterizer.renderSvgDetailed(bytes.toString(Charsets.UTF_8), min(reqSizePx, 1024))
         }
-        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap() ?: return null
+        return RasterizedArtwork(bmp, bmp.width.toFloat(), bmp.height.toFloat())
     }
 
     private fun fetchBytesWithDiskCache(
@@ -358,19 +388,52 @@ internal object MiniBadgeSvgRasterizer {
         "transparent" to AndroidColor.TRANSPARENT,
     )
 
-    private val TRANSLATE_RE = Regex("""translate\(\s*([+-]?\d*\.?\d+)(?:[\s,]+([+-]?\d*\.?\d+))?\s*\)""")
-    private val SCALE_RE = Regex("""scale\(\s*([+-]?\d*\.?\d+)(?:[\s,]+([+-]?\d*\.?\d+))?\s*\)""")
-    private val ROTATE_RE = Regex("""rotate\(\s*([+-]?\d*\.?\d+)(?:[\s,]+([+-]?\d*\.?\d+)[\s,]+([+-]?\d*\.?\d+))?\s*\)""")
+    private val TRANSFORM_FN_RE = Regex("""(translate|rotate|scale)\(\s*([^)]+)\)""")
     private val RGB_RE = Regex("""rgba?\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)(?:\s*,\s*(\d+(?:\.\d+)?))?\s*\)""")
 
-    fun renderSvgXml(xmlText: String, sizePx: Int): ImageBitmap? = runCatching {
-        val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+    fun renderSvgXml(xmlText: String, sizePx: Int): ImageBitmap? =
+        renderSvgDetailed(xmlText, sizePx)?.bitmap
+
+    fun renderSvgDetailed(xmlText: String, maxDimPx: Int): RasterizedArtwork? = runCatching {
+        val probe = Xml.newPullParser()
+        probe.setInput(StringReader(xmlText))
+        var minX = 0f
+        var minY = 0f
+        var viewW = 64f
+        var viewH = 64f
+        var evProbe = probe.eventType
+        while (evProbe != XmlPullParser.END_DOCUMENT) {
+            if (evProbe == XmlPullParser.START_TAG && probe.name == "svg") {
+                val vb = probe.getAttributeValue(null, "viewBox")
+                if (!vb.isNullOrBlank()) {
+                    val nums = vb.trim().split(Regex("""[\s,]+""")).mapNotNull { it.toFloatOrNull() }
+                    if (nums.size >= 4) {
+                        minX = nums[0]
+                        minY = nums[1]
+                        viewW = max(1f, nums[2])
+                        viewH = max(1f, nums[3])
+                    }
+                } else {
+                    val wAttr = probe.getAttributeValue(null, "width")?.removeSuffix("px")?.trim()?.toFloatOrNull()
+                    val hAttr = probe.getAttributeValue(null, "height")?.removeSuffix("px")?.trim()?.toFloatOrNull()
+                    if (wAttr != null && hAttr != null && wAttr > 0f && hAttr > 0f) {
+                        viewW = wAttr
+                        viewH = hAttr
+                    }
+                }
+                break
+            }
+            evProbe = probe.next()
+        }
+
+        val scale = maxDimPx.toFloat() / max(viewW, viewH)
+        val bmpW = max(1, (viewW * scale).roundToInt())
+        val bmpH = max(1, (viewH * scale).roundToInt())
+        val bitmap = Bitmap.createBitmap(bmpW, bmpH, Bitmap.Config.ARGB_8888)
         val canvas = AndroidCanvas(bitmap)
         val parser = Xml.newPullParser()
         parser.setInput(StringReader(xmlText))
 
-        var viewW = 64f
-        var viewH = 64f
         val grads = HashMap<String, SvgGradDef>()
         var activeGradId: String? = null
         var activeGradKind: String? = null
@@ -406,19 +469,7 @@ internal object MiniBadgeSvgRasterizer {
                     val tag = parser.name
                     when (tag) {
                         "svg" -> {
-                            var minX = 0f
-                            var minY = 0f
-                            val vb = parser.getAttributeValue(null, "viewBox")
-                            if (!vb.isNullOrBlank()) {
-                                val nums = vb.trim().split(Regex("""[\s,]+""")).mapNotNull { it.toFloatOrNull() }
-                                if (nums.size >= 4) {
-                                    minX = nums[0]
-                                    minY = nums[1]
-                                    viewW = max(1f, nums[2])
-                                    viewH = max(1f, nums[3])
-                                }
-                            }
-                            canvas.scale(sizePx / viewW, sizePx / viewH)
+                            canvas.scale(bmpW.toFloat() / viewW, bmpH.toFloat() / viewH)
                             if (minX != 0f || minY != 0f) {
                                 canvas.translate(-minX, -minY)
                             }
@@ -581,7 +632,7 @@ internal object MiniBadgeSvgRasterizer {
             }
             event = parser.next()
         }
-        bitmap.asImageBitmap()
+        RasterizedArtwork(bitmap.asImageBitmap(), viewW, viewH)
     }.getOrNull()
 
     private fun XmlPullParser.floatAttr(name: String, default: Float): Float {
@@ -625,25 +676,26 @@ internal object MiniBadgeSvgRasterizer {
     }
 
     private fun applyTransform(canvas: AndroidCanvas, raw: String) {
-        TRANSLATE_RE.find(raw)?.let { m ->
-            val tx = m.groupValues[1].toFloatOrNull() ?: 0f
-            val ty = m.groupValues[2].toFloatOrNull() ?: 0f
-            canvas.translate(tx, ty)
-        }
-        ROTATE_RE.find(raw)?.let { m ->
-            val deg = m.groupValues[1].toFloatOrNull() ?: 0f
-            val cx = m.groupValues[2].toFloatOrNull()
-            val cy = m.groupValues[3].toFloatOrNull()
-            if (cx != null && cy != null) {
-                canvas.rotate(deg, cx, cy)
-            } else {
-                canvas.rotate(deg)
+        for (m in TRANSFORM_FN_RE.findAll(raw)) {
+            val nums = Regex("""[+-]?\d*\.?\d+""").findAll(m.groupValues[2]).mapNotNull { it.value.toFloatOrNull() }.toList()
+            when (m.groupValues[1].lowercase()) {
+                "translate" -> {
+                    val tx = nums.getOrNull(0) ?: 0f
+                    val ty = nums.getOrNull(1) ?: 0f
+                    canvas.translate(tx, ty)
+                }
+                "rotate" -> {
+                    val deg = nums.getOrNull(0) ?: 0f
+                    val cx = nums.getOrNull(1)
+                    val cy = nums.getOrNull(2)
+                    if (cx != null && cy != null) canvas.rotate(deg, cx, cy) else canvas.rotate(deg)
+                }
+                "scale" -> {
+                    val sx = nums.getOrNull(0) ?: 1f
+                    val sy = nums.getOrNull(1) ?: sx
+                    canvas.scale(sx, sy)
+                }
             }
-        }
-        SCALE_RE.find(raw)?.let { m ->
-            val sx = m.groupValues[1].toFloatOrNull() ?: 1f
-            val sy = m.groupValues[2].toFloatOrNull() ?: sx
-            canvas.scale(sx, sy)
         }
     }
 
@@ -732,13 +784,9 @@ internal object MiniBadgeSvgRasterizer {
         if (s.isEmpty() || s == "none") return null
         NAMED_COLORS[s]?.let { return it }
         if (s.startsWith("#")) {
-            val hex = s.removePrefix("#")
-            val expanded = if (hex.length == 3) {
-                "${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}"
-            } else {
-                hex
-            }
-            return runCatching { AndroidColor.parseColor("#$expanded") }.getOrNull()
+            val col = ChatBubbleCosmetics.parseHexColorPure(s)
+            if (col != Color.Transparent || s == "#0000" || s == "#00000000") return col.toArgb()
+            return null
         }
         RGB_RE.matchEntire(s)?.let { m ->
             val r = (m.groupValues[1].toFloatOrNull() ?: 0f).roundToInt().coerceIn(0, 255)
@@ -1178,6 +1226,30 @@ fun TitleChipView(
         }
     }
 
+    title.dynamicCssSpec?.let { cssSpec ->
+        LaunchedEffect(cssSpec) {
+            BadgeArtworkCache.ensureCommunityCssLoaded(context, httpClient, cssSpec)
+        }
+    }
+
+    val leadingIconUrl = title.leadingIconUrl
+    val leadingIconBmp by produceState<ImageBitmap?>(initialValue = null, leadingIconUrl) {
+        value = if (!leadingIconUrl.isNullOrBlank()) {
+            BadgeArtworkCache.getOrFetchBitmap(context, httpClient, leadingIconUrl, 96)
+        } else {
+            null
+        }
+    }
+
+    val trailingIconUrl = title.trailingIconUrl
+    val trailingIconBmp by produceState<ImageBitmap?>(initialValue = null, trailingIconUrl) {
+        value = if (!trailingIconUrl.isNullOrBlank()) {
+            BadgeArtworkCache.getOrFetchBitmap(context, httpClient, trailingIconUrl, 96)
+        } else {
+            null
+        }
+    }
+
     val hasMotion = title.effect == "shine" || title.effect == "flow" || title.effect == "aurora"
     val shimmerFraction = if (hasMotion) {
         val transition = rememberInfiniteTransition(label = "title_fx")
@@ -1289,7 +1361,15 @@ fun TitleChipView(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(if (title.specialKind == "raffle_nameplate") 4.dp else 3.dp),
         ) {
-            if (title.shape == "tag" && !isPv2Banner && symbolPath == null) {
+            val loadedLeading = leadingIconBmp
+            if (loadedLeading != null && !isPv2Banner) {
+                Image(
+                    bitmap = loadedLeading,
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.size(14.dp),
+                )
+            } else if (title.shape == "tag" && !isPv2Banner && symbolPath == null) {
                 Box(
                     modifier = Modifier
                         .size(4.dp)
@@ -1328,6 +1408,15 @@ fun TitleChipView(
                     TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
                 },
             )
+            val loadedTrailing = trailingIconBmp
+            if (loadedTrailing != null && !isPv2Banner) {
+                Image(
+                    bitmap = loadedTrailing,
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
             if (!title.levelText.isNullOrBlank()) {
                 if (title.specialKind == "raffle_nameplate") {
                     val lvBg = parseSafeHex(title.borderHex, effectiveTextColor).copy(

@@ -125,6 +125,9 @@ data class ResolvedTitleChip(
     val bgImageUrl: String? = null,
     val specialKind: String = "standard",
     val customCss: ParsedSafeCss? = null,
+    val leadingIconUrl: String? = null,
+    val trailingIconUrl: String? = null,
+    val dynamicCssSpec: String? = null,
 ) {
     val displayLabel: String
         get() = if (levelText.isNullOrBlank()) label else "$label $levelText"
@@ -543,7 +546,7 @@ object BadgeAndCosmeticRegistry {
         "laowu-dispatch-all-in" to CommunitySkinCatalogItem(
             id = "laowu-dispatch-all-in", name = "老吴派遣·all in", author = "Earthcat",
             hasTitle = true, hasBadge = true, hasBubble = true,
-            bubbleCssSha = "c3274be65de19dc7dc4fbbffd378225d03792333ae747559675d1f0abe903a65",
+            bubbleCssSha = "2fddaed5011c32f624512f7cee4b7b53a15353dc275807c5847259a9b7cf6f28",
             titleCssSha = "12667bafacb0d837d7a43b50cfbcc9b296b326221b05b1da6078100e553d2067",
             badgeImgSha = "19b1612f344bacb77ff295e1015b806caf76b8c71d573f4d6ab572e20b3ede2d",
             badgeCssSha = "94246d3faec40ef12c0149002c8399d03334719b91f739e3c7b7b24288f1e83c",
@@ -561,10 +564,11 @@ object BadgeAndCosmeticRegistry {
             titleCssSha = "936a072bc83ff4af6a10f51574152e872f00aa72d81a7429f1fd5aa42d1a925a",
         ),
         "laowu-dispatch-gray" to CommunitySkinCatalogItem(
-            id = "laowu-dispatch-gray", name = "老吴派遣·灰", author = "Earthcat",
-            hasTitle = true, hasBadge = false, hasBubble = true,
-            bubbleCssSha = "32ca8af9fd0dbe6576e4e3df7fbf38ffb1621abf9a6f28facf9763497a62d02c",
-            titleCssSha = "8598f77b56ad49ce8023f3c7b91d739691faebc6ffc8a917c9a39e9e27c3f488",
+            id = "laowu-dispatch-gray", name = "虫棍飞天虾", author = "Earthcat",
+            hasTitle = true, hasBadge = true, hasBubble = true,
+            bubbleCssSha = "85893b9737a342ae448bb9f26c9909204359b53d1817bf37d828da26c90a63c0",
+            titleCssSha = "9d4c2d089f5f0b7fd4a4692bbcf29222e1abff129b14f8ce41b3b5a9cec6f38b",
+            badgeCssSha = "f217d3c8463c884e369b24ce89688e5c87505fe2fb28a065cf912c2862edebd1",
         ),
         "laowu-dispatch-siamese" to CommunitySkinCatalogItem(
             id = "laowu-dispatch-siamese", name = "老吴派遣·暹罗", author = "Earthcat",
@@ -573,10 +577,11 @@ object BadgeAndCosmeticRegistry {
             titleCssSha = "2f5b6dbdbf7d14d7e7db3b12ca8957b8990a56e66fd7643d23b5ff4890bf6a62",
         ),
         "laowu-dispatch-white" to CommunitySkinCatalogItem(
-            id = "laowu-dispatch-white", name = "老吴派遣·白", author = "Earthcat",
-            hasTitle = true, hasBadge = false, hasBubble = true,
-            bubbleCssSha = "38500ed04d5a2541e9de75951627ddd3204488245d1d338112fad40a816b5623",
-            titleCssSha = "aed3e69262739d914ec1ca2a1dce4631687df1878dd98cc41ebff18eccda4925",
+            id = "laowu-dispatch-white", name = "整点薯条", author = "Earthcat",
+            hasTitle = true, hasBadge = true, hasBubble = true,
+            bubbleCssSha = "ae1d64e1a3d81a4101a8c6e33969ebf1db3dfac4f4c182b28908b5df4d60c617",
+            titleCssSha = "a2b9d6c54240e9e60c24cf21db215ff96428b7a45fde185ea7aea136ec1cc701",
+            badgeCssSha = "b4fa89efd4d7ee5b295ed69149b418c4223d90a14bc2a554f98915bf52dfe5f8",
         ),
         "oiia-loaf" to CommunitySkinCatalogItem(
             id = "oiia-loaf", name = "oiia", author = "Earthcat",
@@ -634,6 +639,20 @@ object BadgeAndCosmeticRegistry {
             replyImgSha = "692bfbc3d734200791fd4e66a12c1c0e349e6a4446826d81c06fdbca9a36072b",
             replyCssSha = "3fc72637e828fa906ebdf38c59cdfc170d2ea63a3cc022342b98f4c6c6f5b24e",
             replySlice = intArrayOf(18, 56, 18, 56),
+        ),
+        "step-by-step-bird" to CommunitySkinCatalogItem(
+            id = "step-by-step-bird", name = "一步一步走鸟", author = "Earthcat",
+            hasTitle = true, hasBadge = true, hasBubble = true,
+            bubbleCssSha = "1b0068d3ad032a89033eb10ee7a047e6c1d455c51cecfe27e478fd383478be96",
+            titleCssSha = "e54236482a889d0e2397bdba4de33ea7e6516ace48b2346817e568cf2ebb3c8e",
+            badgeCssSha = "64ad2adec4fb473dc109ba170059f4341487290354f45511ae2f2aecc30d8b22",
+        ),
+        "taike-lili" to CommunitySkinCatalogItem(
+            id = "taike-lili", name = "肽克lili", author = "Earthcat",
+            hasTitle = true, hasBadge = true, hasBubble = true,
+            bubbleCssSha = "c113ea82200100122a5d3b38aeba21c1a61582f787f9291e174c5a2b0e367b22",
+            titleCssSha = "f66ff4b08b49320c3027cd98b4be0beb24db90fd3b6623c69918498a90621774",
+            badgeCssSha = "b9ec4f1f3aba6b619d1412c2c58b44137e9442eb3ada73510ff6e7d973fcbefb",
         ),
         "waibi-babu" to CommunitySkinCatalogItem(
             id = "waibi-babu", name = "外币巴布", author = "Earthcat",
@@ -731,6 +750,10 @@ object BadgeAndCosmeticRegistry {
     private val dynamicGrowthBySeries = ConcurrentHashMap<String, List<GrowthRewardMeta>>()
     private val dynamicOfficialTitles = ConcurrentHashMap<String, OfficialTitleMeta>()
     private val dynamicCommunitySkins = ConcurrentHashMap<String, CommunitySkinCatalogItem>()
+
+    fun notifyDynamicCosmeticParsed() {
+        _catalogRevision.value += 1
+    }
 
     fun resolveCommunitySkinMeta(id: String): CommunitySkinCatalogItem? =
         dynamicCommunitySkins[id] ?: COMMUNITY_SKINS[id]

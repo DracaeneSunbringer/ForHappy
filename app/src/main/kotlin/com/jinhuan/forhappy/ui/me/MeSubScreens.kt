@@ -1328,7 +1328,7 @@ fun DecoStudioDialog(
                 }
                 HorizontalPager(
                     state = previewPagerState,
-                    modifier = Modifier.fillMaxWidth().height(106.dp),
+                    modifier = Modifier.fillMaxWidth().height(118.dp),
                 ) { page ->
                     val singleNickColor = previewCardIdentity.nickGradientHexes.firstOrNull()?.let {
                         parseSafeHex(it, palette.text)

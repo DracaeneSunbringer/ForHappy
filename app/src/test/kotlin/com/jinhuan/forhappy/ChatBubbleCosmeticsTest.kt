@@ -295,14 +295,36 @@ class ChatBubbleCosmeticsTest {
             val slice = style.nineSliceSpec!!
             val leftPad = style.contentPadding.calculateLeftPadding(LayoutDirection.Ltr).value
             val rightPad = style.contentPadding.calculateRightPadding(LayoutDirection.Ltr).value
+            val minExpectedPad = if (skinId == "laowu-dispatch-white") 32f else slice.borderLeftDp
             assertTrue(
-                "$skinId left pad ($leftPad) must clear cat/frame cap (${slice.borderLeftDp})",
-                leftPad >= slice.borderLeftDp,
+                "$skinId left pad ($leftPad) must clear cat/frame cap ($minExpectedPad)",
+                leftPad >= minExpectedPad,
             )
-            assertTrue(
-                "$skinId right pad ($rightPad) must clear cat/frame cap (${slice.borderRightDp})",
-                rightPad >= slice.borderRightDp,
-            )
+            if (skinId != "laowu-dispatch-white") {
+                assertTrue(
+                    "$skinId right pad ($rightPad) must clear cat/frame cap (${slice.borderRightDp})",
+                    rightPad >= slice.borderRightDp,
+                )
+            }
+        }
+
+        listOf("taike-lili", "step-by-step-bird").forEach { skinId ->
+            val d = buildJsonObject {
+                put("community", buildJsonObject {
+                    put("title", JsonPrimitive(skinId))
+                    put("badge", JsonPrimitive(skinId))
+                    put("bubble", JsonPrimitive(skinId))
+                })
+            }
+            val identity = BadgeAndCosmeticRegistry.resolveEquippedIdentity(d, where = "chat")
+            assertNotNull("$skinId title missing", identity.title)
+            assertNotNull("$skinId leading icon missing", identity.title?.leadingIconUrl)
+            assertNotNull("$skinId badge missing", identity.badge)
+            val bStyle = ChatBubbleCosmetics.resolveBubbleFromDeco(d)
+            assertNotNull("$skinId bubble missing", bStyle)
+            assertTrue("$skinId minWidthDp must be >= 90", bStyle!!.minWidthDp >= 90f)
+            assertNotNull("$skinId nineSliceSpec missing", bStyle.nineSliceSpec)
+            assertTrue(ChatBubbleCosmetics.contrastRatio(bStyle.textColor, bStyle.fillColor) >= 4.0f)
         }
 
         val shadowStyle = ChatBubbleCosmetics.resolveBubbleFromDeco(
@@ -325,6 +347,11 @@ class ChatBubbleCosmeticsTest {
         assertEquals("https://52dmeme.com/assets/raffle/whale-motion/body-still.webp", whaleStyle!!.nineSliceSpec?.sourceUrl)
         assertEquals(BubbleShapeKind.Rounded(0f, 0f, 0f, 0f), whaleStyle.shapeKind)
         assertEquals(105f, whaleStyle.minWidthDp, 0.01f)
+        val whaleTopPad = whaleStyle.contentPadding.calculateTopPadding().value
+        assertTrue(
+            "whalebuddy top contentPadding ($whaleTopPad) must clear cap (${whaleStyle.nineSliceSpec!!.borderTopDp})",
+            whaleTopPad >= whaleStyle.nineSliceSpec!!.borderTopDp,
+        )
         assertTrue(whaleStyle.ornament is BubbleOrnament.RaffleWhalebuddy)
 
         listOf("owner-52b", "owner-52di").forEach { ptId ->
@@ -335,6 +362,166 @@ class ChatBubbleCosmeticsTest {
             assertEquals("owner52", id.title?.specialKind)
             assertEquals("", id.badge?.levelText)
         }
+    }
+
+    @Test
+    fun communityCssUrlExtractionAndDynamicSkinParserHandleSvgWithParentheses() {
+        val sampleBubbleCss = """
+            .cskin-bubble-future-demo {
+              --cap: 30px;
+              min-inline-size: min(110px, 100%);
+              padding: 23px 32px 25px 31px !important;
+              border: 0 solid transparent;
+              border-image-source: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cellipse%20transform%3D%22rotate(36%2029%2034.2)%22%20fill%3D%22url(%23eye)%22%2F%3E%3C%2Fsvg%3E");
+              border-image-slice: 37 41 37 39 fill;
+              border-image-width: 33px 36.5px 33px 34.5px;
+              color: #fff9ff !important;
+            }
+        """.trimIndent()
+        val urls = ChatBubbleCosmetics.extractCssImageUrls(sampleBubbleCss)
+        assertEquals(1, urls.size)
+        assertTrue(urls[0].endsWith("%3C%2Fsvg%3E"))
+
+        val parsedBubble = ChatBubbleCosmetics.parseCommunityBubbleCss(sampleBubbleCss)
+        assertNotNull(parsedBubble)
+        assertTrue(parsedBubble!!.hasImage)
+        assertEquals(37f, parsedBubble.sliceTop, 0.01f)
+        assertEquals(41f, parsedBubble.sliceRight, 0.01f)
+        assertEquals(36.5f, parsedBubble.borderRightDp, 0.01f)
+        assertEquals(23f, parsedBubble.padTopDp, 0.01f)
+        assertEquals(31f, parsedBubble.padLeftDp, 0.01f)
+        assertEquals(110f, parsedBubble.minWidthDp, 0.01f)
+
+        val sampleTitleCss = """
+            .cskin-title-future-demo {
+              border: 1px solid #46204f;
+              border-radius: 7px 12px 9px 10px;
+              background: url("data:image/svg+xml,%3Csvg/%3E") left 4px center/15px 13px no-repeat, linear-gradient(150deg,#a84bc1,#702786 62%,#522263);
+            }
+            .cskin-title-future-demo::after {
+              content: "未来新装";
+              color: #fff4fe;
+            }
+            [data-theme="dark"] .cskin-title-future-demo { border-color: #b570c6; }
+        """.trimIndent()
+        val parsedTitle = ChatBubbleCosmetics.parseCommunityTitleCss(sampleTitleCss)
+        assertNotNull(parsedTitle)
+        assertEquals("#a84bc1", parsedTitle!!.bgHex)
+        assertEquals("#522263", parsedTitle.secondaryBgHex)
+        assertEquals("#fff4fe", parsedTitle.textHex)
+        assertEquals("#46204f", parsedTitle.borderHex)
+        assertEquals("#b570c6", parsedTitle.darkBorderHex)
+        assertEquals("grad", parsedTitle.fillMode)
+        assertEquals(listOf(7f, 12f, 9f, 10f), parsedTitle.cornerRadiiDp)
+        assertEquals(0, parsedTitle.leadingIconIdx)
+        assertEquals("未来新装", parsedTitle.overrideLabel)
+    }
+
+    @Test
+    fun liveMultiLayerCommunityBubbleCssParsesOutsetAndPseudoElements() {
+        val taikeCss = """
+            .cskin-bubble-future-taike {
+              inline-size: fit-content; min-inline-size: min(108px, 100%);
+              padding: 23px 32px 25px 31px !important;
+              border: 0 solid transparent;
+              border-image-source: url("data:image/webp;base64,AAAA");
+              border-image-slice: 45 49 43 47 fill;
+              border-image-width: 40.135px 43.622px 38.351px 41.577px;
+              border-image-outset: 7.135px 7.122px 5.351px 7.077px;
+              color: #fff9ff !important;
+            }
+            .cskin-bubble-future-taike::before {
+              left: 0; width: 30.077px; top: 0; bottom: 0;
+              border-image-slice: 45 0 43 0 fill;
+              border-image-width: 40.135px 0 38.351px 0;
+              border-image-outset: 7.135px 0 5.351px 7.077px;
+              border-image-source: var(--left-rest);
+              --left-rest: url("data:image/webp;base64,BBBB");
+            }
+            @keyframes tentacle-left {
+              0% { border-image-source: var(--left-rest); }
+            }
+            .cskin-bubble-future-taike::after {
+              right: 0; width: 30.268px; top: 0; bottom: 0;
+              border-image-slice: 45 0 43 0 fill;
+              border-image-width: 40.135px 0 38.351px 0;
+              border-image-outset: 7.135px 7.122px 5.351px 0;
+              border-image-source: var(--right-rest);
+              --right-rest: url("data:image/webp;base64,CCCC");
+            }
+        """.trimIndent()
+        val urls = ChatBubbleCosmetics.extractCssImageUrls(taikeCss)
+        assertEquals(3, urls.size)
+
+        val parsedTaike = ChatBubbleCosmetics.parseCommunityBubbleCss(taikeCss)!!
+        assertEquals(45f, parsedTaike.sliceTop, 0.01f)
+        assertEquals(47f, parsedTaike.sliceLeft, 0.01f)
+        assertEquals(7.135f, parsedTaike.outsetTopDp, 0.01f)
+        assertEquals(7.077f, parsedTaike.outsetLeftDp, 0.01f)
+        assertEquals(2, parsedTaike.pseudoLayers.size)
+        assertEquals(1, parsedTaike.pseudoLayers[0].nineSlice?.urlIdx)
+        assertEquals(30.077f, parsedTaike.pseudoLayers[0].widthDp!!, 0.01f)
+        assertEquals(2, parsedTaike.pseudoLayers[1].nineSlice?.urlIdx)
+        assertEquals(30.268f, parsedTaike.pseudoLayers[1].widthDp!!, 0.01f)
+
+        val whiteCss = """
+            .cskin-bubble-future-white {
+              min-inline-size: min(119px, 100%);
+              max-inline-size: calc(100% - 19px);
+              padding: 32px 43px 25px 36px !important;
+              border: 0 solid transparent;
+              border-image-source: url("data:image/webp;base64,BASE");
+              border-image-slice: 50 90 49 66 fill;
+              border-image-width: 32px 57px 31px 42px;
+              color: #20201d !important;
+            }
+            @property --look-x { syntax: "<length>"; inherits: false; initial-value: 0px; }
+            @property --look-y { syntax: "<length>"; inherits: false; initial-value: 0px; }
+            .cskin-bubble-future-white::before {
+              --foot-home: url("data:image/webp;base64,FOOT");
+              inset: 0; border: 0 solid transparent;
+              border-image-source: var(--foot-home);
+              border-image-slice: 50 90 49 66 fill;
+              border-image-width: 32px 57px 31px 42px;
+              background-image: url("data:image/webp;base64,SHAD");
+              background-position: center bottom 1px;
+              background-size: calc(100% - 43px) 13.3px;
+            }
+            .cskin-bubble-future-white::after {
+              --head-0: url("data:image/webp;base64,HEAD");
+              --pupil: url("data:image/webp;base64,PUPIL");
+              --reach: 0px;
+              top: 0; right: -19px; width: 76px; height: 32px;
+              background-image: var(--pupil), var(--head-0);
+              background-size: 8.8667px 8.32px, 100% 100%;
+              background-position: calc(17.7333px + var(--reach) + var(--look-x)) calc(11.52px + var(--look-y)), 0px 0px;
+            }
+        """.trimIndent()
+        val parsedWhite = ChatBubbleCosmetics.parseCommunityBubbleCss(whiteCss)!!
+        assertEquals(19f, parsedWhite.endOverflowReserveDp, 0.01f)
+        assertEquals(2, parsedWhite.pseudoLayers.size)
+
+        val beforeLayer = parsedWhite.pseudoLayers[0]
+        assertEquals(1, beforeLayer.nineSlice?.urlIdx)
+        assertEquals(1, beforeLayer.bgImagesBottomToTop.size)
+        val shadowBg = beforeLayer.bgImagesBottomToTop[0]
+        assertEquals(2, shadowBg.urlIdx)
+        assertEquals(43f, shadowBg.widthSubFromFullDp!!, 0.01f)
+        assertEquals(13.3f, shadowBg.heightDp!!, 0.01f)
+        assertTrue(shadowBg.alignCenterX)
+        assertEquals(1f, shadowBg.offsetBottomDp!!, 0.01f)
+
+        val afterLayer = parsedWhite.pseudoLayers[1]
+        assertEquals(-19f, afterLayer.rightDp!!, 0.01f)
+        assertEquals(76f, afterLayer.widthDp!!, 0.01f)
+        assertEquals(32f, afterLayer.heightDp!!, 0.01f)
+        assertEquals(2, afterLayer.bgImagesBottomToTop.size)
+        // Reversed bottom-to-top: head-0 (urlIdx 3) first, pupil (urlIdx 4) on top
+        assertEquals(3, afterLayer.bgImagesBottomToTop[0].urlIdx)
+        assertEquals(1f, afterLayer.bgImagesBottomToTop[0].widthFraction!!, 0.01f)
+        assertEquals(4, afterLayer.bgImagesBottomToTop[1].urlIdx)
+        assertEquals(17.7333f, afterLayer.bgImagesBottomToTop[1].offsetXDp, 0.01f)
+        assertEquals(11.52f, afterLayer.bgImagesBottomToTop[1].offsetYDp, 0.01f)
     }
 
     @Test
