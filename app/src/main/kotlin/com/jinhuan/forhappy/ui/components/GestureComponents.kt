@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -46,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -104,6 +106,10 @@ fun ForHappyAvatar(
     }
     var imageLoaded by remember(avatarUrl, hideAvatarForFeishu) { mutableStateOf(false) }
     var loadFailed by remember(avatarUrl, hideAvatarForFeishu) { mutableStateOf(false) }
+    val avatarSpec = remember(avatarUrl) { MediaUrlRewriter.parseAvatarViewSpec(avatarUrl) }
+    val effectiveUrl = remember(avatarUrl, avatarSpec) {
+        avatarSpec?.cleanUrl ?: MediaUrlRewriter.rewriteWithExtProxy(avatarUrl)
+    }
 
     Box(
         contentAlignment = Alignment.Center,
@@ -125,18 +131,33 @@ fun ForHappyAvatar(
                 fontWeight = FontWeight.Bold,
             )
         }
-        if (!hideAvatarForFeishu && !avatarUrl.isNullOrBlank() && !loadFailed) {
+        if (!hideAvatarForFeishu && effectiveUrl.isNotBlank() && !loadFailed) {
+            val imageModifier = if (avatarSpec != null) {
+                Modifier
+                    .requiredSize(
+                        width = size * (avatarSpec.width * avatarSpec.scale),
+                        height = size * (avatarSpec.height * avatarSpec.scale),
+                    )
+                    .graphicsLayer {
+                        val boxPx = size.toPx()
+                        translationX = avatarSpec.tx * boxPx
+                        translationY = avatarSpec.ty * boxPx
+                        rotationZ = avatarSpec.rotationDeg.toFloat()
+                    }
+            } else {
+                Modifier.fillMaxSize()
+            }
             AsyncImage(
-                model = remember(avatarUrl) { MediaUrlRewriter.rewriteWithExtProxy(avatarUrl) },
+                model = effectiveUrl,
                 imageLoader = imageLoader,
                 contentDescription = display,
-                contentScale = ContentScale.Crop,
+                contentScale = if (avatarSpec != null) ContentScale.FillBounds else ContentScale.Crop,
                 onSuccess = { imageLoaded = true },
                 onError = {
                     loadFailed = true
                     imageLoaded = false
                 },
-                modifier = Modifier.fillMaxSize(),
+                modifier = imageModifier,
             )
         }
     }

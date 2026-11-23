@@ -56,7 +56,7 @@ class UiVisualStyleTest {
         assertEquals(ModernAiryLightPalette, light)
         assertTrue(light.isModernUi)
         assertFalse(light.isDark)
-        assertEquals(Color(0xFF4F5BD5), light.primary)
+        assertEquals(Color(0xFF4A6B8A), light.primary)
         assertEquals(Color.White, light.onPrimary)
 
         val dark = resolveForHappyPalette(
@@ -68,8 +68,22 @@ class UiVisualStyleTest {
         assertEquals(ModernObsidianDarkPalette, dark)
         assertTrue(dark.isModernUi)
         assertTrue(dark.isDark)
-        assertEquals(Color(0xFF6875F5), dark.primary)
+        assertEquals(Color(0xFF688CAE), dark.primary)
         assertEquals(Color.White, dark.onPrimary)
+
+        val defaultAccentLight = resolveForHappyPalette(
+            mode = AppThemeMode.WARM_PAPER_LIGHT,
+            uiStyle = AppUiStyle.MODERN,
+            accentConfig = AccentColorConfig(),
+        )
+        assertEquals(Color(0xFF4A6B8A), defaultAccentLight.primary)
+        val defaultAccentDark = resolveForHappyPalette(
+            mode = AppThemeMode.PINE_NIGHT_DARK,
+            uiStyle = AppUiStyle.MODERN,
+            accentConfig = AccentColorConfig(),
+        )
+        assertEquals(Color(0xFF688CAE), defaultAccentDark.primary)
+        assertEquals("slate", ACCENT_PRESETS.first().id)
 
         val explicitDark = resolveForHappyPalette(
             mode = AppThemeMode.PINE_NIGHT_DARK,

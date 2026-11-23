@@ -505,7 +505,7 @@ fun MeScreen(
                                         }
                                         FlowRow(
                                             horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
                                         ) {
                                             Text(
                                                 text = me.displayName,
@@ -516,16 +516,21 @@ fun MeScreen(
                                                 },
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.align(Alignment.CenterVertically),
                                             )
                                             equippedIdentity.title?.let { titleChip ->
-                                                TitleChipView(title = titleChip)
+                                                TitleChipView(
+                                                    title = titleChip,
+                                                    modifier = Modifier.align(Alignment.CenterVertically),
+                                                )
                                             }
                                             equippedIdentity.badge?.let { badgeChip ->
                                                 BadgeChipView(
                                                     badge = badgeChip,
                                                     imageLoader = api.imageLoader,
-                                                    mini = false,
+                                                    mini = true,
                                                     onClick = { showDecoDialog = true },
+                                                    modifier = Modifier.align(Alignment.CenterVertically),
                                                 )
                                             }
                                         }

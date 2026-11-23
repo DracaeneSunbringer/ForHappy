@@ -1,9 +1,12 @@
 package com.jinhuan.forhappy
 
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
 import com.jinhuan.forhappy.core.chat.ChatRichTextParser
 import com.jinhuan.forhappy.core.cosmetics.BadgeAndCosmeticRegistry
 import com.jinhuan.forhappy.core.cosmetics.BadgeArtKind
 import com.jinhuan.forhappy.core.cosmetics.BubbleOrnament
+import com.jinhuan.forhappy.core.cosmetics.BubbleShapeKind
 import com.jinhuan.forhappy.core.cosmetics.ChatBubbleCosmetics
 import com.jinhuan.forhappy.core.model.ChatBoost
 import com.jinhuan.forhappy.core.model.ChatUser
@@ -266,6 +269,71 @@ class ChatBubbleCosmeticsTest {
                 "Whalebuddy dark/light 9-slice bubble contrast (${ChatBubbleCosmetics.contrastRatio(bubble!!.textColor, bubble.fillColor)}) must be >= 4.5 in dark=$dark",
                 ChatBubbleCosmetics.contrastRatio(bubble.textColor, bubble.fillColor) >= 4.5f,
             )
+        }
+    }
+
+    @Test
+    fun laowuCommunityBubblesWhalebuddyAndOwner52bMatchWebLayout() {
+        val catSkins = listOf(
+            "laowu-dispatch",
+            "laowu-dispatch-all-in",
+            "laowu-dispatch-black",
+            "laowu-dispatch-calico",
+            "laowu-dispatch-gray",
+            "laowu-dispatch-siamese",
+            "laowu-dispatch-white",
+            "waibi-babu",
+        )
+        catSkins.forEach { skinId ->
+            val d = buildJsonObject {
+                put("community", buildJsonObject { put("bubble", JsonPrimitive(skinId)) })
+            }
+            val style = ChatBubbleCosmetics.resolveBubbleFromDeco(d, isDarkTheme = false)
+            assertNotNull("Missing community bubble style for $skinId", style)
+            assertEquals(BubbleShapeKind.Rounded(0f, 0f, 0f, 0f), style!!.shapeKind)
+            assertTrue("$skinId minWidthDp must be >= 72", style.minWidthDp >= 72f)
+            val slice = style.nineSliceSpec!!
+            val leftPad = style.contentPadding.calculateLeftPadding(LayoutDirection.Ltr).value
+            val rightPad = style.contentPadding.calculateRightPadding(LayoutDirection.Ltr).value
+            assertTrue(
+                "$skinId left pad ($leftPad) must clear cat/frame cap (${slice.borderLeftDp})",
+                leftPad >= slice.borderLeftDp,
+            )
+            assertTrue(
+                "$skinId right pad ($rightPad) must clear cat/frame cap (${slice.borderRightDp})",
+                rightPad >= slice.borderRightDp,
+            )
+        }
+
+        val shadowStyle = ChatBubbleCosmetics.resolveBubbleFromDeco(
+            buildJsonObject {
+                put("community", buildJsonObject { put("bubble", JsonPrimitive("shadow-dao")) })
+            },
+        )
+        assertNotNull(shadowStyle)
+        assertEquals(BubbleShapeKind.Rounded(0f, 0f, 0f, 0f), shadowStyle!!.shapeKind)
+        assertTrue(shadowStyle.minWidthDp >= 72f)
+        assertTrue(shadowStyle.contentPadding.calculateLeftPadding(LayoutDirection.Ltr).value >= 26f)
+
+        val whaleStyle = ChatBubbleCosmetics.resolveBubbleFromDeco(
+            buildJsonObject {
+                put("ft", JsonPrimitive("whalebuddy"))
+                put("fn", JsonPrimitive(5200))
+            },
+        )
+        assertNotNull(whaleStyle)
+        assertEquals("https://52dmeme.com/assets/raffle/whale-motion/body-still.webp", whaleStyle!!.nineSliceSpec?.sourceUrl)
+        assertEquals(BubbleShapeKind.Rounded(0f, 0f, 0f, 0f), whaleStyle.shapeKind)
+        assertEquals(105f, whaleStyle.minWidthDp, 0.01f)
+        assertTrue(whaleStyle.ornament is BubbleOrnament.RaffleWhalebuddy)
+
+        listOf("owner-52b", "owner-52di").forEach { ptId ->
+            val id = BadgeAndCosmeticRegistry.resolveEquippedIdentity(
+                decoJson = buildJsonObject { put("pt", JsonPrimitive(ptId)) },
+                where = "card",
+            )
+            assertEquals("owner52", id.title?.specialKind)
+            assertEquals("", id.badge?.levelText)
         }
     }
 

@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -209,11 +210,17 @@ fun ChatCosmeticBubbleBox(
         is BubbleOrnament.RaffleRailcannon -> 18.dp
         else -> 0.dp
     }
+    val topReserveDp = if (style.ornament is BubbleOrnament.RaffleWhalebuddy) 8.dp else 0.dp
+    val shouldClipContainer = when (val k = style.shapeKind) {
+        is BubbleShapeKind.Rounded ->
+            k.topStartDp > 0f || k.topEndDp > 0f || k.bottomEndDp > 0f || k.bottomStartDp > 0f
+        is BubbleShapeKind.CutCyber -> k.cutDp > 0f
+    }
 
     Box(
         modifier = modifier
             .alpha(style.opacity.coerceIn(0.2f, 1f))
-            .padding(end = trailingReserveDp),
+            .padding(top = topReserveDp, end = trailingReserveDp),
     ) {
         // Hard offset shadow (official, pixel, personal v1 accents)
         val (sx, sy) = style.shadowOffsetDp
@@ -223,7 +230,7 @@ fun ChatCosmeticBubbleBox(
                 modifier = Modifier
                     .matchParentSize()
                     .offset(x = sx.dp, y = sy.dp)
-                    .clip(bubbleShape)
+                    .then(if (shouldClipContainer) Modifier.clip(bubbleShape) else Modifier)
                     .background(shadowCol),
             )
         }
@@ -232,10 +239,11 @@ fun ChatCosmeticBubbleBox(
             style.nineSliceSpec.fillCenter &&
             !style.nineSliceSpec.isEdgeTrimOnly
 
-        // Main clipped bubble container
+        // Main bubble container (leave sculpted 9-slice frames unclipped so alpha edges never truncate)
         Box(
             modifier = Modifier
-                .clip(bubbleShape)
+                .then(if (style.minWidthDp > 0f) Modifier.defaultMinSize(minWidth = style.minWidthDp.dp) else Modifier)
+                .then(if (shouldClipContainer) Modifier.clip(bubbleShape) else Modifier)
                 .then(
                     when {
                         hasOpaqueNineSlice -> Modifier
@@ -683,6 +691,41 @@ private fun BubbleCornerMascotLayer(
                             .offset(x = 16.dp, y = (-3).dp)
                             .size(22.dp),
                     )
+                }
+            }
+        }
+        is BubbleOrnament.RaffleWhalebuddy -> {
+            val rewritten = remember(ornament.personUrl) { MediaUrlRewriter.rewriteMediaUrl(ornament.personUrl) }
+            Box(modifier = modifier) {
+                if (imageLoader != null) {
+                    AsyncImage(
+                        model = rewritten,
+                        imageLoader = imageLoader,
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .offset(x = 12.dp, y = (-6).dp)
+                            .width(28.dp)
+                            .height(16.5.dp),
+                    )
+                } else {
+                    val staticUrl = "https://52dmeme.com/assets/raffle/whale-motion/person-still.webp"
+                    val bmp by produceState<ImageBitmap?>(initialValue = null, staticUrl) {
+                        value = BadgeArtworkCache.getOrFetchBitmap(context, httpClient, staticUrl, 128)
+                    }
+                    bmp?.let {
+                        Image(
+                            bitmap = it,
+                            contentDescription = null,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .offset(x = 12.dp, y = (-6).dp)
+                                .width(28.dp)
+                                .height(16.5.dp),
+                        )
+                    }
                 }
             }
         }

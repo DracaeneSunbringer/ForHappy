@@ -62,6 +62,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -861,9 +862,7 @@ fun BadgeArtIcon(
                     value = BadgeArtworkCache.getOrFetchBitmap(context, httpClient, art.url, 128)
                 }
                 Box(
-                    modifier = modifier
-                        .size(size)
-                        .clip(CircleShape),
+                    modifier = modifier.size(size),
                     contentAlignment = Alignment.Center,
                 ) {
                     bmp?.let {
@@ -882,9 +881,7 @@ fun BadgeArtIcon(
                     imageLoader = imageLoader,
                     contentDescription = null,
                     contentScale = ContentScale.Fit,
-                    modifier = modifier
-                        .size(size)
-                        .clip(CircleShape),
+                    modifier = modifier.size(size),
                 )
             }
         }
@@ -895,9 +892,7 @@ fun BadgeArtIcon(
                 value = BadgeArtworkCache.getOrFetchBitmap(context, httpClient, art.url, 128)
             }
             Box(
-                modifier = modifier
-                    .size(size)
-                    .clip(CircleShape),
+                modifier = modifier.size(size),
                 contentAlignment = Alignment.Center,
             ) {
                 val loaded = bmp
@@ -921,9 +916,7 @@ fun BadgeArtIcon(
                 }
             }
             Box(
-                modifier = modifier
-                    .size(size)
-                    .clip(CircleShape),
+                modifier = modifier.size(size),
                 contentAlignment = Alignment.Center,
             ) {
                 bmp?.let {
@@ -959,9 +952,7 @@ fun BadgeArtIcon(
                 )
             }
             Box(
-                modifier = modifier
-                    .size(size)
-                    .clip(CircleShape),
+                modifier = modifier.size(size),
                 contentAlignment = Alignment.Center,
             ) {
                 bmp?.let {
@@ -1002,12 +993,17 @@ fun BadgeChipView(
     onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    if (mini) {
+    if (mini || badge.id.startsWith("pt:owner-52")) {
+        val iconSize = when {
+            mini && (badge.id.startsWith("pt:owner-52") || badge.id.startsWith("ft:")) -> 24.dp
+            mini -> 21.dp
+            else -> 25.dp
+        }
         BadgeArtIcon(
             art = badge.art,
             level = badge.level,
             imageLoader = imageLoader,
-            size = 19.dp,
+            size = iconSize,
             modifier = if (onClick != null) modifier.clickable { onClick() } else modifier,
         )
         return
@@ -1076,7 +1072,7 @@ fun TitleChipView(
                 contentScale = ContentScale.Fit,
                 modifier = modifier
                     .width(52.dp)
-                    .height(24.dp),
+                    .height(28.dp),
             )
             return
         }
@@ -1139,6 +1135,7 @@ fun TitleChipView(
             bottomStart = css.cornerRadiiDp[3].dp,
         )
         css?.cornerRadiusDp != null -> RoundedCornerShape(css.cornerRadiusDp.dp)
+        title.specialKind == "raffle_nameplate" -> RoundedCornerShape(topStart = 7.dp, topEnd = 3.dp, bottomEnd = 9.dp, bottomStart = 3.dp)
         title.shape == "rect" -> RoundedCornerShape(4.dp)
         title.shape == "oval" -> RoundedCornerShape(50)
         title.shape == "tag" -> RoundedCornerShape(topStart = 4.dp, bottomStart = 4.dp, topEnd = 10.dp, bottomEnd = 10.dp)
@@ -1275,13 +1272,18 @@ fun TitleChipView(
             modifier = Modifier.padding(
                 horizontal = when {
                     isPv2Banner -> 14.dp
+                    title.specialKind == "raffle_nameplate" -> 8.dp
                     fillMode == "none" -> 3.dp
                     else -> 7.dp
                 },
-                vertical = if (isPv2Banner) 4.dp else 2.dp,
+                vertical = when {
+                    isPv2Banner -> 4.dp
+                    title.specialKind == "raffle_nameplate" -> 3.dp
+                    else -> 2.dp
+                },
             ),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (title.specialKind == "raffle_nameplate") 4.dp else 3.dp),
         ) {
             if (title.shape == "tag" && !isPv2Banner && symbolPath == null) {
                 Box(
@@ -1306,6 +1308,7 @@ fun TitleChipView(
                 text = title.label,
                 color = effectiveTextColor,
                 fontSize = 11.sp,
+                lineHeight = 13.sp,
                 fontFamily = fontFamily,
                 fontWeight = fontWeight,
                 fontStyle = fontStyle,
@@ -1313,19 +1316,47 @@ fun TitleChipView(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 style = if (loadedBanner != null && !isPv2Banner) {
-                    TextStyle(shadow = Shadow(color = Color.Black.copy(alpha = 0.72f), offset = Offset(0f, 1f), blurRadius = 2.5f))
+                    TextStyle(
+                        shadow = Shadow(color = Color.Black.copy(alpha = 0.72f), offset = Offset(0f, 1f), blurRadius = 2.5f),
+                        platformStyle = PlatformTextStyle(includeFontPadding = false),
+                    )
                 } else {
-                    TextStyle.Default
+                    TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
                 },
             )
             if (!title.levelText.isNullOrBlank()) {
-                Text(
-                    text = title.levelText,
-                    color = effectiveTextColor.copy(alpha = 0.88f),
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                )
+                if (title.specialKind == "raffle_nameplate") {
+                    val lvBg = parseSafeHex(title.borderHex, effectiveTextColor).copy(
+                        alpha = if (palette.isDark) 0.45f else 0.88f,
+                    )
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(lvBg)
+                            .padding(horizontal = 3.5.dp, vertical = 1.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = title.levelText,
+                            color = Color.White,
+                            fontSize = 8.5.sp,
+                            lineHeight = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
+                        )
+                    }
+                } else {
+                    Text(
+                        text = title.levelText,
+                        color = effectiveTextColor.copy(alpha = 0.88f),
+                        fontSize = 9.sp,
+                        lineHeight = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
+                    )
+                }
             }
         }
     }

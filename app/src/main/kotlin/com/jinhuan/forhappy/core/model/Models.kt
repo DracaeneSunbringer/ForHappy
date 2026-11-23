@@ -1524,7 +1524,7 @@ enum class AppUiStyle(
     val label: String,
     val subtitle: String,
 ) {
-    MODERN("modern", "灵韵透感（默认）", "悬浮毛玻璃胶囊底栏 · 无框层叠卡片 · 冷雾白与深曜石配色"),
+    MODERN("modern", "灵韵透感（默认）", "悬浮毛玻璃胶囊底栏 · 无框层叠卡片 · 雾灰蓝与深曜石配色"),
     CLASSIC_WEB("classic_web", "经典网页（暖纸/深松）", "保留原网页宣纸松绿配色、贴底四栏与描边卡片"),
     ;
 
@@ -1557,6 +1557,7 @@ data class AccentPreset(
 )
 
 val ACCENT_PRESETS: List<AccentPreset> = listOf(
+    AccentPreset("slate", "雾霾灰蓝", "#4A6B8A"),
     AccentPreset("indigo", "星海靛", "#4F46E5"),
     AccentPreset("ocean", "晴空蓝", "#0284C7"),
     AccentPreset("teal", "松石青", "#0D9488"),
@@ -1566,24 +1567,23 @@ val ACCENT_PRESETS: List<AccentPreset> = listOf(
     AccentPreset("rose", "绯樱红", "#E11D48"),
     AccentPreset("coral", "珊瑚橙", "#FF5A36"),
     AccentPreset("amber", "琥珀金", "#D97706"),
-    AccentPreset("slate", "钛灰蓝", "#475569"),
 )
 
 @Serializable
 data class AccentColorConfig(
     val mode: AccentColorMode = AccentColorMode.DEFAULT,
-    val presetId: String = "indigo",
-    val customHex: String = "#4F46E5",
+    val presetId: String = "slate",
+    val customHex: String = "#4A6B8A",
 ) {
     fun activeDisplayLabel(): String = when (mode) {
-        AccentColorMode.DEFAULT -> "默认强调色"
+        AccentColorMode.DEFAULT -> "默认灰蓝"
         AccentColorMode.DYNAMIC -> "壁纸动态取色"
         AccentColorMode.PRESET -> ACCENT_PRESETS.firstOrNull { it.id == presetId }?.label ?: "精选色板"
         AccentColorMode.CUSTOM -> customHex.uppercase()
     }
 
     fun resolvedPresetOrCustomHex(): String = when (mode) {
-        AccentColorMode.PRESET -> ACCENT_PRESETS.firstOrNull { it.id == presetId }?.hex ?: "#4F46E5"
+        AccentColorMode.PRESET -> ACCENT_PRESETS.firstOrNull { it.id == presetId }?.hex ?: "#4A6B8A"
         else -> customHex
     }
 
@@ -1679,7 +1679,7 @@ enum class AppIconAlias(
     val subtitle: String,
     val isDisguise: Boolean = false,
 ) {
-    JINHUAN("com.jinhuan.forhappy.AliasJinhuan", "流光棱镜", "尽欢", "深海靛蓝 · 层叠玻璃", isDisguise = false),
+    JINHUAN("com.jinhuan.forhappy.AliasJinhuan", "尽欢原版", "尽欢", "网站原版标志 · 灰蓝换色", isDisguise = false),
     JINHUAN_JADE("com.jinhuan.forhappy.AliasJinhuanJade", "松烟青翠", "尽欢", "深松墨绿 · 双环折光", isDisguise = false),
     JINHUAN_LIGHT("com.jinhuan.forhappy.AliasJinhuanLight", "雾白极简", "尽欢", "陶瓷浅底 · 曜石折带", isDisguise = false),
     JINHUAN_OBSIDIAN("com.jinhuan.forhappy.AliasJinhuanObsidian", "曜石钛金", "尽欢", "暗夜纯黑 · 线性星芒", isDisguise = false),

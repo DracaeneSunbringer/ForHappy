@@ -123,6 +123,7 @@ sealed interface BubbleOrnament {
     data class PersonalV2Mascot(val webpUrl: String) : BubbleOrnament
     data class RaffleChickengun(val webpUrl: String, val sizeDp: Float) : BubbleOrnament
     data class RaffleRailcannon(val cannonUrl: String, val stage: Int) : BubbleOrnament
+    data class RaffleWhalebuddy(val personUrl: String, val stage: Int) : BubbleOrnament
     data class Owner52(val skinIndex: Int, val isBVariant: Boolean) : BubbleOrnament
 }
 
@@ -149,6 +150,7 @@ data class ResolvedChatBubbleStyle(
     val fontStyle: FontStyle? = null,
     val letterSpacingSp: Float? = null,
     val opacity: Float = 1f,
+    val minWidthDp: Float = 0f,
     val contentPadding: PaddingValues = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
     val nineSliceSpec: NineSliceSpec? = null,
     val ornament: BubbleOrnament = BubbleOrnament.None,
@@ -303,7 +305,7 @@ object ChatBubbleCosmetics {
         "flower" to RaffleBubbleSliceSpec("/assets/raffle/bubble-growth-v8/flower.webp", 50, 128, 75, 128, 0.3906f, 0.5859f),
         "sun" to RaffleBubbleSliceSpec("/assets/raffle/bubble-growth-v8/sun.webp", 71, 128, 54, 128, 0.5547f, 0.4219f),
         "star" to RaffleBubbleSliceSpec("/assets/raffle/bubble-growth-v8/star.webp", 58, 128, 67, 128, 0.4531f, 0.5234f),
-        "whalebuddy" to RaffleBubbleSliceSpec("/assets/raffle/collection/whalebuddy-frame.webp", 145, 170, 35, 305, 0.72f, 0.35f, isCollectionStyle = true),
+        "whalebuddy" to RaffleBubbleSliceSpec("/assets/raffle/whale-motion/body-still.webp", 66, 156, 16, 32, 0.72f, 0.35f, isCollectionStyle = true),
     )
 
     private data class CommunityTitlePalette(
@@ -970,37 +972,34 @@ object ChatBubbleCosmetics {
                 else -> null
             }
             if (sourceUrl != null) {
-                val (sTop, sRight, sBottom, sLeft, bTop, bRight, bBottom, bLeft, fillBg, fgColor) = communityNineSliceMetrics(id, frame, sliceArr, isDarkTheme)
+                val m = communityNineSliceMetrics(id, frame, sliceArr, isDarkTheme)
                 val font = if (id == "shadow-dao" || id == "shadow-path") FontFamily.SansSerif else null
                 return ResolvedChatBubbleStyle(
                     key = "community:$id",
-                    fillColor = fillBg,
-                    textColor = fgColor,
-                    linkColor = if (fgColor.luminance() > 0.5f) Color(0xFFBAE6FD) else Color(0xFF1E40AF),
-                    mutedColor = fgColor.copy(alpha = 0.72f),
+                    fillColor = m.fallbackBg,
+                    textColor = m.textColor,
+                    linkColor = if (m.textColor.luminance() > 0.5f) Color(0xFFBAE6FD) else Color(0xFF1E40AF),
+                    mutedColor = m.textColor.copy(alpha = 0.72f),
                     borderColor = Color.Transparent,
-                    shapeKind = BubbleShapeKind.Rounded(10f, 10f, 10f, 10f),
+                    shapeKind = BubbleShapeKind.Rounded(0f, 0f, 0f, 0f),
                     fontFamily = font,
-                    contentPadding = if (frame) {
-                        PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                    } else {
-                        PaddingValues(
-                            start = (bLeft * 0.45f).coerceIn(10f, 20f).dp,
-                            end = (bRight * 0.45f).coerceIn(10f, 20f).dp,
-                            top = (bTop * 0.40f).coerceIn(7f, 16f).dp,
-                            bottom = (bBottom * 0.40f).coerceIn(7f, 16f).dp,
-                        )
-                    },
+                    minWidthDp = if (frame) 0f else 72f,
+                    contentPadding = PaddingValues(
+                        start = m.pLeft.dp,
+                        end = m.pRight.dp,
+                        top = m.pTop.dp,
+                        bottom = m.pBottom.dp,
+                    ),
                     nineSliceSpec = NineSliceSpec(
                         sourceUrl = sourceUrl,
-                        sliceTop = sTop.toFloat(),
-                        sliceRight = sRight.toFloat(),
-                        sliceBottom = sBottom.toFloat(),
-                        sliceLeft = sLeft.toFloat(),
-                        borderTopDp = bTop,
-                        borderRightDp = bRight,
-                        borderBottomDp = bBottom,
-                        borderLeftDp = bLeft,
+                        sliceTop = m.sTop.toFloat(),
+                        sliceRight = m.sRight.toFloat(),
+                        sliceBottom = m.sBottom.toFloat(),
+                        sliceLeft = m.sLeft.toFloat(),
+                        borderTopDp = m.bTop,
+                        borderRightDp = m.bRight,
+                        borderBottomDp = m.bBottom,
+                        borderLeftDp = m.bLeft,
                     ),
                 )
             }
@@ -1034,6 +1033,10 @@ object ChatBubbleCosmetics {
         val bRight: Float,
         val bBottom: Float,
         val bLeft: Float,
+        val pTop: Float,
+        val pRight: Float,
+        val pBottom: Float,
+        val pLeft: Float,
         val fallbackBg: Color,
         val textColor: Color,
     )
@@ -1044,28 +1047,72 @@ object ChatBubbleCosmetics {
         sliceArr: IntArray?,
         isDarkTheme: Boolean,
     ): CommunityNineSliceTuple = when (id) {
-        "laoda-purple" -> CommunityNineSliceTuple(103, 95, 56, 51, 24f, 22f, 12f, 14f, Color(0xFF534082), Color(0xFFFFFDF5))
-        "laowu-dispatch" -> CommunityNineSliceTuple(75, 70, 47, 64, 30f, 28f, 20f, 26f, Color(0xFFFFECD1), Color(0xFF332215))
-        "laowu-dispatch-all-in" -> CommunityNineSliceTuple(53, 49, 33, 45, 24f, 22f, 15f, 21f, Color(0xFFFFECD1), Color(0xFF332215))
-        "laowu-dispatch-black" -> CommunityNineSliceTuple(101, 79, 54, 68, 22f, 18f, 12f, 16f, Color(0xFF28251F), Color(0xFFFFF2CF))
-        "laowu-dispatch-calico" -> CommunityNineSliceTuple(112, 99, 66, 64, 24f, 22f, 13f, 15f, Color(0xFFF7EBD9), Color(0xFF211F24))
-        "laowu-dispatch-gray" -> CommunityNineSliceTuple(59, 58, 86, 92, 14f, 16f, 21f, 22f, Color(0xFFE7E7EC), Color(0xFF101219))
-        "laowu-dispatch-siamese" -> CommunityNineSliceTuple(85, 71, 61, 62, 22f, 19f, 16f, 16f, Color(0xFFF5E7CF), Color(0xFF302318))
-        "laowu-dispatch-white" -> CommunityNineSliceTuple(92, 74, 50, 84, 20f, 18f, 12f, 20f, Color(0xFFFAFBFE), Color(0xFF22232B))
-        "oiia-loaf" -> CommunityNineSliceTuple(68, 78, 44, 47, 19f, 21f, 12f, 14f, Color(0xFF1D292A), Color(0xFFFFF5D9))
-        "round-maodie" -> CommunityNineSliceTuple(75, 80, 67, 77, 18f, 22f, 16f, 20f, Color(0xFFF9E5BC), Color(0xFF23160E))
-        "waibi-babu" -> CommunityNineSliceTuple(88, 94, 44, 61, 22f, 24f, 11f, 16f, Color(0xFFFFE599), Color(0xFF39250E))
+        "laoda-purple" -> if (frame) {
+            CommunityNineSliceTuple(103, 95, 56, 51, 10f, 14f, 8f, 12f, 4f, 12f, 4f, 12f, Color(0xFF534082), Color(0xFFFFFDF5))
+        } else {
+            CommunityNineSliceTuple(103, 95, 56, 51, 24f, 22f, 13f, 14f, 12f, 25f, 13f, 17f, Color(0xFF534082), Color(0xFFFFFDF5))
+        }
+        "laowu-dispatch" -> if (frame) {
+            CommunityNineSliceTuple(75, 70, 47, 64, 12f, 16f, 8f, 14f, 4f, 12f, 4f, 12f, Color(0xFFFFECD1), Color(0xFF332215))
+        } else {
+            CommunityNineSliceTuple(75, 70, 47, 64, 30f, 28f, 19f, 26f, 11f, 31f, 17f, 29f, Color(0xFFFFECD1), Color(0xFF332215))
+        }
+        "laowu-dispatch-all-in" -> if (frame) {
+            CommunityNineSliceTuple(53, 49, 33, 45, 12f, 16f, 8f, 14f, 4f, 12f, 4f, 12f, Color(0xFFFFECD1), Color(0xFF332215))
+        } else {
+            CommunityNineSliceTuple(53, 49, 33, 45, 30f, 28f, 19f, 26f, 11f, 31f, 17f, 29f, Color(0xFFFFECD1), Color(0xFF332215))
+        }
+        "laowu-dispatch-black" -> if (frame) {
+            CommunityNineSliceTuple(101, 79, 54, 68, 12f, 14f, 8f, 12f, 4f, 12f, 4f, 12f, Color(0xFF28251F), Color(0xFFFFF2CF))
+        } else {
+            CommunityNineSliceTuple(101, 79, 54, 68, 28f, 22f, 15f, 19f, 12f, 25f, 17f, 22f, Color(0xFF28251F), Color(0xFFFFF2CF))
+        }
+        "laowu-dispatch-calico" -> if (frame) {
+            CommunityNineSliceTuple(112, 99, 66, 64, 12f, 16f, 8f, 12f, 4f, 12f, 4f, 12f, Color(0xFFF7EBD9), Color(0xFF211F24))
+        } else {
+            CommunityNineSliceTuple(112, 99, 66, 64, 33f, 30f, 16f, 18f, 17f, 33f, 14f, 21f, Color(0xFFF7EBD9), Color(0xFF211F24))
+        }
+        "laowu-dispatch-gray" -> if (frame) {
+            CommunityNineSliceTuple(59, 58, 86, 92, 10f, 14f, 10f, 16f, 4f, 12f, 4f, 12f, Color(0xFFE7E7EC), Color(0xFF101219))
+        } else {
+            CommunityNineSliceTuple(59, 58, 86, 92, 16f, 19f, 27f, 29f, 7f, 22f, 19f, 32f, Color(0xFFE7E7EC), Color(0xFF101219))
+        }
+        "laowu-dispatch-siamese" -> if (frame) {
+            CommunityNineSliceTuple(85, 71, 61, 62, 12f, 14f, 9f, 12f, 4f, 12f, 4f, 12f, Color(0xFFF5E7CF), Color(0xFF302318))
+        } else {
+            CommunityNineSliceTuple(85, 71, 61, 62, 27f, 23f, 20f, 20f, 8f, 26f, 21f, 23f, Color(0xFFF5E7CF), Color(0xFF302318))
+        }
+        "laowu-dispatch-white" -> if (frame) {
+            CommunityNineSliceTuple(92, 74, 50, 84, 10f, 14f, 8f, 14f, 4f, 12f, 4f, 12f, Color(0xFFFAFBFE), Color(0xFF22232B))
+        } else {
+            CommunityNineSliceTuple(92, 74, 50, 84, 25f, 22f, 15f, 25f, 7f, 25f, 17f, 28f, Color(0xFFFAFBFE), Color(0xFF22232B))
+        }
+        "oiia-loaf" -> if (frame) {
+            CommunityNineSliceTuple(68, 78, 44, 47, 10f, 14f, 8f, 10f, 4f, 12f, 4f, 12f, Color(0xFF1D292A), Color(0xFFFFF5D9))
+        } else {
+            CommunityNineSliceTuple(68, 78, 44, 47, 19f, 22f, 12f, 14f, 11f, 25f, 12f, 17f, Color(0xFF1D292A), Color(0xFFFFF5D9))
+        }
+        "round-maodie" -> if (frame) {
+            CommunityNineSliceTuple(75, 80, 67, 77, 10f, 14f, 8f, 12f, 4f, 12f, 4f, 12f, Color(0xFFF9E5BC), Color(0xFF23160E))
+        } else {
+            CommunityNineSliceTuple(75, 80, 67, 77, 18f, 22f, 16f, 20f, 12f, 25f, 15f, 23f, Color(0xFFF9E5BC), Color(0xFF23160E))
+        }
+        "waibi-babu" -> if (frame) {
+            CommunityNineSliceTuple(88, 94, 44, 61, 12f, 16f, 8f, 12f, 4f, 12f, 4f, 12f, Color(0xFFFFE599), Color(0xFF39250E))
+        } else {
+            CommunityNineSliceTuple(88, 94, 44, 61, 27f, 32f, 13f, 20f, 15f, 35f, 8f, 23f, Color(0xFFFFE599), Color(0xFF39250E))
+        }
         "shadow-dao" -> if (frame) {
             CommunityNineSliceTuple(
                 sliceArr?.getOrNull(0) ?: 18, sliceArr?.getOrNull(1) ?: 50, sliceArr?.getOrNull(2) ?: 20, sliceArr?.getOrNull(3) ?: 56,
-                8f, 20f, 9f, 22f,
+                8f, 20f, 9f, 22f, 4f, 14f, 4f, 14f,
                 if (isDarkTheme) Color(0xFF1B1A1F) else Color(0xFFF3EFE6),
                 if (isDarkTheme) Color(0xFFF3EFE6) else Color(0xFF141418),
             )
         } else {
             CommunityNineSliceTuple(
                 sliceArr?.getOrNull(0) ?: 42, sliceArr?.getOrNull(1) ?: 60, sliceArr?.getOrNull(2) ?: 48, sliceArr?.getOrNull(3) ?: 64,
-                20f, 28f, 22f, 30f,
+                22f, 34f, 24f, 36f, 16f, 26f, 18f, 26f,
                 if (isDarkTheme) Color(0xFF1B1A1F) else Color(0xFFF3EFE6),
                 if (isDarkTheme) Color(0xFFF3EFE6) else Color(0xFF141418),
             )
@@ -1073,21 +1120,21 @@ object ChatBubbleCosmetics {
         "shadow-path" -> if (frame) {
             CommunityNineSliceTuple(
                 sliceArr?.getOrNull(0) ?: 18, sliceArr?.getOrNull(1) ?: 56, sliceArr?.getOrNull(2) ?: 18, sliceArr?.getOrNull(3) ?: 56,
-                9f, 22f, 8f, 22f,
+                9f, 22f, 8f, 22f, 4f, 14f, 4f, 14f,
                 if (isDarkTheme) Color(0xFF141C21) else Color(0xFFEEF4F7),
                 if (isDarkTheme) Color(0xFFF2F7F8) else Color(0xFF0F1418),
             )
         } else {
             CommunityNineSliceTuple(
                 sliceArr?.getOrNull(0) ?: 42, sliceArr?.getOrNull(1) ?: 64, sliceArr?.getOrNull(2) ?: 44, sliceArr?.getOrNull(3) ?: 62,
-                20f, 30f, 22f, 28f,
+                22f, 36f, 24f, 34f, 16f, 26f, 18f, 26f,
                 if (isDarkTheme) Color(0xFF141C21) else Color(0xFFEEF4F7),
                 if (isDarkTheme) Color(0xFFF2F7F8) else Color(0xFF0F1418),
             )
         }
         else -> CommunityNineSliceTuple(
             sliceArr?.getOrNull(0) ?: 36, sliceArr?.getOrNull(1) ?: 36, sliceArr?.getOrNull(2) ?: 36, sliceArr?.getOrNull(3) ?: 36,
-            14f, 16f, 14f, 16f,
+            14f, 16f, 14f, 16f, 10f, 18f, 10f, 18f,
             if (isDarkTheme) Color(0xFF233029) else Color(0xFFECFDF5),
             if (isDarkTheme) Color(0xFFECFDF5) else Color(0xFF064E3B),
         )
@@ -1334,6 +1381,7 @@ object ChatBubbleCosmetics {
         }
 
         val shape = when (id) {
+            "whalebuddy" -> BubbleShapeKind.Rounded(0f, 0f, 0f, 0f)
             "gpt", "whitedragon" -> BubbleShapeKind.Rounded(20f, 14f, 18f, 16f)
             "flower", "mona" -> BubbleShapeKind.Rounded(18f, 22f, 18f, 20f)
             "deepseek", "deepseekupgrade", "maid" -> BubbleShapeKind.Rounded(22f, 16f, 22f, 16f)
@@ -1352,15 +1400,39 @@ object ChatBubbleCosmetics {
                 sliceRight = s.sliceRight.toFloat(),
                 sliceBottom = s.sliceBottom.toFloat(),
                 sliceLeft = s.sliceLeft.toFloat(),
-                borderTopDp = if (s.isCollectionStyle) 22f else 14f * s.topRatio,
-                borderRightDp = if (s.isCollectionStyle) 26f else 14f,
-                borderBottomDp = if (s.isCollectionStyle) 10f else 14f * s.bottomRatio,
-                borderLeftDp = if (s.isCollectionStyle) 40f else 14f,
+                borderTopDp = when {
+                    id == "whalebuddy" -> 16f
+                    s.isCollectionStyle -> 22f
+                    else -> 14f * s.topRatio
+                },
+                borderRightDp = when {
+                    id == "whalebuddy" -> 32f
+                    s.isCollectionStyle -> 26f
+                    else -> 14f
+                },
+                borderBottomDp = when {
+                    id == "whalebuddy" -> 6f
+                    s.isCollectionStyle -> 10f
+                    else -> 14f * s.bottomRatio
+                },
+                borderLeftDp = when {
+                    id == "whalebuddy" -> 8f
+                    s.isCollectionStyle -> 40f
+                    else -> 14f
+                },
                 isEdgeTrimOnly = !s.isCollectionStyle && id !in setOf("gpt", "gemini", "deepseek", "deepseekupgrade", "maid", "nightdevil", "whitedragon"),
             )
         }
 
         val ornament = when (id) {
+            "whalebuddy" -> {
+                val personAsset = when {
+                    stage >= 8 -> "swim.webp"
+                    stage >= 2 -> "greet.webp"
+                    else -> "blink.webp"
+                }
+                BubbleOrnament.RaffleWhalebuddy("$ORIGIN/assets/raffle/whale-motion/$personAsset", stage)
+            }
             "chickengun" -> {
                 val cgSizeJson = decoObj["cg_size"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
                 val cgRandom = decoObj["cg_random"]?.jsonPrimitive?.booleanOrNull == true
@@ -1393,8 +1465,9 @@ object ChatBubbleCosmetics {
             borderBrush = if (!hasOpaqueSlice && stage >= 5) Brush.linearGradient(listOf(rtColor, rtAccent, Color(0xFFFFF4DA), rtColor)) else null,
             borderWidthDp = if (hasOpaqueSlice) 0f else if (stage >= 7) 1.8f else 1.3f,
             shapeKind = shape,
+            minWidthDp = if (id == "whalebuddy") 105f else 0f,
             contentPadding = when {
-                id == "whalebuddy" -> PaddingValues(start = 42.dp, end = 28.dp, top = 16.dp, bottom = 10.dp)
+                id == "whalebuddy" -> PaddingValues(start = 15.dp, end = 26.dp, top = 11.dp, bottom = 9.dp)
                 id == "chickengun" -> PaddingValues(start = 18.dp, end = 12.dp, top = 8.dp, bottom = 10.dp)
                 else -> PaddingValues(horizontal = 12.dp, vertical = 8.dp)
             },

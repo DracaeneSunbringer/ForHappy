@@ -933,7 +933,7 @@ private fun AppearanceSubpage(
                     ) {
                         rowPresets.forEach { preset ->
                             val swatchColor = remember(preset.hex) {
-                                parseHexColorOrNull(preset.hex) ?: Color(0xFF4F46E5)
+                                parseHexColorOrNull(preset.hex) ?: Color(0xFF4A6B8A)
                             }
                             val isSelected = accentConfig.mode == AccentColorMode.PRESET && accentConfig.presetId == preset.id
                             Column(
@@ -1133,7 +1133,7 @@ private fun AppearanceSubpage(
                                     )
                                 }
                             },
-                            placeholder = "#4F46E5",
+                            placeholder = "#4A6B8A",
                             singleLine = true,
                             isError = hexInput.isNotBlank() && !hexValid,
                             modifier = Modifier.weight(1f),
@@ -1156,7 +1156,7 @@ private fun AppearanceSubpage(
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("桌面应用图标", color = palette.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             Text(
-                "极简几何现代风，切换后桌面数秒内刷新（飞书 / 云文档伪装图标仍在「防窥与摸鱼」中）",
+                "默认采用尽欢原站标志（灰蓝换色），也可切换极简几何图标（伪装图标在「防窥与摸鱼」中）",
                 color = palette.muted,
                 fontSize = 11.sp,
                 lineHeight = 15.sp,
@@ -1254,10 +1254,10 @@ private fun AppearanceSubpage(
                 val selected = uiStyle == style
                 val swatches = when (style) {
                     AppUiStyle.MODERN -> listOf(
-                        Color(0xFFF3F5FA),
-                        Color(0xFF0A0C10),
-                        if (uiStyle == AppUiStyle.MODERN) palette.primary else Color(0xFF4F5BD5),
-                        if (uiStyle == AppUiStyle.MODERN) palette.accent else Color(0xFF6875F5),
+                        Color(0xFFF3F6F9),
+                        Color(0xFF0B0E13),
+                        if (uiStyle == AppUiStyle.MODERN) palette.primary else Color(0xFF4A6B8A),
+                        if (uiStyle == AppUiStyle.MODERN) palette.accent else Color(0xFF688CAE),
                     )
                     AppUiStyle.CLASSIC_WEB -> listOf(
                         Color(0xFFF7F6F0),

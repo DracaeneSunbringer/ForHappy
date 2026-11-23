@@ -1308,10 +1308,10 @@ object BadgeAndCosmeticRegistry {
                         specialKind = "shiguang",
                     )
                 } else {
-                    val npBg = if (isDarkTheme) blendHex(r.colorHex, "#15202B", 0.34f) else blendHex(r.accentHex, "#FFFFFF", 0.34f)
-                    val npSec = if (isDarkTheme) blendHex(r.accentHex, "#15202B", 0.18f) else blendHex(r.colorHex, "#FFFFFF", 0.22f)
-                    val npFg = if (isDarkTheme) "#F1F5F9" else blendHex(r.colorHex, "#1E293B", 0.68f)
-                    val npBd = if (isDarkTheme) r.accentHex else blendHex(r.colorHex, "#FFFFFF", 0.68f)
+                    val npBg = if (isDarkTheme) blendHex(r.colorHex, "#15202B", 0.34f) else blendHex(r.accentHex, "#FFFFFF", 0.28f)
+                    val npSec = if (isDarkTheme) blendHex(r.accentHex, "#15202B", 0.20f) else blendHex(r.colorHex, "#FFFFFF", 0.16f)
+                    val npFg = if (isDarkTheme) "#F1F5F9" else blendHex(r.colorHex, "#212E40", 0.70f)
+                    val npBd = if (isDarkTheme) r.accentHex else blendHex(r.colorHex, "#FFFFFF", 0.65f)
                     ResolvedTitleChip(
                         key = "raffle:${r.id}",
                         label = r.name,
@@ -1464,18 +1464,19 @@ object BadgeAndCosmeticRegistry {
             isOwner52Suit(ptId) -> {
                 val suitId = ptId!!
                 val p = PERSONAL_TITLES[suitId] ?: PersonalTitleCatalogItem(suitId, "52帝", "站长专属", "SSR", "owner")
+                val isB = suitId == "owner-52b" || suitId == "owner52b"
                 ResolvedBadgeChip(
                     id = "pt:$suitId",
                     name = p.name,
                     level = 5,
-                    levelText = "SSR",
+                    levelText = "",
                     tier = "legend",
                     desc = p.mood,
                     art = BadgeArtKind.SpriteSheetCell(
                         url = "https://52dmeme.com/assets/owner52-v031/regalia.webp",
                         cols = 4,
                         rows = 2,
-                        col = 1,
+                        col = if (isB) 2 else 0,
                         row = 1,
                     ),
                 )
