@@ -2,7 +2,7 @@
 //! - 32 MiB H2 connection window & 20s idle PING keepalive
 //! - Android sleep/suspend detection (wall clock jump > 45s) & explicit app-resume eviction
 //! - Automatic ECH retry_configs key adoption
-//! - Preconnect support for 52dmeme.com and img.52dmeme.com
+//! - Preconnect support for 52dmeme.com
 
 use crate::doh::ExternalDnsCache;
 use crate::ech_tls::{self, TlsConnectError};

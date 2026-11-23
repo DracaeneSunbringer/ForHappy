@@ -1,6 +1,7 @@
 package com.jinhuan.forhappy.ui.web
 
 import android.annotation.SuppressLint
+import android.graphics.Bitmap
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -8,6 +9,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -66,11 +68,42 @@ import com.jinhuan.forhappy.core.network.cookie.CookieSyncBridge
 import com.jinhuan.forhappy.ui.components.ForHappyTextField
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import kotlinx.coroutines.launch
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+
+internal fun shouldAutoCompleteWebLogin(
+    url: String?,
+    hasSessionCookie: Boolean,
+    cookiesChangedOrSawAuthFlow: Boolean,
+): Boolean {
+    if (!hasSessionCookie || !cookiesChangedOrSawAuthFlow) return false
+    val parsed = url?.toHttpUrlOrNull() ?: return false
+    if (!parsed.scheme.equals("https", ignoreCase = true) ||
+        !parsed.host.equals("52dmeme.com", ignoreCase = true)
+    ) {
+        return false
+    }
+    val path = parsed.encodedPath.ifEmpty { "/" }
+    if (path == "/login" ||
+        path == "/register" ||
+        path == "/reset" ||
+        path == "/app" ||
+        path == "/app.html" ||
+        path == "/welcome" ||
+        path == "/i" ||
+        path.startsWith("/i/") ||
+        path.startsWith("/auth/") ||
+        path.startsWith("/me/account")
+    ) {
+        return false
+    }
+    return true
+}
 
 /**
  * Interactive login sheet supporting:
  * 1. Direct native account-password login via `/api/auth/password-login` over the Rust ECH tunnel.
- * 2. WebView login loading `https://52dmeme.com/login` for Cloudflare Turnstile & Linux.DO / GitHub / Google OAuth,
+ * 2. WebView login supporting direct OAuth providers (`/auth/login`, `/auth/github/start`,
+ *    `/auth/google/start`) and `https://52dmeme.com/login` (with guard against `/login -> 307 /app`),
  *    synced directly into OkHttp [PersistentCookieJar].
  */
 @SuppressLint("SetJavaScriptEnabled")
@@ -85,6 +118,14 @@ fun LoginWebSheet(
     val scope = rememberCoroutineScope()
 
     var loginTab by remember { mutableIntStateOf(0) } // 0 = 账号密码直连, 1 = 网页 / OAuth 登录
+    var targetWebUrl by remember { mutableStateOf("https://52dmeme.com/auth/login?next=%2F") }
+    var currentWebPath by remember { mutableStateOf("") }
+    var sawAuthFlow by remember { mutableStateOf(false) }
+    val initialCookieSnapshot = remember {
+        "https://52dmeme.com/".toHttpUrlOrNull()
+            ?.let { u -> cookieJar.loadForUrl(u).associate { it.name to it.value } }
+            .orEmpty()
+    }
     var loginInput by remember { mutableStateOf("") }
     var passwordInput by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
@@ -93,6 +134,19 @@ fun LoginWebSheet(
 
     var progress by remember { mutableIntStateOf(0) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+
+    fun openWebTarget(url: String) {
+        targetWebUrl = url
+        val parsed = url.toHttpUrlOrNull()
+        if (parsed != null && (!parsed.host.equals("52dmeme.com", ignoreCase = true) || parsed.encodedPath.startsWith("/auth/"))) {
+            sawAuthFlow = true
+        }
+        if (loginTab == 1) {
+            webViewRef?.loadUrl(url)
+        } else {
+            loginTab = 1
+        }
+    }
 
     fun submitNativeLogin() {
         val trimmedLogin = loginInput.trim()
@@ -208,7 +262,14 @@ fun LoginWebSheet(
                     ) {
                         FilterChip(
                             selected = loginTab == 0,
-                            onClick = { loginTab = 0 },
+                            onClick = {
+                                if (loginTab != 0) {
+                                    webViewRef?.stopLoading()
+                                    webViewRef?.destroy()
+                                    webViewRef = null
+                                    loginTab = 0
+                                }
+                            },
                             label = { Text("账号密码直连", fontSize = 12.sp) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = palette.primary,
@@ -217,7 +278,13 @@ fun LoginWebSheet(
                         )
                         FilterChip(
                             selected = loginTab == 1,
-                            onClick = { loginTab = 1 },
+                            onClick = {
+                                if (loginTab != 1) {
+                                    targetWebUrl = "https://52dmeme.com/auth/login?next=%2F"
+                                    sawAuthFlow = true
+                                    loginTab = 1
+                                }
+                            },
                             label = { Text("网页 / OAuth 登录", fontSize = 12.sp) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = palette.primary,
@@ -332,17 +399,90 @@ fun LoginWebSheet(
                             }
 
                             OutlinedButton(
-                                onClick = { loginTab = 1 },
+                                onClick = { openWebTarget("https://52dmeme.com/auth/login?next=%2F") },
                                 enabled = !submitting,
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
-                                Text("使用 Linux.DO / Google / GitHub / 邮箱登录", fontSize = 12.sp)
+                                Text("使用 Linux.DO 授权登录", fontSize = 12.sp)
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                OutlinedButton(
+                                    onClick = { openWebTarget("https://52dmeme.com/auth/github/start") },
+                                    enabled = !submitting,
+                                    shape = RoundedCornerShape(12.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Text("GitHub", fontSize = 12.sp, maxLines = 1, softWrap = false)
+                                }
+                                OutlinedButton(
+                                    onClick = { openWebTarget("https://52dmeme.com/auth/google/start") },
+                                    enabled = !submitting,
+                                    shape = RoundedCornerShape(12.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Text("Google", fontSize = 12.sp, maxLines = 1, softWrap = false)
+                                }
+                                OutlinedButton(
+                                    onClick = { openWebTarget("https://52dmeme.com/login?next=%2F") },
+                                    enabled = !submitting,
+                                    shape = RoundedCornerShape(12.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Text("网页登录页", fontSize = 12.sp, maxLines = 1, softWrap = false)
+                                }
                             }
                         }
                     }
                 }
             } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(palette.surface)
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    val quickProviders = listOf(
+                        "Linux.DO" to "https://52dmeme.com/auth/login?next=%2F",
+                        "GitHub" to "https://52dmeme.com/auth/github/start",
+                        "Google" to "https://52dmeme.com/auth/google/start",
+                        "网页登录页" to "https://52dmeme.com/login?next=%2F",
+                    )
+                    quickProviders.forEach { (label, url) ->
+                        FilterChip(
+                            selected = targetWebUrl == url,
+                            onClick = { openWebTarget(url) },
+                            label = { Text(label, fontSize = 11.sp, maxLines = 1, softWrap = false) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = palette.primary,
+                                selectedLabelColor = palette.onPrimary,
+                            ),
+                        )
+                    }
+                }
+
+                if (currentWebPath == "/app") {
+                    Surface(
+                        color = palette.surface2,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = "站点 /login 当前跳转至 /app，请直接点击上方 Linux.DO / GitHub / Google 按钮登录",
+                            color = palette.muted,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        )
+                    }
+                }
+
                 if (progress in 1..99) {
                     LinearProgressIndicator(
                         progress = { progress / 100f },
@@ -374,24 +514,50 @@ fun LoginWebSheet(
                                 }
                             }
                             webViewClient = object : WebViewClient() {
-                                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = false
+                                private fun markAuthIfExternalOrAuthRoute(urlStr: String?) {
+                                    val u = urlStr?.toHttpUrlOrNull() ?: return
+                                    if (!u.host.equals("52dmeme.com", ignoreCase = true) ||
+                                        u.encodedPath.startsWith("/auth/")
+                                    ) {
+                                        sawAuthFlow = true
+                                    }
+                                }
+
+                                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                    markAuthIfExternalOrAuthRoute(request?.url?.toString())
+                                    return false
+                                }
+
+                                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                    markAuthIfExternalOrAuthRoute(url)
+                                    super.onPageStarted(view, url, favicon)
+                                }
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
+                                    currentWebPath = url?.toHttpUrlOrNull()
+                                        ?.takeIf { it.host.equals("52dmeme.com", ignoreCase = true) }
+                                        ?.encodedPath
+                                        .orEmpty()
                                     if (url?.contains("52dmeme.com/login") == true) {
                                         view?.evaluateJavascript(hideTopbarScript, null)
                                     }
                                     CookieSyncBridge.pullFromWebViewToJar(cookieJar)
-                                    val path = url?.substringAfter("52dmeme.com")?.substringBefore('?').orEmpty()
-                                    if (url?.startsWith("https://52dmeme.com") == true &&
-                                        path != "/login" &&
-                                        !path.startsWith("/auth/") &&
-                                        cookieJar.hasSessionCookieFor()
+                                    val nowCookies = "https://52dmeme.com/".toHttpUrlOrNull()
+                                        ?.let { u -> cookieJar.loadForUrl(u).associate { it.name to it.value } }
+                                        .orEmpty()
+                                    val cookiesChangedOrSawAuth =
+                                        sawAuthFlow || initialCookieSnapshot.isEmpty() || nowCookies != initialCookieSnapshot
+                                    if (shouldAutoCompleteWebLogin(
+                                            url = url,
+                                            hasSessionCookie = cookieJar.hasSessionCookieFor(),
+                                            cookiesChangedOrSawAuthFlow = cookiesChangedOrSawAuth,
+                                        )
                                     ) {
                                         onAuthenticated()
                                     }
                                 }
                             }
-                            loadUrl("https://52dmeme.com/login")
+                            loadUrl(targetWebUrl)
                             webViewRef = this
                         }
                     },

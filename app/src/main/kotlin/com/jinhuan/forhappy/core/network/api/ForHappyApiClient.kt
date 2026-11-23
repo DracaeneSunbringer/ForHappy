@@ -83,6 +83,7 @@ import com.jinhuan.forhappy.core.network.media.WebAssetCacheManager
 import com.jinhuan.forhappy.core.network.pet.PetCoexistenceCoordinator
 import com.jinhuan.forhappy.core.network.rust.RustNetManager
 import com.jinhuan.forhappy.core.network.scheduler.RequestSchedulerInterceptor
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
@@ -109,10 +110,38 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okio.Path.Companion.toOkioPath
 import java.io.File
+import java.net.SocketTimeoutException
 import java.net.URLEncoder
 import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+
+internal fun formatUploadHttpError(
+    code: Int,
+    rawBody: String,
+    cfRay: String? = null,
+    cfMitigated: String? = null,
+): String {
+    val serverErr = runCatching {
+        ForHappyJson.parseToJsonElement(rawBody).jsonObject["error"]?.jsonPrimitive?.contentOrNull
+    }.getOrNull()?.takeIf { it.isNotBlank() }
+    if (serverErr != null) return serverErr
+    val raySuffix = cfRay?.trim()?.takeIf { it.isNotEmpty() }?.let { "（诊断编号：$it）" }.orEmpty()
+    return when (code) {
+        408 -> "上传超时，请检查网络后重试$raySuffix"
+        413 -> "文件体积超出站点或网关上限 (HTTP 413)"
+        403 -> if (!cfMitigated.isNullOrBlank() ||
+            rawBody.contains("cf-chl", ignoreCase = true) ||
+            rawBody.contains("Just a moment", ignoreCase = true)
+        ) {
+            "触发站点安全防护拦截 (HTTP 403)$raySuffix"
+        } else {
+            "无权限或来源校验失败 (HTTP 403)"
+        }
+        502, 503, 504, 520, 521, 522, 523, 524 -> "源站繁忙或正在维护 (HTTP $code)$raySuffix"
+        else -> "上传失败($code)$raySuffix"
+    }
+}
 
 /**
  * Central protocol client for `https://52dmeme.com`:
@@ -157,6 +186,21 @@ class ForHappyApiClient(
         .addInterceptor(StickerFallbackInterceptor.forDatabase(db))
         .addInterceptor(RequestSchedulerInterceptor(rustNetManager, cookieJar))
         .build()
+
+    private val uploadHttpClient: OkHttpClient by lazy {
+        okHttpClient.newBuilder()
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .writeTimeout(180, TimeUnit.SECONDS)
+            .readTimeout(180, TimeUnit.SECONDS)
+            .callTimeout(185, TimeUnit.SECONDS)
+            .build()
+    }
+
+    private val mediaDownloadHttpClient: OkHttpClient by lazy {
+        okHttpClient.newBuilder()
+            .readTimeout(90, TimeUnit.SECONDS)
+            .build()
+    }
 
     val imageLoader: ImageLoader by lazy {
         ImageLoader.Builder(context)
@@ -895,23 +939,40 @@ class ForHappyApiClient(
             .url("$ORIGIN/api/uploads")
             .post(body)
             .build()
-        okHttpClient.newCall(req).execute().use { resp ->
-            val raw = resp.body?.string().orEmpty()
-            val obj = runCatching { ForHappyJson.parseToJsonElement(raw).jsonObject }.getOrNull()
-            if (resp.isSuccessful) {
-                val key = obj?.get("key")?.jsonPrimitive?.content.orEmpty()
-                val url = obj?.get("url")?.jsonPrimitive?.content
-                    ?: obj?.get("path")?.jsonPrimitive?.content
-                    ?: key.takeIf { it.isNotBlank() }?.let { "/img/$it" }
-                    ?: ""
-                if (key.isNotBlank() || url.isNotBlank()) {
-                    Result.success(UploadedMedia(key = key.ifBlank { url.removePrefix("/img/") }, url = url))
+        try {
+            uploadHttpClient.newCall(req).execute().use { resp ->
+                val raw = resp.body?.string().orEmpty()
+                val obj = runCatching { ForHappyJson.parseToJsonElement(raw).jsonObject }.getOrNull()
+                if (resp.isSuccessful) {
+                    val key = obj?.get("key")?.jsonPrimitive?.content.orEmpty()
+                    val url = obj?.get("url")?.jsonPrimitive?.content
+                        ?: obj?.get("path")?.jsonPrimitive?.content
+                        ?: key.takeIf { it.isNotBlank() }?.let { "/img/$it" }
+                        ?: ""
+                    if (key.isNotBlank() || url.isNotBlank()) {
+                        Result.success(UploadedMedia(key = key.ifBlank { url.removePrefix("/img/") }, url = url))
+                    } else {
+                        Result.failure(IllegalStateException("上传响应缺少图片地址"))
+                    }
                 } else {
-                    Result.failure(IllegalStateException("上传响应缺少图片地址"))
+                    Result.failure(
+                        IllegalStateException(
+                            formatUploadHttpError(
+                                code = resp.code,
+                                rawBody = raw,
+                                cfRay = resp.header("cf-ray"),
+                                cfMitigated = resp.header("cf-mitigated"),
+                            ),
+                        ),
+                    )
                 }
-            } else {
-                Result.failure(IllegalStateException(obj?.get("error")?.jsonPrimitive?.content ?: "上传失败(${resp.code})"))
             }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: SocketTimeoutException) {
+            Result.failure(IllegalStateException("上传超时，请检查网络后重试"))
+        } catch (e: Exception) {
+            Result.failure(IllegalStateException(e.message?.takeIf { it.isNotBlank() } ?: "上传网络异常，请重试"))
         }
     }
 
@@ -2031,7 +2092,7 @@ class ForHappyApiClient(
             val tmp = File(dir, "$key$ext.tmp")
             val downloaded = runCatching {
                 val req = Request.Builder().url(candidate).get().build()
-                okHttpClient.newCall(req).execute().use { resp ->
+                mediaDownloadHttpClient.newCall(req).execute().use { resp ->
                     if (!resp.isSuccessful) return@use false
                     val body = resp.body ?: return@use false
                     tmp.outputStream().use { out ->

@@ -114,10 +114,10 @@ pub fn start_engine(config_json: &str) -> Result<u16, String> {
         async move {
             let had_winner = edge_pin.current_winner().is_some();
             if had_winner {
-                pool.preconnect(&["52dmeme.com", "img.52dmeme.com"]);
+                pool.preconnect(&["52dmeme.com"]);
             } else {
                 sel.run_race(true).await;
-                pool.preconnect(&["52dmeme.com", "img.52dmeme.com"]);
+                pool.preconnect(&["52dmeme.com"]);
             }
         }
     });
@@ -145,7 +145,7 @@ pub fn trigger_reselect() {
         runtime().spawn(async move {
             sel.run_race(true).await;
             pool.invalidate_all("manual reselect");
-            pool.preconnect(&["52dmeme.com", "img.52dmeme.com"]);
+            pool.preconnect(&["52dmeme.com"]);
         });
     }
 }
@@ -162,7 +162,7 @@ pub fn on_app_resumed() {
         let pool = inst.pool.clone();
         runtime().spawn(async move {
             pool.invalidate_all("app resumed from background");
-            pool.preconnect(&["52dmeme.com", "img.52dmeme.com"]);
+            pool.preconnect(&["52dmeme.com"]);
         });
     }
 }

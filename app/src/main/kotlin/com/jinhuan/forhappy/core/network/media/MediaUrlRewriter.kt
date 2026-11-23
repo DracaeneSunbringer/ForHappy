@@ -23,8 +23,10 @@ data class AvatarViewSpec(
 
 /**
  * Exact Kotlin port of `chat-media-load.js` (`mediaUrl`) and `app.js` (`memeImg`):
- * - Rewrites `/img/{key}` on `52dmeme.com` / `cc.52dmeme.com` (excluding `/img/d/<id>` dynamic avatars)
- *   to static image CDN `https://img.52dmeme.com/img/{key}`.
+ * - Keeps `/img/{key}` assets on `https://52dmeme.com/img/{key}` (after VPS migration, new uploads
+ *   live on the origin server rather than the legacy `img.52dmeme.com` R2 bucket).
+ * - Normalizes legacy `cc.52dmeme.com` (NXDOMAIN) and `img.52dmeme.com/img/{key}` URLs onto
+ *   `https://52dmeme.com`, and upgrades `http://52dmeme.com/...` to `https://`.
  * - Supports external proxy fallback `https://52dmeme.com/ext?u=...`.
  */
 object MediaUrlRewriter {
@@ -34,7 +36,6 @@ object MediaUrlRewriter {
     private val CC_HOST = "cc.52dmeme.com"
     private val IMG_HOST = "img.52dmeme.com"
     private val BASE_ORIGIN = "https://52dmeme.com"
-    private val IMG_ORIGIN = "https://img.52dmeme.com"
 
     val DEFAULT_STICKER_EXT = mapOf(
         "bb" to "png",
@@ -67,19 +68,19 @@ object MediaUrlRewriter {
         val host = url.host.lowercase()
         val encodedPath = url.encodedPath
 
-        if ((host == ORIGIN_HOST || host == CC_HOST) && encodedPath.startsWith("/img/")) {
-            val key = encodedPath.removePrefix("/img/")
-            val validKey = key.isNotEmpty() &&
-                !key.startsWith("d/") &&
-                !key.contains('\\') &&
-                key.split('/').none { seg -> seg == "." || seg == ".." }
-            if (validKey) {
-                return buildString {
-                    append(IMG_ORIGIN)
-                    append(encodedPath)
-                    if (!url.encodedQuery.isNullOrEmpty()) {
-                        append('?').append(url.encodedQuery)
-                    }
+        val shouldNormalizeToOrigin = host == CC_HOST ||
+            (host == IMG_HOST && encodedPath.startsWith("/img/")) ||
+            (host == ORIGIN_HOST && url.scheme.equals("http", ignoreCase = true))
+
+        if (shouldNormalizeToOrigin) {
+            return buildString {
+                append(BASE_ORIGIN)
+                append(encodedPath)
+                if (!url.encodedQuery.isNullOrEmpty()) {
+                    append('?').append(url.encodedQuery)
+                }
+                if (!url.encodedFragment.isNullOrEmpty()) {
+                    append('#').append(url.encodedFragment)
                 }
             }
         }
