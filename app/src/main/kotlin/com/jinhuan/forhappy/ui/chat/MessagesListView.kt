@@ -84,6 +84,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -1630,25 +1631,55 @@ fun MemberProfileSheet(
                     val gradColors = remember(memberIdentity?.nickGradientHexes, palette.text) {
                         memberIdentity?.nickGradientHexes?.map { parseSafeHex(it, palette.text) }?.takeIf { it.size >= 2 }
                     }
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
+                    ) {
+                        val memberNickPlatform = PlatformTextStyle(includeFontPadding = false)
                         Text(
                             text = member.displayName,
                             style = if (gradColors != null) {
-                                TextStyle(brush = Brush.horizontalGradient(gradColors), fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                                TextStyle(
+                                    brush = Brush.horizontalGradient(gradColors),
+                                    fontSize = 17.sp,
+                                    lineHeight = 20.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    platformStyle = memberNickPlatform,
+                                )
                             } else {
-                                TextStyle(color = palette.text, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                                TextStyle(
+                                    color = palette.text,
+                                    fontSize = 17.sp,
+                                    lineHeight = 20.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    platformStyle = memberNickPlatform,
+                                )
                             },
+                            modifier = Modifier.align(Alignment.CenterVertically),
                         )
                         if (disguiseMode == AppDisguiseMode.NONE) {
                             if (memberIdentity?.title != null) {
-                                TitleChipView(title = memberIdentity.title)
+                                TitleChipView(
+                                    title = memberIdentity.title,
+                                    modifier = Modifier.align(Alignment.CenterVertically),
+                                )
                             } else {
                                 member.title?.takeIf { it.isNotBlank() }?.let {
-                                    BadgePill(it, containerColor = palette.gold.copy(alpha = 0.2f), contentColor = palette.gold)
+                                    BadgePill(
+                                        text = it,
+                                        containerColor = palette.gold.copy(alpha = 0.2f),
+                                        contentColor = palette.gold,
+                                        modifier = Modifier.align(Alignment.CenterVertically),
+                                    )
                                 }
                             }
                             memberIdentity?.badge?.let {
-                                BadgeChipView(badge = it, imageLoader = api.imageLoader, mini = false)
+                                BadgeChipView(
+                                    badge = it,
+                                    imageLoader = api.imageLoader,
+                                    mini = false,
+                                    modifier = Modifier.align(Alignment.CenterVertically),
+                                )
                             }
                         }
                     }

@@ -159,6 +159,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -4253,43 +4254,83 @@ private fun SwipeableChatRow(
                                 chatIdentity?.nickGradientHexes?.singleOrNull()?.let { parseSafeHex(it, palette.muted) }
                             }
                         }
+                        val compactNickPlatform = PlatformTextStyle(includeFontPadding = false)
                         Text(
                             text = shownAuthor,
                             style = when {
                                 gradColors != null -> TextStyle(
                                     brush = Brush.horizontalGradient(gradColors),
                                     fontSize = 11.sp,
+                                    lineHeight = 13.sp,
                                     fontWeight = FontWeight.SemiBold,
+                                    platformStyle = compactNickPlatform,
                                 )
                                 singleColor != null -> TextStyle(
                                     color = singleColor,
                                     fontSize = 11.sp,
+                                    lineHeight = 13.sp,
                                     fontWeight = FontWeight.SemiBold,
+                                    platformStyle = compactNickPlatform,
                                 )
-                                else -> TextStyle(color = palette.muted, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                else -> TextStyle(
+                                    color = palette.muted,
+                                    fontSize = 11.sp,
+                                    lineHeight = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    platformStyle = compactNickPlatform,
+                                )
                             },
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.align(Alignment.CenterVertically),
                         )
                     }
                     if (!hideTitle) {
                         if (chatIdentity?.title != null) {
-                            TitleChipView(title = chatIdentity.title)
+                            TitleChipView(
+                                title = chatIdentity.title,
+                                modifier = Modifier.align(Alignment.CenterVertically),
+                            )
                         } else {
                             msg.title?.takeIf { it.isNotBlank() }?.let { titleLabel ->
-                                BadgePill(titleLabel, containerColor = palette.gold.copy(alpha = 0.16f), contentColor = palette.gold)
+                                BadgePill(
+                                    text = titleLabel,
+                                    containerColor = palette.gold.copy(alpha = 0.16f),
+                                    contentColor = palette.gold,
+                                    modifier = Modifier.align(Alignment.CenterVertically),
+                                )
                             }
                         }
                     }
                     if (!hideBadge) {
                         chatIdentity?.badge?.let { badgeChip ->
-                            BadgeChipView(badge = badgeChip, imageLoader = api.imageLoader, mini = true)
+                            BadgeChipView(
+                                badge = badgeChip,
+                                imageLoader = api.imageLoader,
+                                mini = true,
+                                modifier = Modifier.align(Alignment.CenterVertically),
+                            )
                         }
                     }
-                    Text(shortTimeStr, color = palette.muted.copy(alpha = 0.7f), fontSize = 10.sp)
+                    val metaTextStyle = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
+                    Text(
+                        text = shortTimeStr,
+                        color = palette.muted.copy(alpha = 0.7f),
+                        fontSize = 10.sp,
+                        lineHeight = 12.sp,
+                        style = metaTextStyle,
+                        modifier = Modifier.align(Alignment.CenterVertically),
+                    )
                     if (disguiseMode != AppDisguiseMode.FEISHU) {
                         msg.floor?.let { fl ->
-                            Text("${fl}楼", color = palette.muted.copy(alpha = 0.65f), fontSize = 10.sp)
+                            Text(
+                                text = "${fl}楼",
+                                color = palette.muted.copy(alpha = 0.65f),
+                                fontSize = 10.sp,
+                                lineHeight = 12.sp,
+                                style = metaTextStyle,
+                                modifier = Modifier.align(Alignment.CenterVertically),
+                            )
                         }
                     }
                     if (!msg.deleted) {
@@ -4297,7 +4338,10 @@ private fun SwipeableChatRow(
                             imageVector = Icons.Rounded.MoreHoriz,
                             contentDescription = "消息操作",
                             tint = palette.muted.copy(alpha = 0.65f),
-                            modifier = Modifier.size(15.dp).clickable { onOpenActionSheet() },
+                            modifier = Modifier
+                                .align(Alignment.CenterVertically)
+                                .size(15.dp)
+                                .clickable { onOpenActionSheet() },
                         )
                     }
                 }

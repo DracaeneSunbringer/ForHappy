@@ -79,6 +79,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -1332,18 +1333,29 @@ fun DecoStudioDialog(
                     val singleNickColor = previewCardIdentity.nickGradientHexes.firstOrNull()?.let {
                         parseSafeHex(it, palette.text)
                     }
+                    val previewNickPlatform = PlatformTextStyle(includeFontPadding = false)
                     val nickStyle = when {
                         nickBrushColors != null && !config.cleanHideOthersNick -> TextStyle(
                             brush = Brush.horizontalGradient(nickBrushColors),
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
+                            lineHeight = 16.sp,
+                            platformStyle = previewNickPlatform,
                         )
                         singleNickColor != null && !config.cleanHideOthersNick -> TextStyle(
                             color = singleNickColor,
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
+                            lineHeight = 16.sp,
+                            platformStyle = previewNickPlatform,
                         )
-                        else -> TextStyle(color = palette.text, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        else -> TextStyle(
+                            color = palette.text,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            lineHeight = 16.sp,
+                            platformStyle = previewNickPlatform,
+                        )
                     }
                     Surface(
                         color = palette.surface2,
@@ -1355,14 +1367,24 @@ fun DecoStudioDialog(
                                 0 -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                     ForHappyAvatar(me.displayName, me.avatar, api.imageLoader, size = 38.dp)
                                     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            Text(me.displayName, style = nickStyle)
+                                        FlowRow(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
+                                        ) {
+                                            Text(me.displayName, style = nickStyle, modifier = Modifier.align(Alignment.CenterVertically))
                                             if (!config.cleanHideOthersStyles) {
-                                                previewCardIdentity.title?.let { TitleChipView(title = it) }
+                                                previewCardIdentity.title?.let {
+                                                    TitleChipView(title = it, modifier = Modifier.align(Alignment.CenterVertically))
+                                                }
                                             }
                                             if (!config.cleanHideOthersBadges) {
                                                 previewCardIdentity.badge?.let {
-                                                    BadgeChipView(badge = it, imageLoader = api.imageLoader, mini = false)
+                                                    BadgeChipView(
+                                                        badge = it,
+                                                        imageLoader = api.imageLoader,
+                                                        mini = false,
+                                                        modifier = Modifier.align(Alignment.CenterVertically),
+                                                    )
                                                 }
                                             }
                                         }
@@ -1371,16 +1393,30 @@ fun DecoStudioDialog(
                                 }
                                 1 -> FlowRow(
                                     horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
                                 ) {
-                                    Text("[群聊]", color = palette.muted, fontSize = 11.sp)
-                                    Text(me.displayName, style = nickStyle)
+                                    Text(
+                                        text = "[群聊]",
+                                        color = palette.muted,
+                                        fontSize = 11.sp,
+                                        lineHeight = 13.sp,
+                                        style = TextStyle(platformStyle = previewNickPlatform),
+                                        modifier = Modifier.align(Alignment.CenterVertically),
+                                    )
+                                    Text(me.displayName, style = nickStyle, modifier = Modifier.align(Alignment.CenterVertically))
                                     if (!config.cleanHideOthersStyles) {
-                                        previewChatIdentity.title?.let { TitleChipView(title = it) }
+                                        previewChatIdentity.title?.let {
+                                            TitleChipView(title = it, modifier = Modifier.align(Alignment.CenterVertically))
+                                        }
                                     }
                                     if (!config.cleanHideOthersBadges) {
                                         previewChatIdentity.badge?.let {
-                                            BadgeChipView(badge = it, imageLoader = api.imageLoader, mini = true)
+                                            BadgeChipView(
+                                                badge = it,
+                                                imageLoader = api.imageLoader,
+                                                mini = true,
+                                                modifier = Modifier.align(Alignment.CenterVertically),
+                                            )
                                         }
                                     }
                                 }
@@ -1451,12 +1487,17 @@ fun DecoStudioDialog(
                                     ) {
                                         FlowRow(
                                             horizontalArrangement = Arrangement.spacedBy(5.dp),
-                                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
                                             modifier = Modifier.weight(1f, fill = false),
                                         ) {
-                                            Text(me.displayName, style = nickStyle)
+                                            Text(me.displayName, style = nickStyle, modifier = Modifier.align(Alignment.CenterVertically))
                                             previewCardIdentity.badge?.let {
-                                                BadgeChipView(badge = it, imageLoader = api.imageLoader, mini = true)
+                                                BadgeChipView(
+                                                    badge = it,
+                                                    imageLoader = api.imageLoader,
+                                                    mini = true,
+                                                    modifier = Modifier.align(Alignment.CenterVertically),
+                                                )
                                             }
                                         }
                                         ChatCosmeticBoostPill(

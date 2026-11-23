@@ -54,6 +54,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
@@ -180,9 +181,11 @@ fun BadgePill(
             text = text,
             color = contentColor ?: palette.muted,
             fontSize = 11.sp,
+            lineHeight = 13.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             softWrap = false,
+            style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
         )
     }

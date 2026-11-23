@@ -1031,16 +1031,20 @@ fun BadgeChipView(
                 text = badge.name,
                 color = accent,
                 fontSize = 11.sp,
+                lineHeight = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
             )
             if (badge.levelText.isNotBlank()) {
                 Text(
                     text = badge.levelText,
                     color = accent.copy(alpha = 0.78f),
                     fontSize = 9.sp,
+                    lineHeight = 11.sp,
                     fontWeight = FontWeight.Bold,
+                    style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
                 )
             }
         }
