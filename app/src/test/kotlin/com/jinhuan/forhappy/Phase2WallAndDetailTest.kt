@@ -3,8 +3,10 @@ package com.jinhuan.forhappy
 import com.jinhuan.forhappy.core.model.AnchorTag
 import com.jinhuan.forhappy.core.model.AuthorOption
 import com.jinhuan.forhappy.core.model.ForHappyJson
+import com.jinhuan.forhappy.core.model.MeUser
 import com.jinhuan.forhappy.core.model.MemeItem
 import com.jinhuan.forhappy.core.model.MemeMediaItem
+import com.jinhuan.forhappy.core.model.MemeQuickReply
 import com.jinhuan.forhappy.core.model.PuzzleSpec
 import com.jinhuan.forhappy.core.model.SeriesItem
 import com.jinhuan.forhappy.core.model.SiteNotice
@@ -244,5 +246,55 @@ class Phase2WallAndDetailTest {
         assertEquals(1, puzzle.passed.size)
         assertEquals(2, puzzle.allLayers.size)
         assertEquals("赢家", puzzle.winners.first().displayName)
+    }
+
+    @Test
+    fun effectiveQuickRepliesMergesDuplicateBoostTextAndPreservesMineAndCount() {
+        val me = MeUser(id = 10L, username = "alice", name = "Alice")
+
+        // 1. Two users sent identical text "电!!" with n=2 each (No.11744 case) -> single pill x2
+        val twoOthers = MemeItem(
+            id = 11744L,
+            replyCount = 2,
+            replyList = listOf(
+                MemeQuickReply(username = "u1", name = "甲", text = "电!!", n = 2, mine = false),
+                MemeQuickReply(username = "u2", name = "乙", text = "电!!", n = 2, mine = false),
+            ),
+        )
+        val mergedOthers = twoOthers.effectiveQuickReplies(me)
+        assertEquals(1, mergedOthers.size)
+        assertEquals("电!!", mergedOthers.first().text)
+        assertEquals(2, mergedOthers.first().n)
+        assertFalse(mergedOthers.first().mine)
+
+        // 2. Duplicate rows where one is mine -> merged pill keeps mine=true
+        val withMine = MemeItem(
+            id = 11745L,
+            replyCount = 2,
+            replyList = listOf(
+                MemeQuickReply(username = "u1", name = "甲", text = "电!!", n = 2, mine = false),
+                MemeQuickReply(username = "alice", name = "Alice", text = "电!!", n = 2, mine = true),
+            ),
+        )
+        val mergedWithMine = withMine.effectiveQuickReplies(me)
+        assertEquals(1, mergedWithMine.size)
+        assertEquals(2, mergedWithMine.first().n)
+        assertTrue(mergedWithMine.first().mine)
+
+        // 3. Truncated replyList + myReply matching same text -> merged into 1 mine pill preserving higher count
+        val truncatedAndMyReply = MemeItem(
+            id = 11746L,
+            replyCount = 25,
+            myReply = "神图",
+            replyList = listOf(
+                MemeQuickReply(username = "u1", name = "甲", text = "神图", n = 25, mine = false),
+                MemeQuickReply(username = "u2", name = "乙", text = "神图", n = 25, mine = false),
+            ),
+        )
+        val mergedTruncated = truncatedAndMyReply.effectiveQuickReplies(me)
+        assertEquals(1, mergedTruncated.size)
+        assertEquals("神图", mergedTruncated.first().text)
+        assertEquals(25, mergedTruncated.first().n)
+        assertTrue(mergedTruncated.first().mine)
     }
 }

@@ -187,4 +187,49 @@ class SeenTrackerAndDisguiseTest {
         val noDayMeme = MemeItem(id = 12805L, day = null, createdAt = 1794933000L)
         assertEquals("2026-11-18", noDayMeme.resolvedDay)
     }
+
+    @Test
+    fun seenTrackerPersistsKnownIdsAcrossDaysAndCreditsDeferredMemeDay() = runBlocking {
+        val kv = ConcurrentHashMap<String, String>()
+        val sentBatches = mutableListOf<List<SeenVisitEntry>>()
+        var clockSec = 1794933000L // 2026-11-18 00:30:00 CST (UTC+8)
+        val tracker1 = SeenTracker(
+            kvGet = { kv[it] },
+            kvPut = { k, v -> kv[k] = v },
+            sendVisitsFn = { visits, _ ->
+                sentBatches.add(visits)
+                true
+            },
+            nowSecFn = { clockSec },
+        )
+        tracker1.bindUserBlocking(42L)
+
+        // Immediate mark from MemeDetailModal before memeDay metadata arrives
+        assertTrue(tracker1.markSeenSuspend(memeId = 11744L, existingSeenAt = null, memeDay = null))
+        assertTrue(tracker1.isSeen(11744L))
+        assertTrue(tracker1.newlySeenByDay.value.isEmpty())
+
+        // Follow-up mark once detail response resolves memeDay -> credits day delta once without re-queuing
+        assertFalse(tracker1.markSeenSuspend(memeId = 11744L, existingSeenAt = null, memeDay = "2026-11-04"))
+        assertEquals(1, tracker1.newlySeenByDay.value["2026-11-04"])
+
+        assertTrue(tracker1.flushNow())
+        assertEquals(1, sentBatches.size)
+        assertEquals(1, tracker1.flushRevision.value)
+
+        // Advance past midnight into 2026-11-19 and recreate tracker from persisted KV
+        clockSec += 86_400L
+        val tracker2 = SeenTracker(
+            kvGet = { kv[it] },
+            kvPut = { k, v -> kv[k] = v },
+            sendVisitsFn = { visits, _ ->
+                sentBatches.add(visits)
+                true
+            },
+            nowSecFn = { clockSec },
+        )
+        tracker2.bindUserBlocking(42L)
+        assertTrue(tracker2.isSeen(11744L))
+        assertEquals(0, tracker2.dailySeenCount.value)
+    }
 }

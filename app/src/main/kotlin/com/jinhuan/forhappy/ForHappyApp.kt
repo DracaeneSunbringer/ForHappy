@@ -44,7 +44,11 @@ class ForHappyApp : Application() {
         seenTracker = SeenTracker.forDatabase(
             db = db,
             sendVisitsFn = { visits, uid -> apiClient.recordMemeVisits(visits, uid) },
-        )
+        ).also { tracker ->
+            apiClient.loadCachedMeBlocking()?.let { cachedMe ->
+                tracker.bindUserBlocking(cachedMe.id)
+            }
+        }
         chatController = ChatSessionController(
             db = db,
             fetchGroupsFn = { apiClient.fetchChatGroups() },

@@ -521,8 +521,8 @@ data class MemeItem(
 
     fun effectiveQuickReplies(me: MeUser? = null): List<MemeQuickReply> {
         val base = replyList.ifEmpty { replies }
-        if (!base.any { it.mine } && !myReply.isNullOrBlank()) {
-            return base + MemeQuickReply(
+        val raw = if (!base.any { it.mine } && !myReply.isNullOrBlank()) {
+            base + MemeQuickReply(
                 username = me?.username.orEmpty(),
                 name = me?.displayName ?: "我",
                 avatar = me?.avatar,
@@ -530,8 +530,26 @@ data class MemeItem(
                 n = 1,
                 mine = true,
             )
+        } else {
+            base
         }
-        return base
+        if (raw.isEmpty()) return emptyList()
+        val grouped = LinkedHashMap<String, MutableList<MemeQuickReply>>()
+        for (item in raw) {
+            val key = item.text.trim()
+            if (key.isEmpty()) continue
+            grouped.getOrPut(key) { mutableListOf() }.add(item)
+        }
+        return grouped.map { (normalizedText, group) ->
+            val mineEntry = group.firstOrNull { it.mine }
+            val rep = mineEntry ?: group.first()
+            val mergedCount = maxOf(group.maxOf { it.n.coerceAtLeast(1) }, group.size)
+            rep.copy(
+                text = normalizedText,
+                n = mergedCount,
+                mine = mineEntry != null,
+            )
+        }
     }
 }
 

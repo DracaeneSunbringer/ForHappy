@@ -263,6 +263,14 @@ class ForHappyApiClient(
         return runCatching { ForHappyJson.decodeFromString<AuthConfigResponse>(res.body) }.getOrNull()
     }
 
+    fun loadCachedMeBlocking(): MeUser? {
+        if (!cookieJar.hasSessionCookieFor()) return null
+        val raw = db.getKvBlocking(KV_COSMETICS_ME_CATALOG)?.takeIf { it.isNotBlank() } ?: return null
+        return runCatching { ForHappyJson.decodeFromString<MeResponse>(raw).user }
+            .getOrNull()
+            ?.takeIf { it.id > 0L }
+    }
+
     suspend fun fetchMe(): MeUser? {
         val res = executeRawJson("GET", "/api/me")
         if (res.code !in 200..299) return null
@@ -302,6 +310,7 @@ class ForHappyApiClient(
 
     suspend fun logout() {
         runCatching { executeRawJson("POST", "/api/auth/logout", "{}") }
+        runCatching { db.putKv(KV_COSMETICS_ME_CATALOG, "") }
         cookieJar.clearAll()
         CookieSyncBridge.clearWebViewCookies()
     }

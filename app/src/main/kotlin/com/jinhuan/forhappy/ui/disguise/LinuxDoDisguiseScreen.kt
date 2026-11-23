@@ -1422,7 +1422,9 @@ fun LinuxDoDisguiseScreen(
                         val trustLevel = remember(author) { 1 + Math.floorMod(author.hashCode(), 3) }
                         val likeCount = maxOf(meme.likes, meme.likeCount, meme.ldLikes)
                         val commentCount = maxOf(meme.comments, meme.commentCount)
-                        val boosts = meme.replyList.ifEmpty { meme.replies }
+                        val boosts = remember(meme.replyList, meme.replies, meme.myReply, me?.username) {
+                            meme.effectiveQuickReplies(me)
+                        }
                         val optionalBody = remember(meme) { linuxDoOptionalFloorText(meme) }
                         val commentsExpanded = expandedFloorIds[meme.id] == true
                         val loadedComments = floorCommentsMap[meme.id].orEmpty()

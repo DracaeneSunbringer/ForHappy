@@ -194,7 +194,7 @@ fun ForHappyShell(
     val chatController = app.chatController
 
     var activeTab by remember { mutableStateOf("wall") } // "wall" | "messages" | "discover" | "me"
-    var me by remember { mutableStateOf<MeUser?>(null) }
+    var me by remember { mutableStateOf(api.loadCachedMeBlocking()) }
     var modules by remember { mutableStateOf(TopbarModuleScanner.DEFAULT_BUILT_IN_MODULES) }
     var showLoginModal by remember { mutableStateOf(false) }
     var showPrivacySettingsSheet by remember { mutableStateOf(false) }
@@ -525,9 +525,18 @@ fun ForHappyShell(
         }
     }
 
+    var didBootstrapSession by remember { mutableStateOf(false) }
     LaunchedEffect(netStatus.running, netStatus.winnerIp) {
-        if (me == null && netStatus.running && api.cookieJar.hasSessionCookieFor()) {
+        if (!didBootstrapSession && netStatus.running && api.cookieJar.hasSessionCookieFor()) {
+            didBootstrapSession = true
             bootstrapSession()
+        }
+    }
+
+    val seenFlushRev by app.seenTracker.flushRevision.collectAsState()
+    LaunchedEffect(seenFlushRev, activeTab, me?.id) {
+        if (me != null && (seenFlushRev > 0 || activeTab == "discover")) {
+            api.fetchTodayStats()?.let { todayStats = it }
         }
     }
 

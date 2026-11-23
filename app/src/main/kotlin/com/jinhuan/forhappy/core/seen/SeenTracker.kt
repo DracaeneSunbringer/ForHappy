@@ -53,6 +53,8 @@ class SeenTracker(
     private val knownIds = LinkedHashSet<Long>()
     private val dailyIds = LinkedHashSet<Long>()
     private val localGuestIds = LinkedHashSet<Long>()
+    private val sessionFirstSeenIds = HashSet<Long>()
+    private val dayDeltaCreditedIds = HashSet<Long>()
 
     private var flushJob: Job? = null
     private var retryJob: Job? = null
@@ -66,10 +68,27 @@ class SeenTracker(
     private val _newlySeenByDay = MutableStateFlow<Map<String, Int>>(emptyMap())
     val newlySeenByDay: StateFlow<Map<String, Int>> = _newlySeenByDay.asStateFlow()
 
+    private val _flushRevision = MutableStateFlow(0)
+    val flushRevision: StateFlow<Int> = _flushRevision.asStateFlow()
+
     fun bindUser(userId: Long?) {
         val targetUid = userId?.takeIf { it > 0L } ?: 0L
         scope.launch {
             bindUserAndSync(targetUid)
+        }
+    }
+
+    fun bindUserBlocking(userId: Long?) {
+        val targetUid = userId?.takeIf { it > 0L } ?: 0L
+        val shouldFlush = kotlinx.coroutines.runBlocking {
+            stateMutex.withLock {
+                ensureGuestLoadedLocked()
+                restoreOrSwitchUserLocked(targetUid)
+                ownerUid > 0L && pendingQueue.isNotEmpty()
+            }
+        }
+        if (shouldFlush) {
+            scope.launch { flushNow() }
         }
     }
 
@@ -115,7 +134,15 @@ class SeenTracker(
                 }
             }
             if (changed) {
-                if (ownerUid > 0L) saveDailyLocked() else saveGuestLocked()
+                if (ownerUid > 0L) {
+                    while (knownIds.size > LOCAL_SEEN_LIMIT) {
+                        knownIds.remove(knownIds.iterator().next())
+                    }
+                    saveKnownLocked()
+                    saveDailyLocked()
+                } else {
+                    saveGuestLocked()
+                }
                 publishSnapshotsLocked()
             }
         }
@@ -160,15 +187,22 @@ class SeenTracker(
             val today = dayOfUtc8(nowSec)
             if (ownerUid <= 0L) {
                 val already = (existingSeenAt != null && existingSeenAt > 0L) || localGuestIds.contains(memeId)
-                if (already) return@withLock false
+                if (already) {
+                    if (memeId in sessionFirstSeenIds && !memeDay.isNullOrBlank() && dayDeltaCreditedIds.add(memeId)) {
+                        val cur = _newlySeenByDay.value
+                        _newlySeenByDay.value = cur + (memeDay to ((cur[memeDay] ?: 0) + 1))
+                    }
+                    return@withLock false
+                }
                 val wasNew = localGuestIds.add(memeId)
                 while (localGuestIds.size > LOCAL_SEEN_LIMIT) {
                     val first = localGuestIds.iterator().next()
                     localGuestIds.remove(first)
                 }
                 if (wasNew) {
+                    sessionFirstSeenIds.add(memeId)
                     saveGuestLocked()
-                    if (!memeDay.isNullOrBlank()) {
+                    if (!memeDay.isNullOrBlank() && dayDeltaCreditedIds.add(memeId)) {
                         val cur = _newlySeenByDay.value
                         _newlySeenByDay.value = cur + (memeDay to ((cur[memeDay] ?: 0) + 1))
                     }
@@ -181,18 +215,24 @@ class SeenTracker(
             val alreadySeen = (existingSeenAt != null && existingSeenAt > 0L) || knownIds.contains(memeId)
             val alreadyDaily = (existingSeenAt != null && existingSeenAt > 0L && dayOfUtc8(existingSeenAt) == today) ||
                 dailyIds.contains(memeId)
+            if (!alreadySeen) {
+                sessionFirstSeenIds.add(memeId)
+            }
+            if (memeId in sessionFirstSeenIds && !memeDay.isNullOrBlank() && dayDeltaCreditedIds.add(memeId)) {
+                val cur = _newlySeenByDay.value
+                _newlySeenByDay.value = cur + (memeDay to ((cur[memeDay] ?: 0) + 1))
+            }
             if (alreadySeen && alreadyDaily) {
                 return@withLock false
             }
 
-            if (!alreadySeen && !memeDay.isNullOrBlank()) {
-                val cur = _newlySeenByDay.value
-                _newlySeenByDay.value = cur + (memeDay to ((cur[memeDay] ?: 0) + 1))
-            }
-
             knownIds.add(memeId)
+            while (knownIds.size > LOCAL_SEEN_LIMIT) {
+                knownIds.remove(knownIds.iterator().next())
+            }
             dailyIds.add(memeId)
             pendingQueue["$today:$memeId"] = SeenVisitEntry(id = memeId, at = nowSec)
+            saveKnownLocked()
             saveDailyLocked()
             savePendingLocked()
             publishSnapshotsLocked()
@@ -202,6 +242,8 @@ class SeenTracker(
 
     fun resetDayDeltaCounter() {
         _newlySeenByDay.value = emptyMap()
+        sessionFirstSeenIds.clear()
+        dayDeltaCreditedIds.clear()
     }
 
     private fun scheduleDebouncedFlush() {
@@ -248,6 +290,7 @@ class SeenTracker(
                     savePendingLocked()
                     pendingQueue.isEmpty()
                 }
+                _flushRevision.value += 1
                 if (done) return@withLock true
             }
             @Suppress("UNREACHABLE_CODE")
@@ -282,6 +325,8 @@ class SeenTracker(
         pendingQueue.clear()
         knownIds.clear()
         dailyIds.clear()
+        sessionFirstSeenIds.clear()
+        dayDeltaCreditedIds.clear()
         ownerUid = uid
         currentDay = today
         _newlySeenByDay.value = emptyMap()
@@ -290,16 +335,25 @@ class SeenTracker(
             return
         }
 
+        val rawKnown = kvGet(seenKnownKey(uid))
+        if (!rawKnown.isNullOrBlank()) {
+            runCatching {
+                ForHappyJson.decodeFromString(ListSerializer(Long.serializer()), rawKnown)
+            }.getOrNull()?.forEach { id ->
+                if (id > 0L) knownIds.add(id)
+            }
+        }
+
         val rawDaily = kvGet(seenDailyKey(uid))
         if (!rawDaily.isNullOrBlank()) {
             runCatching {
                 ForHappyJson.decodeFromString(DailySeenSnapshot.serializer(), rawDaily)
             }.getOrNull()?.let { snap ->
-                if (snap.day == today) {
-                    snap.ids.forEach { id ->
-                        if (id > 0L) {
+                snap.ids.forEach { id ->
+                    if (id > 0L) {
+                        knownIds.add(id)
+                        if (snap.day == today) {
                             dailyIds.add(id)
-                            knownIds.add(id)
                         }
                     }
                 }
@@ -332,6 +386,13 @@ class SeenTracker(
         kvPut(seenPendingKey(uid), encoded)
     }
 
+    private fun saveKnownLocked() {
+        val uid = ownerUid
+        if (uid <= 0L) return
+        val trimmed = knownIds.toList().takeLast(LOCAL_SEEN_LIMIT)
+        kvPut(seenKnownKey(uid), ForHappyJson.encodeToString(ListSerializer(Long.serializer()), trimmed))
+    }
+
     private fun saveDailyLocked() {
         val uid = ownerUid
         if (uid <= 0L) return
@@ -356,7 +417,7 @@ class SeenTracker(
     }
 
     companion object {
-        const val DWELL_THRESHOLD_MS = 1000L
+        const val DWELL_THRESHOLD_MS = 800L
         private const val FLUSH_DEBOUNCE_MS = 1500L
         private const val RETRY_DELAY_MS = 5000L
         private const val MAX_BATCH_SIZE = 100
@@ -374,6 +435,7 @@ class SeenTracker(
 
         private fun seenPendingKey(uid: Long): String = "seen-pending:$uid"
         private fun seenDailyKey(uid: Long): String = "seen-day:$uid"
+        private fun seenKnownKey(uid: Long): String = "seen-known:$uid"
 
         fun dayOfUtc8(epochSec: Long): String {
             val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)

@@ -120,6 +120,7 @@ import com.jinhuan.forhappy.core.model.WallFilterState
 import com.jinhuan.forhappy.core.model.countReplyUnits
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
+import com.jinhuan.forhappy.core.seen.LocalSeenTracker
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
 import com.jinhuan.forhappy.ui.components.ForHappyTextField
 import com.jinhuan.forhappy.ui.components.ReactionEmojiView
@@ -183,6 +184,7 @@ fun WallBrowseSettingsSheet(
     onDismiss: () -> Unit,
 ) {
     val palette = LocalForHappyPalette.current
+    val seenTracker = LocalSeenTracker.current
     val scope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var draft by remember(current) { mutableStateOf(current) }
@@ -199,6 +201,9 @@ fun WallBrowseSettingsSheet(
         draft.searchQuery,
     ) {
         delay(220L)
+        if (draft.unseenOnly) {
+            seenTracker?.flushNow()
+        }
         val daysResp = api.fetchDays(
             limitDays = 45,
             sort = draft.sort,
@@ -1266,12 +1271,16 @@ fun SeriesIndexDialog(
     onDismiss: () -> Unit,
 ) {
     val palette = LocalForHappyPalette.current
+    val seenTracker = LocalSeenTracker.current
     var loading by remember { mutableStateOf(true) }
     var seriesList by remember { mutableStateOf<List<SeriesItem>>(emptyList()) }
     var sortKey by remember { mutableStateOf("last") } // "last" | "first" | "n" | "likes"
 
     LaunchedEffect(currentFilter.nsfwMode, currentFilter.unseenOnly) {
         loading = true
+        if (currentFilter.unseenOnly) {
+            seenTracker?.flushNow()
+        }
         seriesList = api.fetchSeriesList(
             nsfwModeParam = currentFilter.nsfwQueryValue(),
             unseenOnly = currentFilter.unseenOnly,

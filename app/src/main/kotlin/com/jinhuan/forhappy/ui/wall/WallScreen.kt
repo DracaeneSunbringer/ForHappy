@@ -314,12 +314,19 @@ fun WallScreen(
         }
     }
 
-    // Smoothly decay scroll velocity to 0 and restore FAB after 600ms idle (`01 §1.3`)
-    LaunchedEffect(gridState.isScrollInProgress) {
-        if (!gridState.isScrollInProgress) {
+    // Smoothly decay scroll velocity to 0 (including when finger rests stationary on screen)
+    LaunchedEffect(lastVelocitySampleMs) {
+        if (lastVelocitySampleMs > 0L) {
             delay(120L)
             scrollSpeedDpPerSec = 0f
-            delay(480L)
+        }
+    }
+
+    // Restore FAB after 600ms scroll idle (`01 §1.3`)
+    LaunchedEffect(gridState.isScrollInProgress) {
+        if (!gridState.isScrollInProgress) {
+            scrollSpeedDpPerSec = 0f
+            delay(600L)
             fabVisible = true
         }
     }
@@ -333,10 +340,8 @@ fun WallScreen(
                 val now = SystemClock.uptimeMillis()
                 val dt = (now - lastVelocitySampleMs).coerceAtLeast(16L)
                 lastVelocitySampleMs = now
-                if (source == NestedScrollSource.UserInput) {
-                    val speedPxPerSec = abs(dy) * (1000f / dt.toFloat())
-                    scrollSpeedDpPerSec = with(density) { speedPxPerSec / this.density }
-                }
+                val speedPxPerSec = abs(dy) * (1000f / dt.toFloat())
+                scrollSpeedDpPerSec = with(density) { speedPxPerSec / this.density }
 
                 val next = (topBarOffsetPx + dy).coerceIn(-topBarCollapseSpanPx, 0f)
                 topBarOffsetPx = next
@@ -508,9 +513,7 @@ fun WallScreen(
     fun reload(curFilter: WallFilterState = filter, asRefresh: Boolean = false) {
         scope.launch {
             if (asRefresh) refreshing = true else loading = true
-            if (curFilter.unseenOnly || asRefresh) {
-                seenTracker?.flushNow()
-            }
+            val flushOk = seenTracker?.flushNow() ?: true
             unseenAnchor = null
             currentPage = 1
             val guestSnap = if (me == null && curFilter.unseenOnly) {
@@ -566,7 +569,9 @@ fun WallScreen(
             val page = pageDef.await()
             val daysResp = daysDef.await()
             if (daysResp != null) {
-                seenTracker?.resetDayDeltaCounter()
+                if (flushOk) {
+                    seenTracker?.resetDayDeltaCounter()
+                }
                 daysMeta = daysResp.days
             }
             unseenAnchor = page.anchor
@@ -679,6 +684,7 @@ fun WallScreen(
 
     LaunchedEffect(
         prefsLoaded,
+        me?.id,
         filter.sort,
         filter.unseenOnly,
         filter.textFilter,
@@ -1049,7 +1055,14 @@ fun WallScreen(
                     } else {
                         0f
                     }
-                    feedViewportRect = RectF(b.left, b.top + headerOccludePx, b.right, b.bottom)
+                    val dockOccludePx = if (palette.isModernUi && fabVisible && filter.viewMode != "pager") {
+                        with(density) { (navBottomPad + 76.dp).toPx() }
+                    } else {
+                        0f
+                    }
+                    val visTop = b.top + headerOccludePx
+                    val visBottom = (b.bottom - dockOccludePx).coerceAtLeast(visTop + 1f)
+                    feedViewportRect = RectF(b.left, visTop, b.right, visBottom)
                 },
         ) {
             if (loading && memes.isEmpty()) {
@@ -1599,10 +1612,12 @@ fun WallScreen(
     }
 
     selectedMemeId?.let { id ->
+        val cachedTarget = remember(id, memes) { memes.firstOrNull { it.id == id } }
         MemeDetailModal(
             memeId = id,
             api = api,
             me = me,
+            initialMeme = cachedTarget,
             onRequireLogin = onRequireLogin,
             onDismiss = { selectedMemeId = null },
             onOpenImageFullscreen = { url -> detailInlineFullscreenUrl = url },
@@ -1868,9 +1883,11 @@ private fun CleanMemeCard(
                 },
             )
             .onGloballyPositioned { coords ->
-                val b = coords.boundsInWindow()
-                itemTopPx = b.top
-                itemBottomPx = b.bottom
+                if (!hasVisual) {
+                    val b = coords.boundsInWindow()
+                    itemTopPx = b.top
+                    itemBottomPx = b.bottom
+                }
             }
             .combinedClickable(
                 onClick = { handleCardTap() },
@@ -1888,6 +1905,11 @@ private fun CleanMemeCard(
                         .let { mod ->
                             if (clampedAspect != null) mod.aspectRatio(clampedAspect)
                             else mod.heightIn(min = 160.dp, max = 520.dp)
+                        }
+                        .onGloballyPositioned { coords ->
+                            val b = coords.boundsInWindow()
+                            itemTopPx = b.top
+                            itemBottomPx = b.bottom
                         }
                         .background(palette.surface2),
                     contentAlignment = Alignment.Center,

@@ -143,6 +143,7 @@ import com.jinhuan.forhappy.ui.components.ReactionChip
 import com.jinhuan.forhappy.ui.components.RichChatBodyView
 import com.jinhuan.forhappy.ui.components.boostPresetAccent
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
+import com.jinhuan.forhappy.ui.theme.LocalBossKeyActive
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.theme.LocalPrivacyStealthConfig
 import com.jinhuan.forhappy.ui.theme.TABULAR_FONT_FEATURE
@@ -166,6 +167,7 @@ fun MemeDetailModal(
     memeId: Long,
     api: ForHappyApiClient,
     me: MeUser? = null,
+    initialMeme: MemeItem? = null,
     onRequireLogin: () -> Unit = {},
     onDismiss: () -> Unit,
     onOpenImageFullscreen: (String) -> Unit,
@@ -179,6 +181,7 @@ fun MemeDetailModal(
 ) {
     val palette = LocalForHappyPalette.current
     val privacyConfig = LocalPrivacyStealthConfig.current
+    val bossKeyActive = LocalBossKeyActive.current
     val seenTracker = LocalSeenTracker.current
     val clipboard = LocalClipboardManager.current
     val haptic = LocalHapticFeedback.current
@@ -188,9 +191,9 @@ fun MemeDetailModal(
     val lifecycleOwner = LocalLifecycleOwner.current
 
     var entered by remember(memeId) { mutableStateOf(false) }
-    var item by remember(memeId) { mutableStateOf<MemeItem?>(null) }
+    var item by remember(memeId) { mutableStateOf(initialMeme) }
     var comments by remember(memeId) { mutableStateOf<List<MemeComment>>(emptyList()) }
-    var loading by remember(memeId) { mutableStateOf(true) }
+    var loading by remember(memeId) { mutableStateOf(initialMeme == null) }
 
     // Media / blur / original states (memory-only, reset on background or blur)
     var detailRevealed by remember(memeId, privacyConfig.blurAllEnabled) { mutableStateOf(false) }
@@ -235,26 +238,37 @@ fun MemeDetailModal(
         }
     }
 
-    LaunchedEffect(memeId) {
+    LaunchedEffect(memeId, bossKeyActive) {
         entered = true
-        loading = true
+        if (item == null) loading = true
+        if (!bossKeyActive) {
+            if (seenTracker != null) {
+                seenTracker.markSeen(
+                    memeId = memeId,
+                    existingSeenAt = initialMeme?.seenAt,
+                    memeDay = initialMeme?.resolvedDay,
+                )
+            } else {
+                launch { runCatching { api.recordMemeViews(listOf(memeId)) } }
+            }
+        }
         val detailDef = async { api.fetchMemeDetail(memeId) }
         val commentsDef = async { api.fetchMemeComments(memeId) }
         val detail = detailDef.await()
         val fetchedComments = commentsDef.await()
         val resolved = detail?.resolvedMeme
-        if (seenTracker != null) {
+        if (!bossKeyActive && seenTracker != null && resolved != null) {
             seenTracker.markSeen(
                 memeId = memeId,
-                existingSeenAt = resolved?.seenAt,
-                memeDay = resolved?.resolvedDay,
+                existingSeenAt = resolved.seenAt,
+                memeDay = resolved.resolvedDay,
             )
-        } else {
-            runCatching { api.recordMemeViews(listOf(memeId)) }
         }
-        item = resolved
-        if (resolved?.puzzle != null) {
-            puzzleExpanded = !resolved.puzzle.solved
+        if (resolved != null) {
+            item = resolved
+            if (resolved.puzzle != null) {
+                puzzleExpanded = !resolved.puzzle.solved
+            }
         }
         comments = if (fetchedComments.isNotEmpty()) fetchedComments else detail?.comments.orEmpty()
         loading = false
@@ -537,7 +551,7 @@ fun MemeDetailModal(
                                     val quickReplies = remember(m.replyList, m.replies, m.myReply, me?.username) {
                                         m.effectiveQuickReplies(me)
                                     }
-                                    val totalQuickCount = maxOf(m.replyCount, quickReplies.size)
+                                    val totalQuickCount = maxOf(m.replyCount, quickReplies.sumOf { it.n.coerceAtLeast(1) })
 
                                     Column(
                                         modifier = Modifier
