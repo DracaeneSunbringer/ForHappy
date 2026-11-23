@@ -112,9 +112,12 @@ import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
 import com.jinhuan.forhappy.ui.components.BadgeChipView
 import com.jinhuan.forhappy.ui.components.BadgePill
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
+import com.jinhuan.forhappy.ui.components.ForHappyBellIconButton
+import com.jinhuan.forhappy.ui.components.ForHappyCountBadge
 import com.jinhuan.forhappy.ui.components.ForHappySearchField
 import com.jinhuan.forhappy.ui.components.ForHappyTextField
 import com.jinhuan.forhappy.ui.components.TitleChipView
+import com.jinhuan.forhappy.ui.components.formatUnreadBadgeCount
 import com.jinhuan.forhappy.ui.components.parseSafeHex
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
@@ -253,39 +256,15 @@ fun MessagesListView(
                             )
                         }
                     }
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .let { if (palette.isModernUi) it.background(palette.surface2.copy(alpha = 0.78f)) else it }
-                            .clickable { onOpenNotifications() },
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Notifications,
-                            contentDescription = "通知中心",
-                            tint = palette.text,
-                            modifier = Modifier.size(if (palette.isModernUi) 19.dp else 20.dp),
-                        )
-                        if (notifUnreadCount > 0) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .padding(top = 3.dp, end = 2.dp)
-                                    .clip(RoundedCornerShape(999.dp))
-                                    .background(palette.badge)
-                                    .padding(horizontal = 4.dp, vertical = 0.5.dp),
-                            ) {
-                                Text(
-                                    text = if (notifUnreadCount > 99) "99+" else notifUnreadCount.toString(),
-                                    color = Color.White,
-                                    fontSize = 8.sp,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            }
-                        }
-                    }
+                    ForHappyBellIconButton(
+                        unreadCount = notifUnreadCount,
+                        onClick = onOpenNotifications,
+                        buttonSize = 36.dp,
+                        icon = Icons.Rounded.Notifications,
+                        iconSize = if (palette.isModernUi) 19.dp else 20.dp,
+                        iconTint = palette.text,
+                        contentDescription = "通知中心",
+                    )
                 }
 
                 // Filter Capsules Row
@@ -814,18 +793,13 @@ private fun SessionRowCard(
                     val badgeCount = session.unreadCount
                     when {
                         badgeCount > 0 -> {
-                            Surface(
-                                color = if (atMeCount > 0 || !session.isMuted) palette.badge else palette.muted,
-                                shape = RoundedCornerShape(999.dp),
-                            ) {
-                                Text(
-                                    text = if (badgeCount > 99) "99+" else badgeCount.toString(),
-                                    color = Color.White,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-                                )
-                            }
+                            ForHappyCountBadge(
+                                text = formatUnreadBadgeCount(badgeCount),
+                                containerColor = if (atMeCount > 0 || !session.isMuted) palette.badge else palette.muted,
+                                minSize = 18.dp,
+                                fontSize = 10.5.sp,
+                                horizontalPadding = if (badgeCount < 10) 0.dp else 5.5.dp,
+                            )
                         }
                         session.isMuted && mutedRawUnread > 0 -> {
                             Box(

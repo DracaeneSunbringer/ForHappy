@@ -140,7 +140,9 @@ import com.jinhuan.forhappy.core.seen.LocalSeenTracker
 import com.jinhuan.forhappy.core.seen.ObserveMemeSeenDwell
 import com.jinhuan.forhappy.core.seen.computeVisibleAreaRatio
 import com.jinhuan.forhappy.ui.chat.ChatScreen
+import com.jinhuan.forhappy.ui.components.ForHappyCountBadge
 import com.jinhuan.forhappy.ui.components.RichChatBodyView
+import com.jinhuan.forhappy.ui.components.formatUnreadBadgeCount
 import com.jinhuan.forhappy.ui.compose.ComposeMediaStager
 import com.jinhuan.forhappy.ui.compose.ImageMaskEditorScreen
 import com.jinhuan.forhappy.ui.theme.LocalBossKeyActive
@@ -1223,19 +1225,13 @@ fun LinuxDoDisguiseScreen(
                                     verticalArrangement = Arrangement.spacedBy(6.dp),
                                 ) {
                                     if (topic.unreadCount > 0) {
-                                        Surface(
-                                            color = lc.accent,
-                                            shape = RoundedCornerShape(999.dp),
-                                        ) {
-                                            Text(
-                                                text = if (topic.unreadCount > 99) "99+" else "${topic.unreadCount}",
-                                                color = Color.White,
-                                                fontSize = 10.5.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                style = TextStyle(fontFeatureSettings = TABULAR_FONT_FEATURE),
-                                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 1.5.dp),
-                                            )
-                                        }
+                                        ForHappyCountBadge(
+                                            text = formatUnreadBadgeCount(topic.unreadCount),
+                                            containerColor = lc.accent,
+                                            minSize = 18.dp,
+                                            fontSize = 10.5.sp,
+                                            horizontalPadding = if (topic.unreadCount < 10) 0.dp else 6.dp,
+                                        )
                                     } else {
                                         Text(
                                             text = "${topic.replyCount}",

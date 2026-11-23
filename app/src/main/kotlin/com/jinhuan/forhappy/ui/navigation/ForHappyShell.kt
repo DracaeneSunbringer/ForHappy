@@ -80,6 +80,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -117,7 +118,9 @@ import com.jinhuan.forhappy.core.update.UpdateStatus
 import com.jinhuan.forhappy.ui.chat.ChatNotificationJump
 import com.jinhuan.forhappy.ui.chat.ChatScreen
 import com.jinhuan.forhappy.ui.components.BadgePill
+import com.jinhuan.forhappy.ui.components.ForHappyCountBadge
 import com.jinhuan.forhappy.ui.components.LocalCosmeticHttpClient
+import com.jinhuan.forhappy.ui.components.formatMentionOrCountBadge
 import com.jinhuan.forhappy.ui.compose.ComposeWorkbench
 import com.jinhuan.forhappy.ui.compose.SystemShareTargetSheet
 import com.jinhuan.forhappy.ui.disguise.BossDocScreen
@@ -1697,39 +1700,48 @@ private fun ModernCapsuleDockItem(
         Color.Transparent
     }
     val interaction = remember { MutableInteractionSource() }
-    Column(
-        modifier = modifier
-            .fillMaxHeight()
-            .clip(CircleShape)
-            .background(pillBg)
-            .combinedClickable(
-                interactionSource = interaction,
-                indication = null,
-                onClick = onClick,
-                onLongClick = onLongClick,
-            ),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+    Box(
+        modifier = modifier.fillMaxHeight(),
+        contentAlignment = Alignment.Center,
     ) {
-        DockIconBadge(
-            icon = icon,
-            label = label,
-            tint = fg,
-            iconSize = 21.dp,
-            badgeCount = badgeCount,
-            badgeIsMention = badgeIsMention,
-            showDot = showDot,
-            dotColor = dotColor,
-            palette = palette,
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clip(CircleShape)
+                .background(pillBg)
+                .combinedClickable(
+                    interactionSource = interaction,
+                    indication = null,
+                    onClick = onClick,
+                    onLongClick = onLongClick,
+                ),
         )
-        Spacer(Modifier.height(1.dp))
-        Text(
-            text = label,
-            color = fg,
-            fontSize = if (selected) 11.sp else 10.5.sp,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            maxLines = 1,
-        )
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            DockIconBadge(
+                icon = icon,
+                label = label,
+                tint = fg,
+                iconSize = 21.dp,
+                badgeCount = badgeCount,
+                badgeIsMention = badgeIsMention,
+                showDot = showDot,
+                dotColor = dotColor,
+                palette = palette,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = label,
+                color = fg,
+                fontSize = if (selected) 11.sp else 10.5.sp,
+                lineHeight = 13.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                maxLines = 1,
+                style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
+            )
+        }
     }
 }
 
@@ -1754,33 +1766,20 @@ private fun DockIconBadge(
         )
         if (badgeCount > 0 || badgeIsMention) {
             val badgeBg = if (badgeIsMention) palette.danger else palette.badge
-            val countLabel = if (badgeCount > 99) "99+" else "$badgeCount"
-            val text = when {
-                badgeIsMention && badgeCount > 0 -> "@$countLabel"
-                badgeIsMention -> "@我"
-                else -> countLabel
-            }
-            Box(
-                modifier = Modifier
-                    .offset(x = 8.dp, y = (-4).dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(badgeBg)
-                    .padding(horizontal = 4.dp, vertical = 1.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = text,
-                    color = Color.White,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    style = TextStyle(fontFeatureSettings = TABULAR_FONT_FEATURE),
-                )
-            }
+            val text = formatMentionOrCountBadge(badgeCount, badgeIsMention)
+            ForHappyCountBadge(
+                text = text,
+                containerColor = badgeBg,
+                minSize = 15.dp,
+                fontSize = 9.5.sp,
+                horizontalPadding = if (text.length <= 1) 0.dp else 4.5.dp,
+                modifier = Modifier.offset(x = 9.dp, y = (-4).dp),
+            )
         } else if (showDot) {
             Box(
                 modifier = Modifier
                     .offset(x = 3.dp, y = (-2).dp)
-                    .size(6.dp)
+                    .size(6.5.dp)
                     .clip(CircleShape)
                     .background(dotColor),
             )
@@ -1828,13 +1827,15 @@ private fun CompactBottomBarItem(
             dotColor = dotColor,
             palette = palette,
         )
-        Spacer(Modifier.height(2.dp))
+        Spacer(Modifier.height(3.dp))
         Text(
             text = label,
             color = fg,
             fontSize = 11.sp,
+            lineHeight = 13.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             maxLines = 1,
+            style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
         )
     }
 }

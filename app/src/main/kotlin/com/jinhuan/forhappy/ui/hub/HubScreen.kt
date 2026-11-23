@@ -33,7 +33,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material3.HorizontalDivider
@@ -75,6 +74,8 @@ import com.jinhuan.forhappy.core.model.TodayStats
 import com.jinhuan.forhappy.core.moyu.MoyuCalculator
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.ui.components.BadgePill
+import com.jinhuan.forhappy.ui.components.ForHappyBellIconButton
+import com.jinhuan.forhappy.ui.components.ForHappyCountBadge
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.theme.TABULAR_FONT_FEATURE
@@ -319,40 +320,10 @@ fun HubScreen(
                                 modifier = Modifier.clickable { onRequireLogin() },
                             )
                         } else {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .size(if (palette.isModernUi) 36.dp else 40.dp)
-                                    .clip(CircleShape)
-                                    .let { if (palette.isModernUi) it.background(palette.surface2.copy(alpha = 0.78f)) else it }
-                                    .clickable { onOpenNotifications() },
-                            ) {
-                                Box(contentAlignment = Alignment.TopEnd) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.NotificationsNone,
-                                        contentDescription = "通知",
-                                        tint = if (notifUnreadCount > 0) palette.text else palette.muted,
-                                        modifier = Modifier.size(if (palette.isModernUi) 19.dp else 21.dp),
-                                    )
-                                    if (notifUnreadCount > 0) {
-                                        Box(
-                                            modifier = Modifier
-                                                .offset(x = 5.dp, y = (-3).dp)
-                                                .clip(RoundedCornerShape(999.dp))
-                                                .background(palette.badge)
-                                                .padding(horizontal = 4.dp, vertical = 1.dp),
-                                        ) {
-                                            Text(
-                                                text = if (notifUnreadCount > 99) "99+" else "$notifUnreadCount",
-                                                color = Color.White,
-                                                fontSize = 9.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                style = TextStyle(fontFeatureSettings = TABULAR_FONT_FEATURE),
-                                            )
-                                        }
-                                    }
-                                }
-                            }
+                            ForHappyBellIconButton(
+                                unreadCount = notifUnreadCount,
+                                onClick = onOpenNotifications,
+                            )
                         }
                     }
                 }
@@ -852,16 +823,16 @@ private fun FeaturedBentoTile(
             }
         }
         if (entry.isNew) {
-            Box(
+            ForHappyCountBadge(
+                text = "NEW",
+                containerColor = palette.badge,
+                minSize = 15.dp,
+                fontSize = 8.5.sp,
+                horizontalPadding = 5.dp,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(6.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(palette.badge)
-                    .padding(horizontal = 5.dp, vertical = 1.dp),
-            ) {
-                Text("NEW", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold)
-            }
+                    .padding(6.dp),
+            )
         }
     }
 }
@@ -935,16 +906,16 @@ private fun PinnedGridTile(
                 Icon(Icons.Rounded.Remove, contentDescription = "移除", tint = Color.White, modifier = Modifier.size(12.dp))
             }
         } else if (entry.isNew) {
-            Box(
+            ForHappyCountBadge(
+                text = "NEW",
+                containerColor = palette.badge,
+                minSize = 15.dp,
+                fontSize = 8.5.sp,
+                horizontalPadding = 5.dp,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(4.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(palette.badge)
-                    .padding(horizontal = 5.dp, vertical = 1.dp),
-            ) {
-                Text("NEW", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold)
-            }
+                    .padding(4.dp),
+            )
         }
     }
 }

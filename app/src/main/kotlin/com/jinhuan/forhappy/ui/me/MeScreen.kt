@@ -37,7 +37,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SwapVert
@@ -103,6 +102,7 @@ import com.jinhuan.forhappy.core.update.UpdateStatus
 import com.jinhuan.forhappy.ui.components.BadgeChipView
 import com.jinhuan.forhappy.ui.components.BadgePill
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
+import com.jinhuan.forhappy.ui.components.ForHappyBellIconButton
 import com.jinhuan.forhappy.ui.components.ForHappySearchField
 import com.jinhuan.forhappy.ui.components.ForHappyTextField
 import com.jinhuan.forhappy.ui.components.TitleChipView
@@ -357,39 +357,10 @@ fun MeScreen(
                         horizontalArrangement = Arrangement.spacedBy(if (palette.isModernUi) 6.dp else 0.dp),
                     ) {
                         if (me != null) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .size(if (palette.isModernUi) 36.dp else 40.dp)
-                                    .clip(CircleShape)
-                                    .let { if (palette.isModernUi) it.background(palette.surface2.copy(alpha = 0.78f)) else it }
-                                    .clickable { onOpenNotifications() },
-                            ) {
-                                Box(contentAlignment = Alignment.TopEnd) {
-                                    Icon(
-                                        Icons.Rounded.NotificationsNone,
-                                        contentDescription = "通知",
-                                        tint = if (notifUnreadCount > 0) palette.text else palette.muted,
-                                        modifier = Modifier.size(if (palette.isModernUi) 19.dp else 21.dp),
-                                    )
-                                    if (notifUnreadCount > 0) {
-                                        Box(
-                                            modifier = Modifier
-                                                .offset(x = 5.dp, y = (-3).dp)
-                                                .clip(RoundedCornerShape(999.dp))
-                                                .background(palette.badge)
-                                                .padding(horizontal = 4.dp, vertical = 1.dp),
-                                        ) {
-                                            Text(
-                                                text = if (notifUnreadCount > 99) "99+" else "$notifUnreadCount",
-                                                color = Color.White,
-                                                fontSize = 9.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                            )
-                                        }
-                                    }
-                                }
-                            }
+                            ForHappyBellIconButton(
+                                unreadCount = notifUnreadCount,
+                                onClick = onOpenNotifications,
+                            )
                         } else {
                             BadgePill(
                                 text = "登录",

@@ -99,6 +99,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -127,8 +128,10 @@ import com.jinhuan.forhappy.core.model.TagStatItem
 import com.jinhuan.forhappy.core.navigation.StealthExemptionGate
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.ui.chat.ChatScreen
+import com.jinhuan.forhappy.ui.components.ForHappyCountBadge
 import com.jinhuan.forhappy.ui.components.ReactionChip
 import com.jinhuan.forhappy.ui.components.RichChatBodyView
+import com.jinhuan.forhappy.ui.components.formatUnreadBadgeCount
 import com.jinhuan.forhappy.ui.compose.ComposeMediaStager
 import com.jinhuan.forhappy.ui.compose.ImageMaskEditorScreen
 import com.jinhuan.forhappy.ui.theme.LocalBossKeyActive
@@ -794,20 +797,14 @@ private fun FeishuBottomTabItem(
         Box(contentAlignment = Alignment.TopEnd) {
             Icon(icon, contentDescription = label, tint = fg, modifier = Modifier.size(22.dp))
             if (badgeCount > 0) {
-                Box(
-                    modifier = Modifier
-                        .offset(x = 8.dp, y = (-3).dp)
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(fc.unreadRed)
-                        .padding(horizontal = 4.dp, vertical = 0.5.dp),
-                ) {
-                    Text(
-                        text = if (badgeCount > 99) "99+" else "$badgeCount",
-                        color = Color.White,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
+                ForHappyCountBadge(
+                    text = formatUnreadBadgeCount(badgeCount),
+                    containerColor = fc.unreadRed,
+                    minSize = 15.dp,
+                    fontSize = 9.sp,
+                    horizontalPadding = if (badgeCount < 10) 0.dp else 4.dp,
+                    modifier = Modifier.offset(x = 8.dp, y = (-3).dp),
+                )
             }
         }
         Spacer(Modifier.height(2.dp))
@@ -815,7 +812,9 @@ private fun FeishuBottomTabItem(
             text = label,
             color = fg,
             fontSize = 11.sp,
+            lineHeight = 13.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
         )
     }
 }
@@ -1342,22 +1341,18 @@ private fun FeishuConversationRow(
             }
 
             if (unreadCount > 0) {
-                Box(
+                ForHappyCountBadge(
+                    text = formatUnreadBadgeCount(unreadCount),
+                    containerColor = fc.unreadRed,
+                    minSize = 15.dp,
+                    fontSize = 9.5.sp,
+                    horizontalPadding = if (unreadCount < 10) 0.dp else 4.5.dp,
+                    borderWidth = 1.5.dp,
+                    borderColor = fc.card,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .offset(x = 5.dp, y = (-4).dp)
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(fc.unreadRed)
-                        .border(1.5.dp, fc.card, RoundedCornerShape(999.dp))
-                        .padding(horizontal = 5.dp, vertical = 1.dp),
-                ) {
-                    Text(
-                        text = if (unreadCount > 99) "99+" else "$unreadCount",
-                        color = Color.White,
-                        fontSize = 9.5.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
+                        .offset(x = 5.dp, y = (-4).dp),
+                )
             }
         }
 

@@ -64,7 +64,6 @@ import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.MoreHoriz
-import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -143,6 +142,7 @@ import com.jinhuan.forhappy.core.seen.shouldAutoReblurRevealed
 import com.jinhuan.forhappy.ui.components.BadgePill
 import com.jinhuan.forhappy.ui.components.BoostPillText
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
+import com.jinhuan.forhappy.ui.components.ForHappyBellIconButton
 import com.jinhuan.forhappy.ui.components.ReactionChip
 import com.jinhuan.forhappy.ui.components.RichChatBodyView
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
@@ -903,40 +903,10 @@ fun WallScreen(
                                     modifier = Modifier.clickable { onRequireLogin() },
                                 )
                             } else {
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier
-                                        .size(if (isModern) 36.dp else 40.dp)
-                                        .clip(CircleShape)
-                                        .let { if (isModern) it.background(palette.surface2.copy(alpha = 0.78f)) else it }
-                                        .clickable { onOpenNotifications() },
-                                ) {
-                                    Box(contentAlignment = Alignment.TopEnd) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.NotificationsNone,
-                                            contentDescription = "通知",
-                                            tint = if (notifUnreadCount > 0) palette.text else palette.muted,
-                                            modifier = Modifier.size(if (isModern) 19.dp else 21.dp),
-                                        )
-                                        if (notifUnreadCount > 0) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .offset(x = 5.dp, y = (-3).dp)
-                                                    .clip(RoundedCornerShape(999.dp))
-                                                    .background(palette.badge)
-                                                    .padding(horizontal = 4.dp, vertical = 1.dp),
-                                            ) {
-                                                Text(
-                                                    text = if (notifUnreadCount > 99) "99+" else "$notifUnreadCount",
-                                                    color = Color.White,
-                                                    fontSize = 9.sp,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    style = TextStyle(fontFeatureSettings = TABULAR_FONT_FEATURE),
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
+                                ForHappyBellIconButton(
+                                    unreadCount = notifUnreadCount,
+                                    onClick = onOpenNotifications,
+                                )
                             }
                         }
                     }

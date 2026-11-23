@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -30,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -48,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -62,6 +65,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
@@ -81,6 +85,7 @@ import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
 import com.jinhuan.forhappy.ui.disguise.DisguiseSanitizer
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.theme.LocalPrivacyStealthConfig
+import com.jinhuan.forhappy.ui.theme.TABULAR_FONT_FEATURE
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
@@ -160,6 +165,122 @@ fun ForHappyAvatar(
                 },
                 modifier = imageModifier,
             )
+        }
+    }
+}
+
+fun formatUnreadBadgeCount(count: Int): String =
+    if (count > 99) "99+" else count.coerceAtLeast(0).toString()
+
+fun formatMentionOrCountBadge(count: Int, isMention: Boolean): String = when {
+    isMention && count > 0 -> "@${formatUnreadBadgeCount(count)}"
+    isMention -> "@我"
+    else -> formatUnreadBadgeCount(count)
+}
+
+/**
+ * Unclipped, vertically-centered pill/circle numeric or status badge.
+ * Uses tight `lineHeight` + `includeFontPadding = false` + `LineHeightStyle.Alignment.Center`
+ * so digits do not shift upward inside compact capsules.
+ */
+@Composable
+fun ForHappyCountBadge(
+    text: String,
+    modifier: Modifier = Modifier,
+    containerColor: Color? = null,
+    contentColor: Color = Color.White,
+    minSize: Dp = 16.dp,
+    fontSize: TextUnit = 9.5.sp,
+    horizontalPadding: Dp = if (text.length <= 1) 0.dp else 4.5.dp,
+    borderWidth: Dp = 0.dp,
+    borderColor: Color = Color.Transparent,
+) {
+    val palette = LocalForHappyPalette.current
+    val bg = containerColor ?: palette.badge
+    val shape = RoundedCornerShape(999.dp)
+    val outerModifier = if (borderWidth > 0.dp && borderColor != Color.Transparent) {
+        modifier
+            .background(borderColor, shape)
+            .padding(borderWidth)
+    } else {
+        modifier
+    }
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = outerModifier
+            .defaultMinSize(minWidth = minSize, minHeight = minSize)
+            .clip(shape)
+            .background(bg)
+            .padding(horizontal = horizontalPadding),
+    ) {
+        Text(
+            text = text,
+            color = contentColor,
+            fontSize = fontSize,
+            lineHeight = fontSize,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            softWrap = false,
+            style = TextStyle(
+                fontFeatureSettings = TABULAR_FONT_FEATURE,
+                platformStyle = PlatformTextStyle(includeFontPadding = false),
+                lineHeightStyle = LineHeightStyle(
+                    alignment = LineHeightStyle.Alignment.Center,
+                    trim = LineHeightStyle.Trim.None,
+                ),
+            ),
+        )
+    }
+}
+
+/**
+ * Top-bar circular notification bell button whose badge sits outside the clipped circle background
+ * so multi-digit unread pills are never sliced at the button boundary.
+ */
+@Composable
+fun ForHappyBellIconButton(
+    unreadCount: Int,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    buttonSize: Dp? = null,
+    icon: ImageVector = Icons.Rounded.NotificationsNone,
+    iconSize: Dp? = null,
+    iconTint: Color? = null,
+    contentDescription: String = "通知",
+) {
+    val palette = LocalForHappyPalette.current
+    val isModern = palette.isModernUi
+    val resolvedButtonSize = buttonSize ?: if (isModern) 36.dp else 40.dp
+    val resolvedIconSize = iconSize ?: if (isModern) 19.dp else 21.dp
+    val resolvedTint = iconTint ?: if (unreadCount > 0) palette.text else palette.muted
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier.size(resolvedButtonSize),
+    ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clip(CircleShape)
+                .let { if (isModern) it.background(palette.surface2.copy(alpha = 0.78f)) else it }
+                .clickable(onClick = onClick),
+        )
+        Box(contentAlignment = Alignment.TopEnd) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = resolvedTint,
+                modifier = Modifier.size(resolvedIconSize),
+            )
+            if (unreadCount > 0) {
+                ForHappyCountBadge(
+                    text = formatUnreadBadgeCount(unreadCount),
+                    containerColor = palette.badge,
+                    minSize = 15.dp,
+                    fontSize = 9.sp,
+                    horizontalPadding = if (unreadCount < 10) 0.dp else 4.dp,
+                    modifier = Modifier.offset(x = 6.dp, y = (-4).dp),
+                )
+            }
         }
     }
 }

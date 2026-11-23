@@ -209,11 +209,13 @@ import com.jinhuan.forhappy.ui.components.BoostPillText
 import com.jinhuan.forhappy.ui.components.ChatCosmeticBoostPill
 import com.jinhuan.forhappy.ui.components.ChatCosmeticBubbleBox
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
+import com.jinhuan.forhappy.ui.components.ForHappyCountBadge
 import com.jinhuan.forhappy.ui.components.ForHappyTextField
 import com.jinhuan.forhappy.ui.components.ReactionChip
 import com.jinhuan.forhappy.ui.components.RichChatBodyView
 import com.jinhuan.forhappy.ui.components.TitleChipView
 import com.jinhuan.forhappy.ui.components.boostPresetAccent
+import com.jinhuan.forhappy.ui.components.formatMentionOrCountBadge
 import com.jinhuan.forhappy.ui.components.parseSafeHex
 import com.jinhuan.forhappy.ui.compose.ComposeMediaStager
 import com.jinhuan.forhappy.ui.disguise.DisguiseSanitizer
@@ -1304,23 +1306,14 @@ fun ChatScreen(
                                                         )
                                                     }
                                                     if (!selected && badgeCnt > 0) {
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .clip(RoundedCornerShape(999.dp))
-                                                                .background(if (grp.atMe > 0) palette.danger else palette.badge)
-                                                                .padding(horizontal = 5.dp, vertical = 1.dp),
-                                                        ) {
-                                                            Text(
-                                                                text = when {
-                                                                    grp.atMe > 0 -> "@$badgeCnt"
-                                                                    badgeCnt > 99 -> "99+"
-                                                                    else -> badgeCnt.toString()
-                                                                },
-                                                                color = Color.White,
-                                                                fontSize = 9.sp,
-                                                                fontWeight = FontWeight.Bold,
-                                                            )
-                                                        }
+                                                        val chipBadgeText = formatMentionOrCountBadge(badgeCnt, grp.atMe > 0)
+                                                        ForHappyCountBadge(
+                                                            text = chipBadgeText,
+                                                            containerColor = if (grp.atMe > 0) palette.danger else palette.badge,
+                                                            minSize = 15.dp,
+                                                            fontSize = 9.sp,
+                                                            horizontalPadding = if (chipBadgeText.length <= 1) 0.dp else 4.5.dp,
+                                                        )
                                                     }
                                                 }
                                             }
