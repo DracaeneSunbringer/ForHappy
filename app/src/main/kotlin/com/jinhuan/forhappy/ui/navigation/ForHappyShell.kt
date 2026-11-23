@@ -95,6 +95,7 @@ import com.jinhuan.forhappy.core.clock.ServerClock
 import com.jinhuan.forhappy.core.compose.ComposeGenre
 import com.jinhuan.forhappy.core.compose.ComposeLaunchRequest
 import com.jinhuan.forhappy.core.dynamic.TopbarModuleScanner
+import com.jinhuan.forhappy.core.model.AccentColorConfig
 import com.jinhuan.forhappy.core.model.AppDisguiseMode
 import com.jinhuan.forhappy.core.model.AppIconAlias
 import com.jinhuan.forhappy.core.model.AppThemeMode
@@ -169,6 +170,7 @@ fun ForHappyShell(
     app: ForHappyApp,
     themeMode: AppThemeMode,
     uiStyle: AppUiStyle = AppUiStyle.MODERN,
+    accentConfig: AccentColorConfig = AccentColorConfig(),
     privacyConfig: PrivacyStealthConfig,
     bossKeyActive: Boolean,
     privacyShieldEnabled: Boolean,
@@ -176,6 +178,7 @@ fun ForHappyShell(
     incomingIntents: Flow<Intent> = emptyFlow(),
     onChangeTheme: (AppThemeMode) -> Unit,
     onChangeUiStyle: (AppUiStyle) -> Unit = {},
+    onChangeAccentConfig: (AccentColorConfig) -> Unit = {},
     onChangeDisguise: (AppDisguiseMode) -> Unit,
     onUpdatePrivacyConfig: (PrivacyStealthConfig) -> Unit,
     onSetBossKeyActive: (Boolean) -> Unit,
@@ -951,6 +954,7 @@ fun ForHappyShell(
                         me = me,
                         themeMode = themeMode,
                         uiStyle = uiStyle,
+                        accentConfig = accentConfig,
                         privacyConfig = privacyConfig,
                         privacyShieldEnabled = privacyShieldEnabled,
                         activeIconAlias = activeIconAlias,
@@ -959,6 +963,7 @@ fun ForHappyShell(
                         onOpenNotifications = { showNotifsSheet = true },
                         onChangeTheme = onChangeTheme,
                         onChangeUiStyle = onChangeUiStyle,
+                        onChangeAccentConfig = onChangeAccentConfig,
                         onChangeDisguise = onChangeDisguise,
                         onUpdatePrivacyConfig = onUpdatePrivacyConfig,
                         onTogglePrivacyShield = onTogglePrivacyShield,

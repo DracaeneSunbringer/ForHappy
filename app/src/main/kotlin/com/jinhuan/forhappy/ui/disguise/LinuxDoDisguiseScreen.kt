@@ -2823,7 +2823,10 @@ private fun LinuxDoPreferencesOverlay(
                             }
                             HorizontalDivider(color = lc.line)
                             Text("桌面图标样式", color = lc.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
                                 AppIconAlias.entries.forEach { alias ->
                                     FilterChip(
                                         selected = activeIconAlias == alias,

@@ -1,8 +1,5 @@
 package com.jinhuan.forhappy.ui.me
 
-import android.content.ComponentName
-import android.content.Context
-import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -85,6 +82,7 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.jinhuan.forhappy.R
 import com.jinhuan.forhappy.core.chat.ChatSessionController
+import com.jinhuan.forhappy.core.model.AccentColorConfig
 import com.jinhuan.forhappy.core.model.AppDisguiseMode
 import com.jinhuan.forhappy.core.model.AppIconAlias
 import com.jinhuan.forhappy.core.model.AppThemeMode
@@ -109,6 +107,8 @@ import com.jinhuan.forhappy.ui.components.ForHappySearchField
 import com.jinhuan.forhappy.ui.components.ForHappyTextField
 import com.jinhuan.forhappy.ui.components.TitleChipView
 import com.jinhuan.forhappy.ui.components.parseSafeHex
+import com.jinhuan.forhappy.ui.disguise.applyLauncherIconAlias
+import com.jinhuan.forhappy.ui.disguise.previewDrawableRes
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.theme.LocalPrivacyStealthConfig
@@ -140,6 +140,7 @@ fun MeScreen(
     me: MeUser?,
     themeMode: AppThemeMode,
     uiStyle: AppUiStyle = AppUiStyle.MODERN,
+    accentConfig: AccentColorConfig = AccentColorConfig(),
     privacyConfig: PrivacyStealthConfig,
     privacyShieldEnabled: Boolean,
     activeIconAlias: AppIconAlias,
@@ -148,6 +149,7 @@ fun MeScreen(
     onOpenNotifications: () -> Unit = {},
     onChangeTheme: (AppThemeMode) -> Unit,
     onChangeUiStyle: (AppUiStyle) -> Unit = {},
+    onChangeAccentConfig: (AccentColorConfig) -> Unit = {},
     onChangeDisguise: (AppDisguiseMode) -> Unit,
     onUpdatePrivacyConfig: (PrivacyStealthConfig) -> Unit,
     onTogglePrivacyShield: (Boolean) -> Unit,
@@ -948,12 +950,14 @@ fun MeScreen(
             chatController = chatController,
             themeMode = themeMode,
             uiStyle = uiStyle,
+            accentConfig = accentConfig,
             privacyConfig = privacyConfig,
             privacyShieldEnabled = privacyShieldEnabled,
             activeIconAlias = activeIconAlias,
             initialSubpage = settingsSubpageArg,
             onChangeTheme = onChangeTheme,
             onChangeUiStyle = onChangeUiStyle,
+            onChangeAccentConfig = onChangeAccentConfig,
             onChangeDisguise = onChangeDisguise,
             onUpdatePrivacyConfig = onUpdatePrivacyConfig,
             onTogglePrivacyShield = onTogglePrivacyShield,
@@ -1338,54 +1342,62 @@ fun PrivacyStealthSettingsContent(
 
         HorizontalDivider(color = palette.line)
 
-        Text("桌面启动器图标伪装（切换后桌面数秒内刷新）", color = palette.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            AppIconAlias.entries.forEach { alias ->
-                val selected = activeIconAlias == alias
-                val iconRes = when (alias) {
-                    AppIconAlias.JINHUAN -> R.drawable.ic_launcher_jinhuan
-                    AppIconAlias.FEISHU -> R.drawable.ic_launcher_feishu
-                    AppIconAlias.DOCS -> R.drawable.ic_launcher_docs
-                }
-                Surface(
-                    color = if (selected) palette.primary.copy(alpha = 0.12f) else palette.surface2.copy(alpha = 0.72f),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .border(
-                            width = if (selected) 1.5.dp else 1.dp,
-                            color = if (selected) palette.primary else palette.line.copy(alpha = 0.6f),
-                            shape = RoundedCornerShape(12.dp),
-                        )
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable {
-                            switchLauncherAlias(context, alias)
-                            onChangeIconAlias(alias)
-                        },
+        Text("桌面启动器图标与伪装（切换后桌面数秒内刷新）", color = palette.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            AppIconAlias.entries.chunked(3).forEach { rowAliases ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Image(
-                            painter = painterResource(iconRes),
-                            contentDescription = alias.title,
+                    rowAliases.forEach { alias ->
+                        val selected = activeIconAlias == alias
+                        Surface(
+                            color = if (selected) palette.primary.copy(alpha = 0.12f) else palette.surface2.copy(alpha = 0.72f),
+                            shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
-                                .size(34.dp)
-                                .clip(RoundedCornerShape(9.dp)),
-                        )
-                        Text(
-                            text = alias.title,
-                            color = if (selected) palette.primary else palette.text,
-                            fontSize = 11.5.sp,
-                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                                .weight(1f)
+                                .border(
+                                    width = if (selected) 1.5.dp else 1.dp,
+                                    color = if (selected) palette.primary else palette.line.copy(alpha = 0.6f),
+                                    shape = RoundedCornerShape(12.dp),
+                                )
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    applyLauncherIconAlias(context, alias)
+                                    onChangeIconAlias(alias)
+                                },
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 9.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Image(
+                                    painter = painterResource(alias.previewDrawableRes()),
+                                    contentDescription = alias.title,
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(RoundedCornerShape(9.dp)),
+                                )
+                                Text(
+                                    text = alias.title,
+                                    color = if (selected) palette.primary else palette.text,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = if (alias.isDisguise) "伪装 · ${alias.launcherLabel}" else alias.launcherLabel,
+                                    color = if (alias.isDisguise) palette.gold else palette.muted,
+                                    fontSize = 9.5.sp,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
+                    }
+                    repeat(3 - rowAliases.size) {
+                        Spacer(Modifier.weight(1f))
                     }
                 }
             }
@@ -1418,24 +1430,5 @@ private fun StealthToggleRow(
         }
         Spacer(Modifier.width(12.dp))
         Switch(checked = checked, onCheckedChange = onCheckedChange)
-    }
-}
-
-private fun switchLauncherAlias(context: Context, selected: AppIconAlias) {
-    val pm = context.packageManager
-    val pkg = context.packageName
-    for (alias in AppIconAlias.entries) {
-        val state = if (alias == selected) {
-            PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-        } else {
-            PackageManager.COMPONENT_ENABLED_STATE_DISABLED
-        }
-        runCatching {
-            pm.setComponentEnabledSetting(
-                ComponentName(pkg, alias.aliasClass),
-                state,
-                PackageManager.DONT_KILL_APP,
-            )
-        }
     }
 }

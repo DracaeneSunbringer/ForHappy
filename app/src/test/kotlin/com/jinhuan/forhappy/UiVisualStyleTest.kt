@@ -1,6 +1,11 @@
 package com.jinhuan.forhappy
 
+import androidx.compose.ui.graphics.Color
+import com.jinhuan.forhappy.core.model.ACCENT_PRESETS
+import com.jinhuan.forhappy.core.model.AccentColorConfig
+import com.jinhuan.forhappy.core.model.AccentColorMode
 import com.jinhuan.forhappy.core.model.AppDisguiseMode
+import com.jinhuan.forhappy.core.model.AppIconAlias
 import com.jinhuan.forhappy.core.model.AppThemeMode
 import com.jinhuan.forhappy.core.model.AppUiStyle
 import com.jinhuan.forhappy.core.model.ChatMessage
@@ -15,9 +20,16 @@ import com.jinhuan.forhappy.ui.theme.ModernAiryLightPalette
 import com.jinhuan.forhappy.ui.theme.ModernObsidianDarkPalette
 import com.jinhuan.forhappy.ui.theme.PineNightDarkPalette
 import com.jinhuan.forhappy.ui.theme.WarmPaperLightPalette
+import com.jinhuan.forhappy.ui.theme.colorToHsv
+import com.jinhuan.forhappy.ui.theme.formatColorHex
+import com.jinhuan.forhappy.ui.theme.hsvToColor
+import com.jinhuan.forhappy.ui.theme.parseHexColorOrNull
+import com.jinhuan.forhappy.ui.theme.relativeLuminance
 import com.jinhuan.forhappy.ui.theme.resolveForHappyPalette
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -44,6 +56,8 @@ class UiVisualStyleTest {
         assertEquals(ModernAiryLightPalette, light)
         assertTrue(light.isModernUi)
         assertFalse(light.isDark)
+        assertEquals(Color(0xFF4F5BD5), light.primary)
+        assertEquals(Color.White, light.onPrimary)
 
         val dark = resolveForHappyPalette(
             mode = AppThemeMode.FOLLOW_SYSTEM,
@@ -54,6 +68,8 @@ class UiVisualStyleTest {
         assertEquals(ModernObsidianDarkPalette, dark)
         assertTrue(dark.isModernUi)
         assertTrue(dark.isDark)
+        assertEquals(Color(0xFF6875F5), dark.primary)
+        assertEquals(Color.White, dark.onPrimary)
 
         val explicitDark = resolveForHappyPalette(
             mode = AppThemeMode.PINE_NIGHT_DARK,
@@ -62,6 +78,8 @@ class UiVisualStyleTest {
             systemDark = false,
         )
         assertEquals(ModernObsidianDarkPalette, explicitDark)
+        assertEquals(Color(0xFF5A9A7C), PineNightDarkPalette.primary)
+        assertEquals(Color.White, PineNightDarkPalette.onPrimary)
     }
 
     @Test
@@ -190,5 +208,91 @@ class UiVisualStyleTest {
         assertEquals(3, collapseHandle.count)
         assertEquals(3L, (expanded[3] as ChatStreamEntry.MessageItem).message.id)
         assertEquals(1L, (expanded[5] as ChatStreamEntry.MessageItem).message.id)
+    }
+
+    @Test
+    fun `AccentColorConfig encode decode and color math round-trip reliably`() {
+        val original = AccentColorConfig(
+            mode = AccentColorMode.CUSTOM,
+            presetId = "emerald",
+            customHex = "#0EA5E9",
+        )
+        val encoded = AccentColorConfig.encode(original)
+        assertEquals(original, AccentColorConfig.decode(encoded))
+        assertEquals(AccentColorConfig(), AccentColorConfig.decode(null))
+        assertEquals(AccentColorConfig(), AccentColorConfig.decode("{broken-json"))
+
+        val parsed = parseHexColorOrNull("#4f46e5")!!
+        assertEquals("#4F46E5", formatColorHex(parsed))
+        assertEquals("#0284C7", formatColorHex(parseHexColorOrNull("0284c7")!!))
+        assertNull(parseHexColorOrNull("#XYZ"))
+
+        val hsv = colorToHsv(parsed)
+        val roundTripped = hsvToColor(hsv[0], hsv[1], hsv[2])
+        assertEquals("#4F46E5", formatColorHex(roundTripped))
+        assertEquals(10, ACCENT_PRESETS.size)
+    }
+
+    @Test
+    fun `resolveForHappyPalette applies custom accent contrast rules and preserves disguise isolation`() {
+        val presetTeal = AccentColorConfig(mode = AccentColorMode.PRESET, presetId = "teal")
+        val tealLight = resolveForHappyPalette(
+            mode = AppThemeMode.WARM_PAPER_LIGHT,
+            uiStyle = AppUiStyle.MODERN,
+            accentConfig = presetTeal,
+        )
+        assertEquals(Color(0xFF0D9488), tealLight.primary)
+        assertEquals(Color.White, tealLight.onPrimary)
+        assertNotEquals(ModernAiryLightPalette.bubbleSelf, tealLight.bubbleSelf)
+
+        // Ultra-pale color in Light mode should be darkened for legible contrast
+        val paleLight = resolveForHappyPalette(
+            mode = AppThemeMode.WARM_PAPER_LIGHT,
+            uiStyle = AppUiStyle.MODERN,
+            accentConfig = AccentColorConfig(mode = AccentColorMode.CUSTOM, customHex = "#FEF08A"),
+        )
+        assertTrue(relativeLuminance(paleLight.primary) <= 0.38f)
+
+        // Ultra-dark color in Dark mode should be lifted so it reads cleanly against dark surfaces
+        val darkSeedOnDark = resolveForHappyPalette(
+            mode = AppThemeMode.PINE_NIGHT_DARK,
+            uiStyle = AppUiStyle.MODERN,
+            accentConfig = AccentColorConfig(mode = AccentColorMode.CUSTOM, customHex = "#0F172A"),
+        )
+        assertTrue(relativeLuminance(darkSeedOnDark.primary) >= 0.22f)
+
+        // Dynamic color mode applies supplied seed when non-null
+        val dynamicApplied = resolveForHappyPalette(
+            mode = AppThemeMode.WARM_PAPER_LIGHT,
+            uiStyle = AppUiStyle.MODERN,
+            accentConfig = AccentColorConfig(mode = AccentColorMode.DYNAMIC),
+            dynamicSeedColor = Color(0xFF7C3AED),
+        )
+        assertEquals(Color(0xFF7C3AED), dynamicApplied.primary)
+
+        // Disguises MUST remain isolated from custom accent colors
+        val redCustom = AccentColorConfig(mode = AccentColorMode.CUSTOM, customHex = "#E11D48")
+        val feishu = resolveForHappyPalette(
+            mode = AppThemeMode.FOLLOW_SYSTEM,
+            privacyConfig = PrivacyStealthConfig(disguiseMode = AppDisguiseMode.FEISHU),
+            accentConfig = redCustom,
+        )
+        val linuxDo = resolveForHappyPalette(
+            mode = AppThemeMode.FOLLOW_SYSTEM,
+            privacyConfig = PrivacyStealthConfig(disguiseMode = AppDisguiseMode.LINUX_DO),
+            accentConfig = redCustom,
+        )
+        assertEquals(FeishuWorkPalette, feishu)
+        assertEquals(LinuxDoPalette, linuxDo)
+    }
+
+    @Test
+    fun `AppIconAlias separates 4 jinhuan geometric variants from 2 disguise icons`() {
+        val jinhuanIcons = AppIconAlias.jinhuanEntries
+        val disguiseIcons = AppIconAlias.disguiseEntries
+        assertEquals(4, jinhuanIcons.size)
+        assertEquals(2, disguiseIcons.size)
+        assertTrue(jinhuanIcons.all { it.launcherLabel == "尽欢" && !it.isDisguise })
+        assertTrue(disguiseIcons.all { it.isDisguise })
     }
 }

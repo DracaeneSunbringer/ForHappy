@@ -2,11 +2,14 @@ package com.jinhuan.forhappy.ui.me
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,6 +41,7 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.AdminPanelSettings
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteOutline
@@ -55,17 +59,22 @@ import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -81,10 +90,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -97,6 +108,9 @@ import androidx.compose.ui.window.DialogProperties
 import com.jinhuan.forhappy.BuildConfig
 import com.jinhuan.forhappy.ForHappyApp
 import com.jinhuan.forhappy.core.chat.ChatSessionController
+import com.jinhuan.forhappy.core.model.ACCENT_PRESETS
+import com.jinhuan.forhappy.core.model.AccentColorConfig
+import com.jinhuan.forhappy.core.model.AccentColorMode
 import com.jinhuan.forhappy.core.model.AppDisguiseMode
 import com.jinhuan.forhappy.core.model.AppIconAlias
 import com.jinhuan.forhappy.core.model.AppThemeMode
@@ -112,8 +126,15 @@ import com.jinhuan.forhappy.core.update.AppUpdateManager
 import com.jinhuan.forhappy.core.update.UpdateStatus
 import com.jinhuan.forhappy.ui.components.BadgePill
 import com.jinhuan.forhappy.ui.components.ForHappyTextField
+import com.jinhuan.forhappy.ui.disguise.applyLauncherIconAlias
+import com.jinhuan.forhappy.ui.disguise.previewDrawableRes
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
+import com.jinhuan.forhappy.ui.theme.colorToHsv
+import com.jinhuan.forhappy.ui.theme.formatColorHex
+import com.jinhuan.forhappy.ui.theme.hsvToColor
+import com.jinhuan.forhappy.ui.theme.parseHexColorOrNull
+import com.jinhuan.forhappy.ui.theme.relativeLuminance
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
 import com.jinhuan.forhappy.ui.wall.DialogBackOwnerScope
 import com.jinhuan.forhappy.ui.wall.FullscreenDialogProperties
@@ -136,12 +157,14 @@ fun SettingsCenterDialog(
     chatController: ChatSessionController? = null,
     themeMode: AppThemeMode,
     uiStyle: AppUiStyle = AppUiStyle.MODERN,
+    accentConfig: AccentColorConfig = AccentColorConfig(),
     privacyConfig: PrivacyStealthConfig,
     privacyShieldEnabled: Boolean,
     activeIconAlias: AppIconAlias,
     initialSubpage: String? = null,
     onChangeTheme: (AppThemeMode) -> Unit,
     onChangeUiStyle: (AppUiStyle) -> Unit = {},
+    onChangeAccentConfig: (AccentColorConfig) -> Unit = {},
     onChangeDisguise: (AppDisguiseMode) -> Unit,
     onUpdatePrivacyConfig: (PrivacyStealthConfig) -> Unit,
     onTogglePrivacyShield: (Boolean) -> Unit,
@@ -282,8 +305,8 @@ fun SettingsCenterDialog(
                             HorizontalDivider(color = palette.line.copy(alpha = 0.6f))
                             SettingsNavRow(
                                 icon = Icons.Rounded.Palette,
-                                title = "外观",
-                                subtitle = "${uiStyle.label} · ${themeMode.displayLabel(uiStyle)}",
+                                title = "外观与图标",
+                                subtitle = "${uiStyle.label} · ${accentConfig.activeDisplayLabel()} · ${activeIconAlias.title}",
                                 onClick = { currentSubpage = "appearance" },
                             )
                         }
@@ -384,8 +407,12 @@ fun SettingsCenterDialog(
                             api = api,
                             themeMode = themeMode,
                             uiStyle = uiStyle,
+                            accentConfig = accentConfig,
+                            activeIconAlias = activeIconAlias,
                             onChangeTheme = onChangeTheme,
                             onChangeUiStyle = onChangeUiStyle,
+                            onChangeAccentConfig = onChangeAccentConfig,
+                            onChangeIconAlias = onChangeIconAlias,
                         )
                         "account" -> AccountSecuritySubpage(
                             api = api,
@@ -765,19 +792,460 @@ private fun AppearanceSubpage(
     api: ForHappyApiClient,
     themeMode: AppThemeMode,
     uiStyle: AppUiStyle,
+    accentConfig: AccentColorConfig,
+    activeIconAlias: AppIconAlias,
     onChangeTheme: (AppThemeMode) -> Unit,
     onChangeUiStyle: (AppUiStyle) -> Unit,
+    onChangeAccentConfig: (AccentColorConfig) -> Unit,
+    onChangeIconAlias: (AppIconAlias) -> Unit,
 ) {
     val palette = LocalForHappyPalette.current
+    val context = LocalContext.current
+    val systemDark = isSystemInDarkTheme()
     val scope = rememberCoroutineScope()
     var wallpaperMode by remember { mutableStateOf("solid") }
     var vignetteStrength by remember { mutableFloatStateOf(0.25f) }
+
+    val initialSeedColor = remember(accentConfig.mode, accentConfig.presetId, accentConfig.customHex) {
+        parseHexColorOrNull(accentConfig.resolvedPresetOrCustomHex()) ?: Color(0xFF4F46E5)
+    }
+    val initialHsv = remember(initialSeedColor) { colorToHsv(initialSeedColor) }
+    var pickerHue by remember { mutableFloatStateOf(initialHsv[0]) }
+    var pickerSat by remember { mutableFloatStateOf(initialHsv[1].coerceAtLeast(0.15f)) }
+    var pickerVal by remember { mutableFloatStateOf(initialHsv[2].coerceAtLeast(0.25f)) }
+    var hexInput by remember { mutableStateOf(formatColorHex(initialSeedColor)) }
+
+    LaunchedEffect(accentConfig.mode, accentConfig.presetId, accentConfig.customHex) {
+        val resolved = parseHexColorOrNull(accentConfig.resolvedPresetOrCustomHex())
+        if (resolved != null) {
+            val hsv = colorToHsv(resolved)
+            if (hsv[1] > 0.02f) pickerHue = hsv[0]
+            pickerSat = hsv[1]
+            pickerVal = hsv[2]
+            val formatted = formatColorHex(resolved)
+            if (!hexInput.equals(formatted, ignoreCase = true)) {
+                hexInput = formatted
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         wallpaperMode = api.getPref("ui.appearance.bg_mode") ?: "solid"
         vignetteStrength = api.getPref("ui.appearance.vignette")?.toFloatOrNull() ?: 0.25f
     }
 
+    val dynamicPreviewColor = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        val useDarkForDynamic = when (themeMode) {
+            AppThemeMode.WARM_PAPER_LIGHT -> false
+            AppThemeMode.PINE_NIGHT_DARK -> true
+            else -> systemDark
+        }
+        if (useDarkForDynamic) dynamicDarkColorScheme(context).primary else dynamicLightColorScheme(context).primary
+    } else {
+        null
+    }
+
+    fun commitCustomHsv(nextH: Float, nextS: Float, nextV: Float) {
+        pickerHue = nextH.coerceIn(0f, 360f)
+        pickerSat = nextS.coerceIn(0f, 1f)
+        pickerVal = nextV.coerceIn(0.18f, 1f)
+        val color = hsvToColor(pickerHue, pickerSat, pickerVal)
+        val formatted = formatColorHex(color)
+        hexInput = formatted
+        onChangeAccentConfig(
+            accentConfig.copy(
+                mode = AccentColorMode.CUSTOM,
+                customHex = formatted,
+            ),
+        )
+    }
+
+    // 1. Custom Accent Color Card
+    SettingsGroupCard {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("主题强调色", color = palette.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "作用于按钮、导航高亮与我的气泡；自动适配日夜对比度，不影响伪装模式",
+                        color = palette.muted,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Box(
+                    modifier = Modifier
+                        .size(26.dp)
+                        .clip(CircleShape)
+                        .background(palette.primary)
+                        .border(1.5.dp, palette.line, CircleShape),
+                )
+            }
+
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                FilterChip(
+                    selected = accentConfig.mode == AccentColorMode.DEFAULT,
+                    onClick = { onChangeAccentConfig(accentConfig.copy(mode = AccentColorMode.DEFAULT)) },
+                    label = { Text("主题默认", fontSize = 12.sp) },
+                )
+                if (dynamicPreviewColor != null) {
+                    FilterChip(
+                        selected = accentConfig.mode == AccentColorMode.DYNAMIC,
+                        onClick = { onChangeAccentConfig(accentConfig.copy(mode = AccentColorMode.DYNAMIC)) },
+                        leadingIcon = {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .clip(CircleShape)
+                                    .background(dynamicPreviewColor)
+                                    .border(0.5.dp, palette.line, CircleShape),
+                            )
+                        },
+                        label = { Text("壁纸取色", fontSize = 12.sp) },
+                    )
+                }
+                FilterChip(
+                    selected = accentConfig.mode == AccentColorMode.CUSTOM,
+                    onClick = {
+                        val baseColor = parseHexColorOrNull(accentConfig.resolvedPresetOrCustomHex()) ?: palette.primary
+                        val formatted = formatColorHex(baseColor)
+                        hexInput = formatted
+                        onChangeAccentConfig(accentConfig.copy(mode = AccentColorMode.CUSTOM, customHex = formatted))
+                    },
+                    label = { Text("自由取色", fontSize = 12.sp) },
+                )
+            }
+
+            Text("精选色板", color = palette.muted, fontSize = 12.sp)
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                ACCENT_PRESETS.chunked(5).forEach { rowPresets ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        rowPresets.forEach { preset ->
+                            val swatchColor = remember(preset.hex) {
+                                parseHexColorOrNull(preset.hex) ?: Color(0xFF4F46E5)
+                            }
+                            val isSelected = accentConfig.mode == AccentColorMode.PRESET && accentConfig.presetId == preset.id
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable {
+                                        onChangeAccentConfig(
+                                            AccentColorConfig(
+                                                mode = AccentColorMode.PRESET,
+                                                presetId = preset.id,
+                                                customHex = preset.hex,
+                                            ),
+                                        )
+                                    }
+                                    .padding(vertical = 4.dp),
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .then(
+                                            if (isSelected) {
+                                                Modifier
+                                                    .border(2.dp, palette.text, CircleShape)
+                                                    .padding(3.dp)
+                                            } else {
+                                                Modifier
+                                            },
+                                        )
+                                        .clip(CircleShape)
+                                        .background(swatchColor),
+                                ) {
+                                    if (isSelected) {
+                                        val checkTint = if (relativeLuminance(swatchColor) > 0.45f) Color(0xFF0F172A) else Color.White
+                                        Icon(
+                                            Icons.Rounded.Check,
+                                            contentDescription = preset.label,
+                                            tint = checkTint,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = preset.label,
+                                    color = if (isSelected) palette.primary else palette.muted,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Live Accent Preview Strip
+            Surface(
+                color = palette.surface2.copy(alpha = 0.72f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 9.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Surface(
+                        color = palette.primary,
+                        shape = RoundedCornerShape(999.dp),
+                    ) {
+                        Text(
+                            "主按钮",
+                            color = palette.onPrimary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        )
+                    }
+                    Surface(
+                        color = palette.primaryContainer,
+                        shape = RoundedCornerShape(999.dp),
+                    ) {
+                        Text(
+                            "#选中态",
+                            color = palette.primary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Surface(
+                        color = palette.bubbleSelf,
+                        shape = RoundedCornerShape(topStart = 12.dp, topEnd = 4.dp, bottomEnd = 12.dp, bottomStart = 12.dp),
+                    ) {
+                        Text(
+                            "我的气泡",
+                            color = palette.text,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                        )
+                    }
+                }
+            }
+
+            if (accentConfig.mode == AccentColorMode.CUSTOM) {
+                val activeCustomColor = remember(pickerHue, pickerSat, pickerVal) {
+                    hsvToColor(pickerHue, pickerSat, pickerVal)
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    HsvGradientSliderRow(
+                        label = "色相 H",
+                        valueText = "${pickerHue.toInt()}°",
+                        value = pickerHue,
+                        valueRange = 0f..360f,
+                        trackColors = listOf(
+                            Color(0xFFFF0000),
+                            Color(0xFFFFFF00),
+                            Color(0xFF00FF00),
+                            Color(0xFF00FFFF),
+                            Color(0xFF0000FF),
+                            Color(0xFFFF00FF),
+                            Color(0xFFFF0000),
+                        ),
+                        thumbColor = hsvToColor(pickerHue, 1f, 1f),
+                        onValueChange = { commitCustomHsv(it, pickerSat, pickerVal) },
+                    )
+                    HsvGradientSliderRow(
+                        label = "饱和度 S",
+                        valueText = "${(pickerSat * 100).toInt()}%",
+                        value = pickerSat,
+                        valueRange = 0f..1f,
+                        trackColors = listOf(
+                            hsvToColor(pickerHue, 0f, pickerVal),
+                            hsvToColor(pickerHue, 1f, pickerVal),
+                        ),
+                        thumbColor = activeCustomColor,
+                        onValueChange = { commitCustomHsv(pickerHue, it, pickerVal) },
+                    )
+                    HsvGradientSliderRow(
+                        label = "明度 V",
+                        valueText = "${(pickerVal * 100).toInt()}%",
+                        value = pickerVal,
+                        valueRange = 0.18f..1f,
+                        trackColors = listOf(
+                            hsvToColor(pickerHue, pickerSat, 0.18f),
+                            hsvToColor(pickerHue, pickerSat, 1f),
+                        ),
+                        thumbColor = activeCustomColor,
+                        onValueChange = { commitCustomHsv(pickerHue, pickerSat, it) },
+                    )
+
+                    val hexValid = parseHexColorOrNull(hexInput) != null
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(30.dp)
+                                .clip(CircleShape)
+                                .background(activeCustomColor)
+                                .border(1.5.dp, palette.line, CircleShape),
+                        )
+                        ForHappyTextField(
+                            value = hexInput,
+                            onValueChange = { raw ->
+                                val filtered = buildString {
+                                    for (ch in raw.take(7)) {
+                                        if (ch == '#' && isEmpty()) {
+                                            append(ch)
+                                        } else if (ch in '0'..'9' || ch in 'a'..'f' || ch in 'A'..'F') {
+                                            append(ch.uppercaseChar())
+                                        }
+                                    }
+                                }
+                                hexInput = filtered
+                                val parsed = parseHexColorOrNull(filtered)
+                                if (parsed != null) {
+                                    val hsv = colorToHsv(parsed)
+                                    if (hsv[1] > 0.02f) pickerHue = hsv[0]
+                                    pickerSat = hsv[1]
+                                    pickerVal = hsv[2].coerceAtLeast(0.18f)
+                                    val normalized = formatColorHex(parsed)
+                                    onChangeAccentConfig(
+                                        accentConfig.copy(
+                                            mode = AccentColorMode.CUSTOM,
+                                            customHex = normalized,
+                                        ),
+                                    )
+                                }
+                            },
+                            placeholder = "#4F46E5",
+                            singleLine = true,
+                            isError = hexInput.isNotBlank() && !hexValid,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(
+                            onClick = {
+                                onChangeAccentConfig(accentConfig.copy(mode = AccentColorMode.DEFAULT))
+                            },
+                        ) {
+                            Text("恢复默认", fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Minimalist Geometric Launcher Icon Switcher Card
+    SettingsGroupCard {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("桌面应用图标", color = palette.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                "极简几何现代风，切换后桌面数秒内刷新（飞书 / 云文档伪装图标仍在「防窥与摸鱼」中）",
+                color = palette.muted,
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+            )
+            if (activeIconAlias.isDisguise) {
+                Surface(
+                    color = palette.primaryContainer,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        "当前桌面为伪装图标「${activeIconAlias.title}」，点击下方任一图标即可切回尽欢",
+                        color = palette.primary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                    )
+                }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                AppIconAlias.jinhuanEntries.chunked(2).forEach { rowIcons ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        rowIcons.forEach { alias ->
+                            val selected = activeIconAlias == alias
+                            val cardShape = RoundedCornerShape(14.dp)
+                            Surface(
+                                color = if (selected) palette.primaryContainer else palette.surface2.copy(alpha = 0.72f),
+                                shape = cardShape,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .border(
+                                        width = if (selected) 1.5.dp else 1.dp,
+                                        color = if (selected) palette.primary else palette.line.copy(alpha = 0.55f),
+                                        shape = cardShape,
+                                    )
+                                    .clip(cardShape)
+                                    .clickable {
+                                        applyLauncherIconAlias(context, alias)
+                                        onChangeIconAlias(alias)
+                                    },
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(9.dp),
+                                ) {
+                                    Image(
+                                        painter = painterResource(alias.previewDrawableRes()),
+                                        contentDescription = alias.title,
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(RoundedCornerShape(11.dp)),
+                                    )
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(1.dp),
+                                    ) {
+                                        Text(
+                                            text = alias.title,
+                                            color = if (selected) palette.primary else palette.text,
+                                            fontSize = 12.5.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            text = alias.subtitle,
+                                            color = palette.muted,
+                                            fontSize = 10.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        if (rowIcons.size == 1) {
+                            Spacer(Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Visual Style Card
     SettingsGroupCard {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("界面视觉风格", color = palette.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -788,14 +1256,14 @@ private fun AppearanceSubpage(
                     AppUiStyle.MODERN -> listOf(
                         Color(0xFFF3F5FA),
                         Color(0xFF0A0C10),
-                        Color(0xFFFF5A36),
-                        Color(0xFF0EA5E9),
+                        if (uiStyle == AppUiStyle.MODERN) palette.primary else Color(0xFF4F5BD5),
+                        if (uiStyle == AppUiStyle.MODERN) palette.accent else Color(0xFF6875F5),
                     )
                     AppUiStyle.CLASSIC_WEB -> listOf(
                         Color(0xFFF7F6F0),
                         Color(0xFF14261F),
-                        Color(0xFF1F6B4F),
-                        Color(0xFFB7CE78),
+                        if (uiStyle == AppUiStyle.CLASSIC_WEB) palette.primary else Color(0xFF1F6B4F),
+                        Color(0xFF5A9A7C),
                     )
                 }
                 val optionShape = RoundedCornerShape(14.dp)
@@ -843,6 +1311,7 @@ private fun AppearanceSubpage(
         }
     }
 
+    // 4. Day/Night & Background Card
     SettingsGroupCard {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("日夜主题", color = palette.muted, fontSize = 12.sp)
@@ -882,6 +1351,67 @@ private fun AppearanceSubpage(
                 onValueChangeFinished = {
                     scope.launch { api.putPref("ui.appearance.vignette", vignetteStrength.toString()) }
                 },
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HsvGradientSliderRow(
+    label: String,
+    valueText: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    trackColors: List<Color>,
+    thumbColor: Color,
+    onValueChange: (Float) -> Unit,
+) {
+    val palette = LocalForHappyPalette.current
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label, color = palette.muted, fontSize = 11.5.sp)
+            Text(valueText, color = palette.text, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(32.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp)
+                    .height(10.dp)
+                    .clip(CircleShape)
+                    .background(Brush.horizontalGradient(trackColors))
+                    .border(0.5.dp, palette.line.copy(alpha = 0.75f), CircleShape),
+            )
+            Slider(
+                value = value.coerceIn(valueRange.start, valueRange.endInclusive),
+                onValueChange = onValueChange,
+                valueRange = valueRange,
+                colors = SliderDefaults.colors(
+                    thumbColor = thumbColor,
+                    activeTrackColor = Color.Transparent,
+                    inactiveTrackColor = Color.Transparent,
+                ),
+                thumb = {
+                    Box(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .background(thumbColor)
+                            .border(2.5.dp, Color.White, CircleShape)
+                            .border(0.75.dp, Color.Black.copy(alpha = 0.30f), CircleShape),
+                    )
+                },
+                modifier = Modifier.fillMaxWidth(),
             )
         }
     }

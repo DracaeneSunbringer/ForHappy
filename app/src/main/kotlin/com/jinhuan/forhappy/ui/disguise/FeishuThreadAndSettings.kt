@@ -4,6 +4,8 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
+import androidx.annotation.DrawableRes
+import com.jinhuan.forhappy.R
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -296,7 +298,17 @@ internal fun FeishuGroupMosaicAvatar(
     }
 }
 
-internal fun applyLauncherIconAlias(context: Context, selected: AppIconAlias) {
+@DrawableRes
+fun AppIconAlias.previewDrawableRes(): Int = when (this) {
+    AppIconAlias.JINHUAN -> R.drawable.ic_launcher_jinhuan
+    AppIconAlias.JINHUAN_JADE -> R.drawable.ic_launcher_jade
+    AppIconAlias.JINHUAN_LIGHT -> R.drawable.ic_launcher_light
+    AppIconAlias.JINHUAN_OBSIDIAN -> R.drawable.ic_launcher_obsidian
+    AppIconAlias.FEISHU -> R.drawable.ic_launcher_feishu
+    AppIconAlias.DOCS -> R.drawable.ic_launcher_docs
+}
+
+fun applyLauncherIconAlias(context: Context, selected: AppIconAlias) {
     val pm = context.packageManager
     val pkg = context.packageName
     for (alias in AppIconAlias.entries) {
@@ -316,7 +328,10 @@ internal fun applyLauncherIconAlias(context: Context, selected: AppIconAlias) {
 }
 
 internal fun safeIconAliasTitle(alias: AppIconAlias): String = when (alias) {
-    AppIconAlias.JINHUAN -> "标准样式"
+    AppIconAlias.JINHUAN -> "标准棱镜"
+    AppIconAlias.JINHUAN_JADE -> "标准松青"
+    AppIconAlias.JINHUAN_LIGHT -> "标准雾白"
+    AppIconAlias.JINHUAN_OBSIDIAN -> "标准曜石"
     AppIconAlias.FEISHU -> "飞书文档"
     AppIconAlias.DOCS -> "协作文档"
 }
@@ -1781,6 +1796,7 @@ internal enum class FeishuSettingsPage {
     ABOUT,
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun FeishuSettingsOverlay(
     api: ForHappyApiClient,
@@ -2078,7 +2094,10 @@ internal fun FeishuSettingsOverlay(
                             }
                             HorizontalDivider(color = fc.line)
                             Text("桌面应用图标样式", color = fc.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
                                 AppIconAlias.entries.forEach { alias ->
                                     FilterChip(
                                         selected = activeIconAlias == alias,

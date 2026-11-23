@@ -1540,6 +1540,69 @@ enum class AppUiStyle(
 }
 
 @Serializable
+enum class AccentColorMode(
+    val key: String,
+    val label: String,
+) {
+    DEFAULT("default", "主题默认"),
+    PRESET("preset", "精选色板"),
+    CUSTOM("custom", "自由取色"),
+    DYNAMIC("dynamic", "壁纸动态取色"),
+}
+
+data class AccentPreset(
+    val id: String,
+    val label: String,
+    val hex: String,
+)
+
+val ACCENT_PRESETS: List<AccentPreset> = listOf(
+    AccentPreset("indigo", "星海靛", "#4F46E5"),
+    AccentPreset("ocean", "晴空蓝", "#0284C7"),
+    AccentPreset("teal", "松石青", "#0D9488"),
+    AccentPreset("pine", "松烟绿", "#1F6B4F"),
+    AccentPreset("emerald", "翡翠绿", "#059669"),
+    AccentPreset("violet", "暮光紫", "#7C3AED"),
+    AccentPreset("rose", "绯樱红", "#E11D48"),
+    AccentPreset("coral", "珊瑚橙", "#FF5A36"),
+    AccentPreset("amber", "琥珀金", "#D97706"),
+    AccentPreset("slate", "钛灰蓝", "#475569"),
+)
+
+@Serializable
+data class AccentColorConfig(
+    val mode: AccentColorMode = AccentColorMode.DEFAULT,
+    val presetId: String = "indigo",
+    val customHex: String = "#4F46E5",
+) {
+    fun activeDisplayLabel(): String = when (mode) {
+        AccentColorMode.DEFAULT -> "默认强调色"
+        AccentColorMode.DYNAMIC -> "壁纸动态取色"
+        AccentColorMode.PRESET -> ACCENT_PRESETS.firstOrNull { it.id == presetId }?.label ?: "精选色板"
+        AccentColorMode.CUSTOM -> customHex.uppercase()
+    }
+
+    fun resolvedPresetOrCustomHex(): String = when (mode) {
+        AccentColorMode.PRESET -> ACCENT_PRESETS.firstOrNull { it.id == presetId }?.hex ?: "#4F46E5"
+        else -> customHex
+    }
+
+    companion object {
+        const val KV_KEY = "ui.accent_color.v1"
+
+        fun decode(raw: String?): AccentColorConfig {
+            if (raw.isNullOrBlank()) return AccentColorConfig()
+            return runCatching {
+                ForHappyJson.decodeFromString(serializer(), raw)
+            }.getOrElse { AccentColorConfig() }
+        }
+
+        fun encode(config: AccentColorConfig): String =
+            ForHappyJson.encodeToString(serializer(), config)
+    }
+}
+
+@Serializable
 enum class AppThemeMode(val label: String) {
     WARM_PAPER_LIGHT("暖纸松绿（日间）"),
     PINE_NIGHT_DARK("深松暗夜（夜间）"),
@@ -1612,11 +1675,24 @@ data class PrivacyStealthConfig(
 enum class AppIconAlias(
     val aliasClass: String,
     val title: String,
+    val launcherLabel: String,
     val subtitle: String,
+    val isDisguise: Boolean = false,
 ) {
-    JINHUAN("com.jinhuan.forhappy.AliasJinhuan", "尽欢", "珊瑚欢颜默认图标"),
-    FEISHU("com.jinhuan.forhappy.AliasFeishu", "飞书文档", "蓝色办公伪装图标"),
-    DOCS("com.jinhuan.forhappy.AliasDocs", "协作文档", "青蓝文档伪装图标"),
+    JINHUAN("com.jinhuan.forhappy.AliasJinhuan", "流光棱镜", "尽欢", "深海靛蓝 · 层叠玻璃", isDisguise = false),
+    JINHUAN_JADE("com.jinhuan.forhappy.AliasJinhuanJade", "松烟青翠", "尽欢", "深松墨绿 · 双环折光", isDisguise = false),
+    JINHUAN_LIGHT("com.jinhuan.forhappy.AliasJinhuanLight", "雾白极简", "尽欢", "陶瓷浅底 · 曜石折带", isDisguise = false),
+    JINHUAN_OBSIDIAN("com.jinhuan.forhappy.AliasJinhuanObsidian", "曜石钛金", "尽欢", "暗夜纯黑 · 线性星芒", isDisguise = false),
+    FEISHU("com.jinhuan.forhappy.AliasFeishu", "飞书文档", "飞书", "蓝色办公伪装图标", isDisguise = true),
+    DOCS("com.jinhuan.forhappy.AliasDocs", "协作文档", "云文档", "青蓝文档伪装图标", isDisguise = true),
+    ;
+
+    companion object {
+        val jinhuanEntries: List<AppIconAlias>
+            get() = entries.filter { !it.isDisguise }
+        val disguiseEntries: List<AppIconAlias>
+            get() = entries.filter { it.isDisguise }
+    }
 }
 
 /**

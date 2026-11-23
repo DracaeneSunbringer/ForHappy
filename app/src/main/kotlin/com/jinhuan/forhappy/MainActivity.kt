@@ -18,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
+import com.jinhuan.forhappy.core.model.AccentColorConfig
 import com.jinhuan.forhappy.core.model.AppDisguiseMode
 import com.jinhuan.forhappy.core.model.AppIconAlias
 import com.jinhuan.forhappy.core.model.AppThemeMode
@@ -29,6 +30,7 @@ import com.jinhuan.forhappy.core.navigation.StealthExemptionGate
 import com.jinhuan.forhappy.core.network.scheduler.BackgroundGate
 import com.jinhuan.forhappy.ui.disguise.DeviceStealthSensorObserver
 import com.jinhuan.forhappy.ui.disguise.VolumeDoubleTapDetector
+import com.jinhuan.forhappy.ui.disguise.previewDrawableRes
 import com.jinhuan.forhappy.ui.navigation.ForHappyShell
 import com.jinhuan.forhappy.ui.theme.ForHappyTheme
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +43,7 @@ class MainActivity : ComponentActivity() {
     private data class InitialUiSettings(
         val themeMode: AppThemeMode,
         val uiStyle: AppUiStyle,
+        val accentConfig: AccentColorConfig,
         val privacyConfig: PrivacyStealthConfig,
         val privacyShield: Boolean,
         val iconAlias: AppIconAlias,
@@ -72,6 +75,7 @@ class MainActivity : ComponentActivity() {
             val scope = rememberCoroutineScope()
             var themeMode by remember { mutableStateOf(initial.themeMode) }
             var uiStyle by remember { mutableStateOf(initial.uiStyle) }
+            var accentConfig by remember { mutableStateOf(initial.accentConfig) }
             var privacyConfig by remember { mutableStateOf(initial.privacyConfig) }
             var privacyShield by remember { mutableStateOf(initial.privacyShield) }
             var iconAlias by remember { mutableStateOf(initial.iconAlias) }
@@ -185,6 +189,7 @@ class MainActivity : ComponentActivity() {
             ForHappyTheme(
                 mode = themeMode,
                 uiStyle = uiStyle,
+                accentConfig = accentConfig,
                 privacyConfig = privacyConfig,
                 seenTracker = app.seenTracker,
                 bossKeyActive = bossKeyActive,
@@ -193,6 +198,7 @@ class MainActivity : ComponentActivity() {
                     app = app,
                     themeMode = themeMode,
                     uiStyle = uiStyle,
+                    accentConfig = accentConfig,
                     privacyConfig = privacyConfig,
                     bossKeyActive = bossKeyActive,
                     privacyShieldEnabled = privacyShield,
@@ -205,6 +211,10 @@ class MainActivity : ComponentActivity() {
                     onChangeUiStyle = { next ->
                         uiStyle = next
                         scope.launch { app.db.putKv(AppUiStyle.KV_KEY, next.key) }
+                    },
+                    onChangeAccentConfig = { next ->
+                        accentConfig = next
+                        scope.launch { app.db.putKv(AccentColorConfig.KV_KEY, AccentColorConfig.encode(next)) }
                     },
                     onChangeDisguise = ::switchDisguiseMode,
                     onUpdatePrivacyConfig = { next -> persistPrivacyConfig(next) },
@@ -316,6 +326,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         val savedUiStyle = AppUiStyle.fromKey(app.db.getKvBlocking(AppUiStyle.KV_KEY))
+        val savedAccentConfig = AccentColorConfig.decode(app.db.getKvBlocking(AccentColorConfig.KV_KEY))
         val shield = app.db.getKvBlocking("ui.privacy_shield")?.toBooleanStrictOrNull() ?: false
         val alias = app.db.getKvBlocking("ui.icon_alias")?.let { saved ->
             runCatching { AppIconAlias.valueOf(saved) }.getOrNull()
@@ -323,6 +334,7 @@ class MainActivity : ComponentActivity() {
         return InitialUiSettings(
             themeMode = theme,
             uiStyle = savedUiStyle,
+            accentConfig = savedAccentConfig,
             privacyConfig = privacy,
             privacyShield = shield,
             iconAlias = alias,
@@ -330,23 +342,19 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun syncRecentsTaskDescription(alias: AppIconAlias) {
-        val iconRes = when (alias) {
-            AppIconAlias.JINHUAN -> R.drawable.ic_launcher_jinhuan
-            AppIconAlias.FEISHU -> R.drawable.ic_launcher_feishu
-            AppIconAlias.DOCS -> R.drawable.ic_launcher_docs
-        }
+        val iconRes = alias.previewDrawableRes()
         val desc = when {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ->
                 ActivityManager.TaskDescription.Builder()
-                    .setLabel(alias.title)
+                    .setLabel(alias.launcherLabel)
                     .setIcon(iconRes)
                     .build()
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.P ->
                 @Suppress("DEPRECATION")
-                ActivityManager.TaskDescription(alias.title, iconRes)
+                ActivityManager.TaskDescription(alias.launcherLabel, iconRes)
             else ->
                 @Suppress("DEPRECATION")
-                ActivityManager.TaskDescription(alias.title)
+                ActivityManager.TaskDescription(alias.launcherLabel)
         }
         setTaskDescription(desc)
     }

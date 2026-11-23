@@ -3,14 +3,15 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#000000"
-        android:fillType="evenOdd"
-        android:pathData="M41,31 L61,31 C70.5,31 77,37.5 77,46 L77,55 C77,63.5 70.5,70 61,70 L43,70 C37.5,73.5 31.5,75.8 27.2,75.2 C29.4,71.6 30.8,68.2 31,64.8 C27.2,62 25,58.6 25,54 L25,46 C25,37.5 31.5,31 41,31 Z M39,47.5 a3.1,3.1 0 1,0 6.2,0 a3.1,3.1 0 1,0 -6.2,0 z M44.5,54.8 C44.8,61 47.6,64.2 51,64.2 C54.4,64.2 57.2,61 57.5,54.8 C53.5,55.8 48.5,55.8 44.5,54.8 Z M76,23.5 C76.9,27.5 78.5,29.1 82.5,30 C78.5,30.9 76.9,32.5 76,36.5 C75.1,32.5 73.5,30.9 69.5,30 C73.5,29.1 75.1,27.5 76,23.5 Z" />
+    <!-- Outlined back prism card -->
     <path
         android:fillColor="#00000000"
         android:strokeColor="#000000"
-        android:strokeWidth="2.6"
-        android:strokeLineCap="round"
-        android:pathData="M56.4,48.6 C57.8,44.7 62.2,44.7 63.6,48.6" />
+        android:strokeWidth="3.2"
+        android:pathData="M50,29.5 h21.5 a8,8 0 0,1 8,8 v17 a8,8 0 0,1 -8,8 h-21.5 a8,8 0 0,1 -8,-8 v-17 a8,8 0 0,1 8,-8 z" />
+    <!-- Solid front prism card with negative-space intersection cutout -->
+    <path
+        android:fillColor="#000000"
+        android:fillType="evenOdd"
+        android:pathData="M36,40 h22 a9,9 0 0,1 9,9 v18 a9,9 0 0,1 -9,9 h-22 a9,9 0 0,1 -9,-9 v-18 a9,9 0 0,1 9,-9 z M44,43 L56.5,43 A7.5,7.5 0 0,1 64,50.5 L64,61 L51.5,61 A7.5,7.5 0 0,1 44,53.5 Z" />
 </vector>
