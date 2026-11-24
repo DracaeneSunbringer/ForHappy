@@ -111,6 +111,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -1907,7 +1908,19 @@ private fun CleanMemeCard(
                                 .background(palette.blurOverlay),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text("◌ 点按查看", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            Text(
+                                text = "◌ 点按查看",
+                                color = Color.White,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                style = TextStyle(
+                                    fontSize = 13.sp,
+                                    lineHeight = 17.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    platformStyle = PlatformTextStyle(includeFontPadding = false),
+                                ),
+                            )
                         }
                         if (meme.isRisky) {
                             Surface(
@@ -1917,7 +1930,19 @@ private fun CleanMemeCard(
                                     .align(Alignment.BottomStart)
                                     .padding(6.dp),
                             ) {
-                                Text("敏感", color = Color.White, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp))
+                                Text(
+                                    text = "敏感",
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = TextStyle(
+                                        fontSize = 10.sp,
+                                        lineHeight = 13.sp,
+                                        platformStyle = PlatformTextStyle(includeFontPadding = false),
+                                    ),
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                                )
                             }
                         }
                     } else {
@@ -2345,7 +2370,19 @@ private fun WallImmersivePagerFeed(
                             .background(palette.blurOverlay),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text("◌ 点按查看", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text(
+                            text = "◌ 点按查看",
+                            color = Color.White,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                            style = TextStyle(
+                                fontSize = 14.sp,
+                                lineHeight = 18.sp,
+                                fontWeight = FontWeight.Medium,
+                                platformStyle = PlatformTextStyle(includeFontPadding = false),
+                            ),
+                        )
                     }
                 }
 

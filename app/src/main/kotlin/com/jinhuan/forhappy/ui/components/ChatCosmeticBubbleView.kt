@@ -32,6 +32,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
@@ -141,6 +142,7 @@ internal fun DrawScope.drawNineSliceArtwork(
             srcSize = IntSize(sw, sh),
             dstOffset = IntOffset(ox + dx, oy + dy),
             dstSize = IntSize(dw, dh),
+            filterQuality = FilterQuality.Medium,
         )
     }
 
@@ -318,6 +320,7 @@ internal fun BubblePseudoLayerCanvas(
                 image = art.bitmap,
                 dstOffset = IntOffset(dx.roundToInt(), dy.roundToInt()),
                 dstSize = IntSize(imgW.roundToInt().coerceAtLeast(1), imgH.roundToInt().coerceAtLeast(1)),
+                filterQuality = FilterQuality.Medium,
             )
         }
 

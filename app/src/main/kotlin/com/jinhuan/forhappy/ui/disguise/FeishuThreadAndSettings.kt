@@ -96,6 +96,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -606,8 +607,15 @@ internal fun DisguiseMediaStrip(
                             Text(
                                 text = if (compactImMode) "轻触查看图片" else "已保护 · 点击查看",
                                 color = Color.White,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                style = TextStyle(
+                                    fontSize = 11.sp,
+                                    lineHeight = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    platformStyle = PlatformTextStyle(includeFontPadding = false),
+                                ),
                             )
                         }
                     }
@@ -707,8 +715,17 @@ internal fun DisguiseMediaStrip(
                                 Text(
                                     text = "${items.size}张 · 查看",
                                     color = Color.White,
-                                    fontSize = 10.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = TextStyle(
+                                        fontSize = 10.sp,
+                                        lineHeight = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        platformStyle = PlatformTextStyle(includeFontPadding = false),
+                                    ),
                                     modifier = Modifier
+                                        .padding(horizontal = 4.dp)
                                         .background(Color.Black.copy(alpha = 0.56f), RoundedCornerShape(999.dp))
                                         .padding(horizontal = 6.dp, vertical = 2.dp),
                                 )
@@ -768,8 +785,17 @@ internal fun DisguiseMediaStrip(
                         Text(
                             text = "点击查看",
                             color = Color.White,
-                            fontSize = 10.sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                            style = TextStyle(
+                                fontSize = 10.sp,
+                                lineHeight = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                platformStyle = PlatformTextStyle(includeFontPadding = false),
+                            ),
                             modifier = Modifier
+                                .padding(horizontal = 4.dp)
                                 .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(999.dp))
                                 .padding(horizontal = 7.dp, vertical = 2.dp),
                         )

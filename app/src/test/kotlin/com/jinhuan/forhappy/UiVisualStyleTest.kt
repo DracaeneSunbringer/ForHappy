@@ -14,6 +14,7 @@ import com.jinhuan.forhappy.core.model.ChatMessage
 import com.jinhuan.forhappy.core.model.PrivacyStealthConfig
 import com.jinhuan.forhappy.ui.chat.ChatStreamEntry
 import com.jinhuan.forhappy.ui.chat.buildReversedChatStreamEntries
+import com.jinhuan.forhappy.ui.chat.resolveChatMediaBlurLabel
 import com.jinhuan.forhappy.ui.components.forHappyInputTextStyle
 import com.jinhuan.forhappy.ui.theme.FeishuWorkDarkPalette
 import com.jinhuan.forhappy.ui.theme.FeishuWorkPalette
@@ -335,5 +336,12 @@ class UiVisualStyleTest {
             assertEquals(inputStyle.lineHeightStyle, placeholderStyle.lineHeightStyle)
             assertEquals(placeholderColor, placeholderStyle.color)
         }
+    }
+
+    @Test
+    fun `resolveChatMediaBlurLabel adapts concisely to solo 2-col and 3-col grids`() {
+        assertEquals("已模糊 · 轻触显示", resolveChatMediaBlurLabel(1))
+        assertEquals("轻触显示", resolveChatMediaBlurLabel(2))
+        assertEquals("显示", resolveChatMediaBlurLabel(3))
     }
 }

@@ -700,10 +700,11 @@ object BadgeAndCosmeticRegistry {
         ),
         "taike-lili" to CommunitySkinCatalogItem(
             id = "taike-lili", name = "肽克lili", author = "Earthcat",
-            hasTitle = true, hasBadge = true, hasBubble = true,
-            bubbleCssSha = "c113ea82200100122a5d3b38aeba21c1a61582f787f9291e174c5a2b0e367b22",
+            hasTitle = true, hasBadge = true, hasBubble = true, hasReply = true,
+            bubbleCssSha = "33fd98aa4f867a9878aafc9878b31ad3440c55c8c30de71a761da0cd9e6b7770",
             titleCssSha = "f66ff4b08b49320c3027cd98b4be0beb24db90fd3b6623c69918498a90621774",
             badgeCssSha = "b9ec4f1f3aba6b619d1412c2c58b44137e9442eb3ada73510ff6e7d973fcbefb",
+            replyCssSha = "be822d7b53b28a5606ed1696760b45dfeeda8f85e35f5c6ad05f86795df75018",
         ),
         "waibi-babu" to CommunitySkinCatalogItem(
             id = "waibi-babu", name = "外币巴布", author = "Earthcat",

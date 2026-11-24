@@ -33,10 +33,12 @@ import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -47,6 +49,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -1077,20 +1080,84 @@ fun RichChatBodyView(
         }
 
         if (showInlineImages && parsed.inlineImageUrls.isNotEmpty()) {
+            val stealthConfig = LocalPrivacyStealthConfig.current
             parsed.inlineImageUrls.forEach { rawUrl ->
                 val imgUrl = MediaUrlRewriter.rewriteWithExtProxy(rawUrl)
-                AsyncImage(
-                    model = imgUrl,
-                    imageLoader = imageLoader,
-                    contentDescription = "正文图片链接",
-                    contentScale = ContentScale.Crop,
+                var unblurred by remember(rawUrl, stealthConfig.blurAllEnabled) { mutableStateOf(false) }
+                if (stealthConfig.autoReblurOnScrollOff) {
+                    DisposableEffect(rawUrl) {
+                        onDispose { unblurred = false }
+                    }
+                }
+                val isBlurred = stealthConfig.blurAllEnabled && !unblurred
+                Box(
+                    contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .widthIn(max = 220.dp)
                         .heightIn(max = 240.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(palette.surface2)
-                        .clickable { onInlineImageClick?.invoke(imgUrl) },
-                )
+                        .then(
+                            if (isBlurred) {
+                                Modifier.border(0.5.dp, palette.line.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
+                            } else {
+                                Modifier
+                            },
+                        )
+                        .clickable {
+                            if (isBlurred) unblurred = true
+                            else onInlineImageClick?.invoke(imgUrl)
+                        },
+                ) {
+                    AsyncImage(
+                        model = imgUrl,
+                        imageLoader = imageLoader,
+                        contentDescription = "正文图片链接",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .widthIn(max = 220.dp)
+                            .heightIn(max = 240.dp)
+                            .let { if (isBlurred) it.blur(20.dp) else it },
+                    )
+                    if (isBlurred) {
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .background(Color.Black.copy(alpha = 0.06f)),
+                        )
+                        Surface(
+                            color = Color.Black.copy(alpha = 0.62f),
+                            shape = RoundedCornerShape(999.dp),
+                            modifier = Modifier.padding(horizontal = 6.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.5.dp),
+                            ) {
+                                Icon(
+                                    Icons.Rounded.VisibilityOff,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(12.dp),
+                                )
+                                Text(
+                                    text = "已模糊 · 轻触显示",
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = TextStyle(
+                                        fontSize = 10.sp,
+                                        lineHeight = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        platformStyle = PlatformTextStyle(includeFontPadding = false),
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }

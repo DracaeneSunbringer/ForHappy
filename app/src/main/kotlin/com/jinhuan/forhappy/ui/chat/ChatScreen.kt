@@ -4637,6 +4637,7 @@ private fun SwipeableChatRow(
                                                             msgId = msg.id,
                                                             media = media,
                                                             solo = false,
+                                                            gridCols = cols,
                                                             api = api,
                                                             onOpenImage = onOpenImage,
                                                             onOpenVideo = onOpenVideo,
@@ -4835,6 +4836,7 @@ private fun SwipeableChatRow(
                                                         msgId = msg.id,
                                                         media = media,
                                                         solo = false,
+                                                        gridCols = cols,
                                                         api = api,
                                                         onOpenImage = onOpenImage,
                                                         onOpenVideo = onOpenVideo,
@@ -4991,11 +4993,18 @@ private fun SwipeableChatRow(
     }
 }
 
+internal fun resolveChatMediaBlurLabel(gridCols: Int): String = when {
+    gridCols <= 1 -> "已模糊 · 轻触显示"
+    gridCols == 2 -> "轻触显示"
+    else -> "显示"
+}
+
 @Composable
 private fun ChatVisualMediaCell(
     msgId: Long,
     media: ChatMedia,
     solo: Boolean,
+    gridCols: Int = if (solo) 1 else 2,
     api: ForHappyApiClient,
     onOpenImage: (String) -> Unit,
     onOpenVideo: (String, String) -> Unit,
@@ -5031,6 +5040,13 @@ private fun ChatVisualMediaCell(
             .aspectRatio(ratio)
             .clip(RoundedCornerShape(12.dp))
             .background(palette.surface2)
+            .then(
+                if (isBlurred) {
+                    Modifier.border(0.5.dp, palette.line.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
+                } else {
+                    Modifier
+                },
+            )
             .clickable {
                 if (isBlurred) unblurred = true
                 else if (isVideo && videoUrl.isNotBlank()) onOpenVideo(imgUrl, videoUrl)
@@ -5047,10 +5063,53 @@ private fun ChatVisualMediaCell(
             )
         }
         if (isBlurred) {
-            Surface(color = Color.Black.copy(alpha = 0.62f), shape = RoundedCornerShape(999.dp)) {
-                Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Icon(Icons.Rounded.VisibilityOff, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
-                    Text("已模糊 · 轻触显示", color = Color.White, fontSize = 10.sp)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.06f)),
+            )
+            Surface(
+                color = Color.Black.copy(alpha = 0.62f),
+                shape = RoundedCornerShape(999.dp),
+                modifier = Modifier.padding(horizontal = if (gridCols >= 3) 4.dp else 6.dp),
+            ) {
+                Row(
+                    modifier = Modifier.padding(
+                        horizontal = when {
+                            gridCols <= 1 -> 9.dp
+                            gridCols == 2 -> 8.dp
+                            else -> 6.dp
+                        },
+                        vertical = if (gridCols <= 1) 4.dp else 3.dp,
+                    ),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(if (gridCols >= 3) 2.5.dp else 3.5.dp),
+                ) {
+                    Icon(
+                        Icons.Rounded.VisibilityOff,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(
+                            when {
+                                gridCols <= 1 -> 12.dp
+                                gridCols == 2 -> 11.dp
+                                else -> 10.dp
+                            },
+                        ),
+                    )
+                    Text(
+                        text = resolveChatMediaBlurLabel(gridCols),
+                        color = Color.White,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                        style = TextStyle(
+                            fontSize = if (gridCols >= 3) 9.5.sp else 10.sp,
+                            lineHeight = if (gridCols >= 3) 12.sp else 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            platformStyle = PlatformTextStyle(includeFontPadding = false),
+                        ),
+                    )
                 }
             }
         } else if (isVideo) {

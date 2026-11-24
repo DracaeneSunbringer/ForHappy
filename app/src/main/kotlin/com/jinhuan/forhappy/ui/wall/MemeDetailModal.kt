@@ -106,6 +106,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -1567,6 +1568,7 @@ private fun DetailMediaStage(
                 Surface(
                     color = Color.Black.copy(alpha = 0.66f),
                     shape = RoundedCornerShape(999.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp),
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
@@ -1577,7 +1579,15 @@ private fun DetailMediaStage(
                         Text(
                             text = if (blurAllActive) "全图模糊中 · 点按查看" else "敏感内容 · 点按查看",
                             color = Color.White,
-                            fontSize = 13.sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                            style = TextStyle(
+                                fontSize = 13.sp,
+                                lineHeight = 17.sp,
+                                fontWeight = FontWeight.Medium,
+                                platformStyle = PlatformTextStyle(includeFontPadding = false),
+                            ),
                         )
                     }
                 }
