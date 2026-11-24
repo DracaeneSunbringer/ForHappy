@@ -39,16 +39,73 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
+
+/**
+ * Unified typography for BasicTextField and its placeholder Text so both empty-state (Roboto)
+ * and CJK text (NotoSansCJK) use the exact same LineHeightStyleSpan box with zero vertical shift.
+ */
+fun forHappyInputTextStyle(
+    color: Color,
+    fontSize: TextUnit,
+    lineHeight: TextUnit = (fontSize.value + 6f).sp,
+): TextStyle = TextStyle(
+    color = color,
+    fontSize = fontSize,
+    lineHeight = lineHeight,
+    letterSpacing = 0.sp,
+    platformStyle = PlatformTextStyle(includeFontPadding = false),
+    lineHeightStyle = LineHeightStyle(
+        alignment = LineHeightStyle.Alignment.Center,
+        trim = LineHeightStyle.Trim.None,
+    ),
+)
+
+/**
+ * Shared BasicTextField decorationBox content aligning placeholder and caret on the exact same
+ * line box and shifting empty placeholder by 2.dp when focused so the 2.dp caret at index 0
+ * sits cleanly before the first glyph instead of overlapping its left stroke.
+ */
+@Composable
+fun ForHappyCaretAlignedBox(
+    isEmpty: Boolean,
+    isFocused: Boolean,
+    placeholder: String?,
+    textStyle: TextStyle,
+    placeholderColor: Color,
+    modifier: Modifier = Modifier,
+    contentAlignment: Alignment = Alignment.CenterStart,
+    placeholderMaxLines: Int = 1,
+    innerTextField: @Composable () -> Unit,
+) {
+    Box(
+        modifier = modifier,
+        contentAlignment = contentAlignment,
+    ) {
+        if (isEmpty && !placeholder.isNullOrEmpty()) {
+            Text(
+                text = placeholder,
+                style = textStyle.copy(color = placeholderColor),
+                maxLines = placeholderMaxLines,
+                overflow = TextOverflow.Ellipsis,
+                modifier = if (isFocused) Modifier.padding(start = 2.dp) else Modifier,
+            )
+        }
+        innerTextField()
+    }
+}
 
 /**
  * Compact capsule search bar aligned with ForHappy's native Modern Airy / Classic palettes,
@@ -100,37 +157,35 @@ fun ForHappySearchField(
             modifier = Modifier.size(if (height <= 34.dp) 15.dp else 17.dp),
         )
         Spacer(Modifier.width(7.dp))
-        Box(
-            modifier = Modifier.weight(1f),
-            contentAlignment = Alignment.CenterStart,
-        ) {
-            if (value.isEmpty()) {
-                Text(
-                    text = placeholder,
-                    color = palette.muted,
-                    fontSize = textSize,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+        val inputStyle = forHappyInputTextStyle(color = palette.text, fontSize = textSize)
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            textStyle = inputStyle,
+            cursorBrush = SolidColor(palette.primary),
+            keyboardOptions = KeyboardOptions(
+                imeAction = if (onSearch != null) ImeAction.Search else ImeAction.Done,
+            ),
+            keyboardActions = KeyboardActions(
+                onSearch = { onSearch?.invoke() },
+            ),
+            modifier = Modifier
+                .weight(1f)
+                .focusRequester(focusRequester)
+                .onFocusChanged { isFocused = it.isFocused },
+            decorationBox = { innerTextField ->
+                ForHappyCaretAlignedBox(
+                    isEmpty = value.isEmpty(),
+                    isFocused = isFocused,
+                    placeholder = placeholder,
+                    textStyle = inputStyle,
+                    placeholderColor = palette.muted,
+                    modifier = Modifier.fillMaxWidth(),
+                    innerTextField = innerTextField,
                 )
-            }
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                singleLine = true,
-                textStyle = TextStyle(color = palette.text, fontSize = textSize),
-                cursorBrush = SolidColor(palette.primary),
-                keyboardOptions = KeyboardOptions(
-                    imeAction = if (onSearch != null) ImeAction.Search else ImeAction.Done,
-                ),
-                keyboardActions = KeyboardActions(
-                    onSearch = { onSearch?.invoke() },
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(focusRequester)
-                    .onFocusChanged { isFocused = it.isFocused },
-            )
-        }
+            },
+        )
         if (value.isNotEmpty() || onClear != null) {
             Spacer(Modifier.width(4.dp))
             Box(
@@ -236,41 +291,40 @@ fun ForHappyTextField(
                     leadingIcon()
                 }
             }
-            Box(
-                modifier = Modifier.weight(1f),
-                contentAlignment = if (singleLine) Alignment.CenterStart else Alignment.TopStart,
-            ) {
-                if (value.isEmpty() && !placeholder.isNullOrBlank()) {
-                    Text(
-                        text = placeholder,
-                        color = hintColor,
-                        fontSize = 13.5.sp,
-                        lineHeight = 19.sp,
-                        maxLines = if (singleLine) 1 else 2,
-                        overflow = TextOverflow.Ellipsis,
+            val inputStyle = forHappyInputTextStyle(
+                color = textColor,
+                fontSize = 13.5.sp,
+                lineHeight = 19.5.sp,
+            )
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                enabled = enabled,
+                singleLine = singleLine,
+                minLines = minLines,
+                maxLines = maxLines,
+                textStyle = inputStyle,
+                cursorBrush = SolidColor(palette.primary),
+                visualTransformation = visualTransformation,
+                keyboardOptions = keyboardOptions,
+                keyboardActions = keyboardActions,
+                modifier = Modifier
+                    .weight(1f)
+                    .onFocusChanged { isFocused = it.isFocused },
+                decorationBox = { innerTextField ->
+                    ForHappyCaretAlignedBox(
+                        isEmpty = value.isEmpty(),
+                        isFocused = isFocused,
+                        placeholder = placeholder,
+                        textStyle = inputStyle,
+                        placeholderColor = hintColor,
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = if (singleLine) Alignment.CenterStart else Alignment.TopStart,
+                        placeholderMaxLines = if (singleLine) 1 else 2,
+                        innerTextField = innerTextField,
                     )
-                }
-                BasicTextField(
-                    value = value,
-                    onValueChange = onValueChange,
-                    enabled = enabled,
-                    singleLine = singleLine,
-                    minLines = minLines,
-                    maxLines = maxLines,
-                    textStyle = TextStyle(
-                        color = textColor,
-                        fontSize = 13.5.sp,
-                        lineHeight = 19.sp,
-                    ),
-                    cursorBrush = SolidColor(palette.primary),
-                    visualTransformation = visualTransformation,
-                    keyboardOptions = keyboardOptions,
-                    keyboardActions = keyboardActions,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusChanged { isFocused = it.isFocused },
-                )
-            }
+                },
+            )
             if (trailingIcon != null) {
                 Box(contentAlignment = Alignment.Center) {
                     trailingIcon()
@@ -364,41 +418,40 @@ fun ForHappyTextField(
                     leadingIcon()
                 }
             }
-            Box(
-                modifier = Modifier.weight(1f),
-                contentAlignment = if (singleLine) Alignment.CenterStart else Alignment.TopStart,
-            ) {
-                if (value.text.isEmpty() && !placeholder.isNullOrBlank()) {
-                    Text(
-                        text = placeholder,
-                        color = hintColor,
-                        fontSize = 13.5.sp,
-                        lineHeight = 19.sp,
-                        maxLines = if (singleLine) 1 else 2,
-                        overflow = TextOverflow.Ellipsis,
+            val inputStyle = forHappyInputTextStyle(
+                color = textColor,
+                fontSize = 13.5.sp,
+                lineHeight = 19.5.sp,
+            )
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                enabled = enabled,
+                singleLine = singleLine,
+                minLines = minLines,
+                maxLines = maxLines,
+                textStyle = inputStyle,
+                cursorBrush = SolidColor(palette.primary),
+                visualTransformation = visualTransformation,
+                keyboardOptions = keyboardOptions,
+                keyboardActions = keyboardActions,
+                modifier = Modifier
+                    .weight(1f)
+                    .onFocusChanged { isFocused = it.isFocused },
+                decorationBox = { innerTextField ->
+                    ForHappyCaretAlignedBox(
+                        isEmpty = value.text.isEmpty(),
+                        isFocused = isFocused,
+                        placeholder = placeholder,
+                        textStyle = inputStyle,
+                        placeholderColor = hintColor,
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = if (singleLine) Alignment.CenterStart else Alignment.TopStart,
+                        placeholderMaxLines = if (singleLine) 1 else 2,
+                        innerTextField = innerTextField,
                     )
-                }
-                BasicTextField(
-                    value = value,
-                    onValueChange = onValueChange,
-                    enabled = enabled,
-                    singleLine = singleLine,
-                    minLines = minLines,
-                    maxLines = maxLines,
-                    textStyle = TextStyle(
-                        color = textColor,
-                        fontSize = 13.5.sp,
-                        lineHeight = 19.sp,
-                    ),
-                    cursorBrush = SolidColor(palette.primary),
-                    visualTransformation = visualTransformation,
-                    keyboardOptions = keyboardOptions,
-                    keyboardActions = keyboardActions,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusChanged { isFocused = it.isFocused },
-                )
-            }
+                },
+            )
             if (trailingIcon != null) {
                 Box(contentAlignment = Alignment.Center) {
                     trailingIcon()

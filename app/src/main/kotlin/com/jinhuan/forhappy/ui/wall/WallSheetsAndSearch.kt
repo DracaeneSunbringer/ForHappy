@@ -85,6 +85,7 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -122,8 +123,10 @@ import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
 import com.jinhuan.forhappy.core.seen.LocalSeenTracker
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
+import com.jinhuan.forhappy.ui.components.ForHappyCaretAlignedBox
 import com.jinhuan.forhappy.ui.components.ForHappyTextField
 import com.jinhuan.forhappy.ui.components.ReactionEmojiView
+import com.jinhuan.forhappy.ui.components.forHappyInputTextStyle
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.theme.TABULAR_FONT_FEATURE
 import kotlinx.coroutines.delay
@@ -916,32 +919,45 @@ fun WallSearchScreen(
                         ) {
                             Icon(Icons.Rounded.Search, contentDescription = null, tint = palette.muted, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                            if (query.isEmpty()) {
-                                Text("搜索帖子、标签、发图人", color = palette.muted, fontSize = 13.sp, maxLines = 1)
-                            }
-                            BasicTextField(
-                                value = query,
-                                onValueChange = { query = it },
-                                singleLine = true,
-                                textStyle = TextStyle(color = palette.text, fontSize = 14.sp),
-                                cursorBrush = SolidColor(palette.primary),
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                                keyboardActions = KeyboardActions(
-                                    onSearch = {
-                                        keyboardController?.hide()
-                                        saveRecentSearch(query)
-                                        if (activeSegment == "posts" && query.isNotBlank()) {
-                                            onApplyFilter(currentFilter.copy(searchQuery = query.trim()))
-                                            onDismiss()
-                                        }
-                                    },
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .focusRequester(focusRequester),
-                            )
-                        }
+                        var searchFocused by remember { mutableStateOf(false) }
+                        val searchStyle = forHappyInputTextStyle(
+                            color = palette.text,
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp,
+                        )
+                        BasicTextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            singleLine = true,
+                            textStyle = searchStyle,
+                            cursorBrush = SolidColor(palette.primary),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(
+                                onSearch = {
+                                    keyboardController?.hide()
+                                    saveRecentSearch(query)
+                                    if (activeSegment == "posts" && query.isNotBlank()) {
+                                        onApplyFilter(currentFilter.copy(searchQuery = query.trim()))
+                                        onDismiss()
+                                    }
+                                },
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .focusRequester(focusRequester)
+                                .onFocusChanged { searchFocused = it.isFocused },
+                            decorationBox = { innerTextField ->
+                                ForHappyCaretAlignedBox(
+                                    isEmpty = query.isEmpty(),
+                                    isFocused = searchFocused,
+                                    placeholder = "搜索帖子、标签、发图人",
+                                    textStyle = searchStyle,
+                                    placeholderColor = palette.muted,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    innerTextField = innerTextField,
+                                )
+                            },
+                        )
                         if (query.isNotEmpty()) {
                             IconButton(onClick = { query = "" }, modifier = Modifier.size(28.dp)) {
                                 Icon(Icons.Rounded.Close, contentDescription = "清空", tint = palette.muted, modifier = Modifier.size(16.dp))

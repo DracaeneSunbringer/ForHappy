@@ -85,6 +85,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -115,8 +116,10 @@ import com.jinhuan.forhappy.core.model.PrivacyStealthConfig
 import com.jinhuan.forhappy.core.model.ShortcutGestureMode
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
+import com.jinhuan.forhappy.ui.components.ForHappyCaretAlignedBox
 import com.jinhuan.forhappy.ui.components.ReactionChip
 import com.jinhuan.forhappy.ui.components.RichChatBodyView
+import com.jinhuan.forhappy.ui.components.forHappyInputTextStyle
 import com.jinhuan.forhappy.ui.theme.LocalBossKeyActive
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.theme.LocalPrivacyStealthConfig
@@ -1083,32 +1086,38 @@ internal fun FeishuWorkGroupInputBar(
                     )
                 }
 
-                Box(
+                var inputFocused by remember { mutableStateOf(false) }
+                val inputStyle = forHappyInputTextStyle(
+                    color = fc.text,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                )
+                BasicTextField(
+                    value = text,
+                    onValueChange = onTextChange,
+                    textStyle = inputStyle,
+                    cursorBrush = SolidColor(fc.blue),
+                    maxLines = 4,
                     modifier = Modifier
                         .weight(1f)
                         .clip(RoundedCornerShape(8.dp))
                         .background(fc.surfaceMuted)
-                        .padding(horizontal = 11.dp, vertical = 8.dp),
-                    contentAlignment = Alignment.CenterStart,
-                ) {
-                    if (text.isEmpty()) {
-                        Text(
-                            text = if (quotedMeme != null) "输入回复内容…" else "发送给 $groupTitle",
-                            color = fc.muted,
-                            fontSize = 14.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                        .onFocusChanged { inputFocused = it.isFocused },
+                    decorationBox = { innerTextField ->
+                        ForHappyCaretAlignedBox(
+                            isEmpty = text.isEmpty(),
+                            isFocused = inputFocused,
+                            placeholder = if (quotedMeme != null) "输入回复内容…" else "发送给 $groupTitle",
+                            textStyle = inputStyle,
+                            placeholderColor = fc.muted,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 11.dp, vertical = 8.dp),
+                            contentAlignment = Alignment.CenterStart,
+                            innerTextField = innerTextField,
                         )
-                    }
-                    BasicTextField(
-                        value = text,
-                        onValueChange = onTextChange,
-                        textStyle = TextStyle(color = fc.text, fontSize = 14.sp),
-                        cursorBrush = SolidColor(fc.blue),
-                        maxLines = 4,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
+                    },
+                )
 
                 IconButton(
                     onClick = onToggleEmojiDrawer,
@@ -1711,25 +1720,38 @@ internal fun FeishuThreadScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Box(
+                    var replyFocused by remember { mutableStateOf(false) }
+                    val replyStyle = forHappyInputTextStyle(
+                        color = fc.text,
+                        fontSize = 14.sp,
+                        lineHeight = 20.sp,
+                    )
+                    BasicTextField(
+                        value = draftReply,
+                        onValueChange = { draftReply = it },
+                        textStyle = replyStyle,
+                        cursorBrush = SolidColor(fc.blue),
+                        maxLines = 4,
                         modifier = Modifier
                             .weight(1f)
                             .clip(RoundedCornerShape(18.dp))
                             .background(fc.surfaceMuted)
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                    ) {
-                        if (draftReply.isEmpty()) {
-                            Text("回复话题…", color = fc.muted, fontSize = 14.sp)
-                        }
-                        BasicTextField(
-                            value = draftReply,
-                            onValueChange = { draftReply = it },
-                            textStyle = TextStyle(color = fc.text, fontSize = 14.sp),
-                            cursorBrush = SolidColor(fc.blue),
-                            maxLines = 4,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
+                            .onFocusChanged { replyFocused = it.isFocused },
+                        decorationBox = { innerTextField ->
+                            ForHappyCaretAlignedBox(
+                                isEmpty = draftReply.isEmpty(),
+                                isFocused = replyFocused,
+                                placeholder = "回复话题…",
+                                textStyle = replyStyle,
+                                placeholderColor = fc.muted,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                contentAlignment = Alignment.CenterStart,
+                                innerTextField = innerTextField,
+                            )
+                        },
+                    )
                     IconButton(onClick = { showEmojiRow = !showEmojiRow }, modifier = Modifier.size(34.dp)) {
                         Icon(
                             imageVector = Icons.Rounded.EmojiEmotions,

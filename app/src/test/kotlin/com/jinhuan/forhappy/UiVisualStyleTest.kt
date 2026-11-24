@@ -1,6 +1,8 @@
 package com.jinhuan.forhappy
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.unit.sp
 import com.jinhuan.forhappy.core.model.ACCENT_PRESETS
 import com.jinhuan.forhappy.core.model.AccentColorConfig
 import com.jinhuan.forhappy.core.model.AccentColorMode
@@ -12,6 +14,7 @@ import com.jinhuan.forhappy.core.model.ChatMessage
 import com.jinhuan.forhappy.core.model.PrivacyStealthConfig
 import com.jinhuan.forhappy.ui.chat.ChatStreamEntry
 import com.jinhuan.forhappy.ui.chat.buildReversedChatStreamEntries
+import com.jinhuan.forhappy.ui.components.forHappyInputTextStyle
 import com.jinhuan.forhappy.ui.theme.FeishuWorkDarkPalette
 import com.jinhuan.forhappy.ui.theme.FeishuWorkPalette
 import com.jinhuan.forhappy.ui.theme.LinuxDoDarkPalette
@@ -308,5 +311,29 @@ class UiVisualStyleTest {
         assertEquals(2, disguiseIcons.size)
         assertTrue(jinhuanIcons.all { it.launcherLabel == "尽欢" && !it.isDisguise })
         assertTrue(disguiseIcons.all { it.isDisguise })
+    }
+
+    @Test
+    fun `forHappyInputTextStyle enforces centered line height without font padding for cursor alignment`() {
+        val placeholderColor = Color(0xFF64748B)
+        listOf(12.5.sp, 13.sp, 13.5.sp, 14.sp).forEach { size ->
+            val inputStyle = forHappyInputTextStyle(
+                color = Color(0xFF1E293B),
+                fontSize = size,
+            )
+            assertEquals(false, inputStyle.platformStyle?.paragraphStyle?.includeFontPadding)
+            assertEquals(LineHeightStyle.Alignment.Center, inputStyle.lineHeightStyle?.alignment)
+            assertEquals(LineHeightStyle.Trim.None, inputStyle.lineHeightStyle?.trim)
+            assertEquals(0.sp, inputStyle.letterSpacing)
+            assertEquals(size, inputStyle.fontSize)
+            assertEquals((size.value + 6f).sp, inputStyle.lineHeight)
+
+            val placeholderStyle = inputStyle.copy(color = placeholderColor)
+            assertEquals(inputStyle.fontSize, placeholderStyle.fontSize)
+            assertEquals(inputStyle.lineHeight, placeholderStyle.lineHeight)
+            assertEquals(inputStyle.platformStyle, placeholderStyle.platformStyle)
+            assertEquals(inputStyle.lineHeightStyle, placeholderStyle.lineHeightStyle)
+            assertEquals(placeholderColor, placeholderStyle.color)
+        }
     }
 }

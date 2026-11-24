@@ -140,6 +140,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -213,12 +214,14 @@ import com.jinhuan.forhappy.ui.components.BoostPillText
 import com.jinhuan.forhappy.ui.components.ChatCosmeticBoostPill
 import com.jinhuan.forhappy.ui.components.ChatCosmeticBubbleBox
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
+import com.jinhuan.forhappy.ui.components.ForHappyCaretAlignedBox
 import com.jinhuan.forhappy.ui.components.ForHappyCountBadge
 import com.jinhuan.forhappy.ui.components.ForHappyTextField
 import com.jinhuan.forhappy.ui.components.ReactionChip
 import com.jinhuan.forhappy.ui.components.RichChatBodyView
 import com.jinhuan.forhappy.ui.components.TitleChipView
 import com.jinhuan.forhappy.ui.components.boostPresetAccent
+import com.jinhuan.forhappy.ui.components.forHappyInputTextStyle
 import com.jinhuan.forhappy.ui.components.formatMentionOrCountBadge
 import com.jinhuan.forhappy.ui.components.parseSafeHex
 import com.jinhuan.forhappy.ui.compose.ComposeMediaStager
@@ -3078,41 +3081,49 @@ fun ChatScreen(
                             }
                         },
                 ) {
-                    Box(
+                    var composerFocused by remember { mutableStateOf(false) }
+                    val composerTextStyle = forHappyInputTextStyle(
+                        color = palette.text,
+                        fontSize = 14.sp,
+                        lineHeight = 20.sp,
+                    )
+                    val composerPlaceholder = when {
+                        me == null -> if (isFeishuComposer) "登录企业账号后发言" else "登录后参与聊天"
+                        activePane == "dm" -> if (isFeishuComposer) "发送给同事…" else "发送私信…"
+                        inputMode == ChatInputMode.GUESS -> if (disguiseMode != AppDisguiseMode.NONE) "输入待提交内容…" else "输入猜词答案（自动加 !）"
+                        inputMode == ChatInputMode.ASK -> if (disguiseMode != AppDisguiseMode.NONE) "输入提问内容…" else "向欢欢提一个是非问题…"
+                        isFeishuComposer -> "发送给当前群组…"
+                        else -> "发消息…"
+                    }
+                    BasicTextField(
+                        value = draft,
+                        onValueChange = { next ->
+                            draft = next
+                            if (activePane == "group" && state.editTarget == null) {
+                                controller.updateGroupDraft(state.activeGroupId, inputMode, next)
+                            }
+                        },
+                        maxLines = 4,
+                        textStyle = composerTextStyle,
+                        cursorBrush = SolidColor(palette.primary),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = if (palette.isModernUi && !isFeishuComposer) 6.dp else 12.dp, vertical = 8.dp),
-                    ) {
-                        if (draft.isEmpty()) {
-                            Text(
-                                text = when {
-                                    me == null -> if (isFeishuComposer) "登录企业账号后发言" else "登录后参与聊天"
-                                    activePane == "dm" -> if (isFeishuComposer) "发送给同事…" else "发送私信…"
-                                    inputMode == ChatInputMode.GUESS -> if (disguiseMode != AppDisguiseMode.NONE) "输入待提交内容…" else "输入猜词答案（自动加 !）"
-                                    inputMode == ChatInputMode.ASK -> if (disguiseMode != AppDisguiseMode.NONE) "输入提问内容…" else "向欢欢提一个是非问题…"
-                                    isFeishuComposer -> "发送给当前群组…"
-                                    else -> "发消息…"
-                                },
-                                color = palette.muted,
-                                fontSize = 14.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                            .onFocusChanged { composerFocused = it.isFocused },
+                        decorationBox = { innerTextField ->
+                            ForHappyCaretAlignedBox(
+                                isEmpty = draft.isEmpty(),
+                                isFocused = composerFocused,
+                                placeholder = composerPlaceholder,
+                                textStyle = composerTextStyle,
+                                placeholderColor = palette.muted,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = if (palette.isModernUi && !isFeishuComposer) 6.dp else 12.dp, vertical = 8.dp),
+                                contentAlignment = Alignment.CenterStart,
+                                innerTextField = innerTextField,
                             )
-                        }
-                        BasicTextField(
-                            value = draft,
-                            onValueChange = { next ->
-                                draft = next
-                                if (activePane == "group" && state.editTarget == null) {
-                                    controller.updateGroupDraft(state.activeGroupId, inputMode, next)
-                                }
-                            },
-                            maxLines = 4,
-                            textStyle = TextStyle(color = palette.text, fontSize = 14.sp),
-                            cursorBrush = SolidColor(palette.primary),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
+                        },
+                    )
                 }
 
                 if (isFeishuComposer) {

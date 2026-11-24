@@ -15,8 +15,8 @@ android {
         applicationId = "com.jinhuan.forhappy"
         minSdk = 26
         targetSdk = 35
-        versionCode = 23
-        versionName = "0.2.16"
+        versionCode = 24
+        versionName = "0.2.17"
 
         ndk {
             abiFilters += listOf("arm64-v8a")

@@ -93,6 +93,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -140,8 +141,10 @@ import com.jinhuan.forhappy.core.seen.LocalSeenTracker
 import com.jinhuan.forhappy.core.seen.ObserveMemeSeenDwell
 import com.jinhuan.forhappy.core.seen.computeVisibleAreaRatio
 import com.jinhuan.forhappy.ui.chat.ChatScreen
+import com.jinhuan.forhappy.ui.components.ForHappyCaretAlignedBox
 import com.jinhuan.forhappy.ui.components.ForHappyCountBadge
 import com.jinhuan.forhappy.ui.components.RichChatBodyView
+import com.jinhuan.forhappy.ui.components.forHappyInputTextStyle
 import com.jinhuan.forhappy.ui.components.formatUnreadBadgeCount
 import com.jinhuan.forhappy.ui.compose.ComposeMediaStager
 import com.jinhuan.forhappy.ui.compose.ImageMaskEditorScreen
@@ -879,23 +882,33 @@ fun LinuxDoDisguiseScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Icon(Icons.Rounded.Search, contentDescription = null, tint = lc.muted, modifier = Modifier.size(16.dp))
-                            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                                if (searchQuery.isEmpty()) {
-                                    Text(
-                                        text = if (activeTopic == null) "搜索话题、标签或帖子…" else "在本话题楼层中搜索…",
-                                        color = lc.muted,
-                                        fontSize = 13.sp,
+                            var searchFocused by remember { mutableStateOf(false) }
+                            val searchStyle = forHappyInputTextStyle(
+                                color = lc.text,
+                                fontSize = 13.sp,
+                                lineHeight = 19.sp,
+                            )
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                singleLine = true,
+                                textStyle = searchStyle,
+                                cursorBrush = SolidColor(lc.accent),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .onFocusChanged { searchFocused = it.isFocused },
+                                decorationBox = { innerTextField ->
+                                    ForHappyCaretAlignedBox(
+                                        isEmpty = searchQuery.isEmpty(),
+                                        isFocused = searchFocused,
+                                        placeholder = if (activeTopic == null) "搜索话题、标签或帖子…" else "在本话题楼层中搜索…",
+                                        textStyle = searchStyle,
+                                        placeholderColor = lc.muted,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        innerTextField = innerTextField,
                                     )
-                                }
-                                BasicTextField(
-                                    value = searchQuery,
-                                    onValueChange = { searchQuery = it },
-                                    singleLine = true,
-                                    textStyle = TextStyle(color = lc.text, fontSize = 13.sp),
-                                    cursorBrush = SolidColor(lc.accent),
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                            }
+                                },
+                            )
                             if (searchQuery.isNotEmpty()) {
                                 Icon(
                                     Icons.Rounded.Close,

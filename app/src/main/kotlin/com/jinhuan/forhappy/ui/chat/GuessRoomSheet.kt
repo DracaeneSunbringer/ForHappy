@@ -76,6 +76,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -97,7 +98,9 @@ import com.jinhuan.forhappy.core.model.MeUser
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.ui.components.BadgePill
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
+import com.jinhuan.forhappy.ui.components.ForHappyCaretAlignedBox
 import com.jinhuan.forhappy.ui.components.ForHappyTextField
+import com.jinhuan.forhappy.ui.components.forHappyInputTextStyle
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
@@ -838,36 +841,44 @@ fun GuessRoomSheet(
                                             .weight(1f)
                                             .border(1.dp, palette.line, RoundedCornerShape(20.dp)),
                                     ) {
-                                        Box(
+                                        var guessInputFocused by remember { mutableStateOf(false) }
+                                        val guessInputStyle = forHappyInputTextStyle(
+                                            color = palette.text,
+                                            fontSize = 13.sp,
+                                            lineHeight = 19.sp,
+                                        )
+                                        val guessPlaceholder = when {
+                                            me == null -> "登录后参与猜词"
+                                            !isOpen -> "本轮已结束"
+                                            !round.canPlay -> "你已知道谜底，仅可发布线索"
+                                            mode == "guess" -> "直接输入答案（自动加 !）"
+                                            else -> "输入是非问题，如：第一个字是水吗"
+                                        }
+                                        BasicTextField(
+                                            value = inputDraft,
+                                            onValueChange = { inputDraft = it },
+                                            enabled = isOpen && round.canPlay,
+                                            maxLines = 3,
+                                            textStyle = guessInputStyle,
+                                            cursorBrush = SolidColor(palette.primary),
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(horizontal = 12.dp, vertical = 9.dp),
-                                        ) {
-                                            if (inputDraft.isEmpty()) {
-                                                Text(
-                                                    text = when {
-                                                        me == null -> "登录后参与猜词"
-                                                        !isOpen -> "本轮已结束"
-                                                        !round.canPlay -> "你已知道谜底，仅可发布线索"
-                                                        mode == "guess" -> "直接输入答案（自动加 !）"
-                                                        else -> "输入是非问题，如：第一个字是水吗"
-                                                    },
-                                                    color = palette.muted,
-                                                    fontSize = 13.sp,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
+                                                .onFocusChanged { guessInputFocused = it.isFocused },
+                                            decorationBox = { innerTextField ->
+                                                ForHappyCaretAlignedBox(
+                                                    isEmpty = inputDraft.isEmpty(),
+                                                    isFocused = guessInputFocused,
+                                                    placeholder = guessPlaceholder,
+                                                    textStyle = guessInputStyle,
+                                                    placeholderColor = palette.muted,
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(horizontal = 12.dp, vertical = 9.dp),
+                                                    contentAlignment = Alignment.CenterStart,
+                                                    innerTextField = innerTextField,
                                                 )
-                                            }
-                                            BasicTextField(
-                                                value = inputDraft,
-                                                onValueChange = { inputDraft = it },
-                                                enabled = isOpen && round.canPlay,
-                                                maxLines = 3,
-                                                textStyle = TextStyle(color = palette.text, fontSize = 13.sp),
-                                                cursorBrush = SolidColor(palette.primary),
-                                                modifier = Modifier.fillMaxWidth(),
-                                            )
-                                        }
+                                            },
+                                        )
                                     }
 
                                     Surface(

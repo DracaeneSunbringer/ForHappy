@@ -91,6 +91,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -131,9 +132,11 @@ import com.jinhuan.forhappy.core.model.TagStatItem
 import com.jinhuan.forhappy.core.navigation.StealthExemptionGate
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.ui.chat.ChatScreen
+import com.jinhuan.forhappy.ui.components.ForHappyCaretAlignedBox
 import com.jinhuan.forhappy.ui.components.ForHappyCountBadge
 import com.jinhuan.forhappy.ui.components.ReactionChip
 import com.jinhuan.forhappy.ui.components.RichChatBodyView
+import com.jinhuan.forhappy.ui.components.forHappyInputTextStyle
 import com.jinhuan.forhappy.ui.components.formatUnreadBadgeCount
 import com.jinhuan.forhappy.ui.compose.ComposeMediaStager
 import com.jinhuan.forhappy.ui.compose.ImageMaskEditorScreen
@@ -1058,27 +1061,33 @@ private fun FeishuMessagesHomeTab(
                         tint = fc.muted,
                         modifier = Modifier.size(17.dp),
                     )
-                    Box(
-                        modifier = Modifier.weight(1f),
-                        contentAlignment = Alignment.CenterStart,
-                    ) {
-                        if (searchQuery.isEmpty()) {
-                            Text(
-                                text = "搜索联系人、群组、消息记录",
-                                color = fc.muted,
-                                fontSize = 13.5.sp,
-                                maxLines = 1,
+                    var mainSearchFocused by remember { mutableStateOf(false) }
+                    val mainSearchStyle = forHappyInputTextStyle(
+                        color = fc.text,
+                        fontSize = 13.5.sp,
+                        lineHeight = 19.5.sp,
+                    )
+                    BasicTextField(
+                        value = searchQuery,
+                        onValueChange = onSearchQueryChange,
+                        singleLine = true,
+                        textStyle = mainSearchStyle,
+                        cursorBrush = SolidColor(fc.blue),
+                        modifier = Modifier
+                            .weight(1f)
+                            .onFocusChanged { mainSearchFocused = it.isFocused },
+                        decorationBox = { innerTextField ->
+                            ForHappyCaretAlignedBox(
+                                isEmpty = searchQuery.isEmpty(),
+                                isFocused = mainSearchFocused,
+                                placeholder = "搜索联系人、群组、消息记录",
+                                textStyle = mainSearchStyle,
+                                placeholderColor = fc.muted,
+                                modifier = Modifier.fillMaxWidth(),
+                                innerTextField = innerTextField,
                             )
-                        }
-                        BasicTextField(
-                            value = searchQuery,
-                            onValueChange = onSearchQueryChange,
-                            singleLine = true,
-                            textStyle = TextStyle(color = fc.text, fontSize = 13.5.sp),
-                            cursorBrush = SolidColor(fc.blue),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
+                        },
+                    )
                     if (searchQuery.isNotEmpty()) {
                         Icon(
                             imageVector = Icons.Rounded.Close,
@@ -1529,19 +1538,33 @@ private fun FeishuContactsTab(
                     horizontalArrangement = Arrangement.spacedBy(7.dp),
                 ) {
                     Icon(Icons.Rounded.Search, contentDescription = null, tint = fc.muted, modifier = Modifier.size(17.dp))
-                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                        if (query.isEmpty()) {
-                            Text("搜索组织内联系人发起单聊", color = fc.muted, fontSize = 13.5.sp)
-                        }
-                        BasicTextField(
-                            value = query,
-                            onValueChange = { query = it },
-                            singleLine = true,
-                            textStyle = TextStyle(color = fc.text, fontSize = 13.5.sp),
-                            cursorBrush = SolidColor(fc.blue),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
+                    var contactSearchFocused by remember { mutableStateOf(false) }
+                    val contactSearchStyle = forHappyInputTextStyle(
+                        color = fc.text,
+                        fontSize = 13.5.sp,
+                        lineHeight = 19.5.sp,
+                    )
+                    BasicTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        singleLine = true,
+                        textStyle = contactSearchStyle,
+                        cursorBrush = SolidColor(fc.blue),
+                        modifier = Modifier
+                            .weight(1f)
+                            .onFocusChanged { contactSearchFocused = it.isFocused },
+                        decorationBox = { innerTextField ->
+                            ForHappyCaretAlignedBox(
+                                isEmpty = query.isEmpty(),
+                                isFocused = contactSearchFocused,
+                                placeholder = "搜索组织内联系人发起单聊",
+                                textStyle = contactSearchStyle,
+                                placeholderColor = fc.muted,
+                                modifier = Modifier.fillMaxWidth(),
+                                innerTextField = innerTextField,
+                            )
+                        },
+                    )
                     if (query.isNotEmpty()) {
                         Icon(
                             Icons.Rounded.Close,
@@ -2181,19 +2204,33 @@ private fun FeishuWorkGroupDetailScreen(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Icon(Icons.Rounded.Search, contentDescription = null, tint = fc.muted, modifier = Modifier.size(16.dp))
-                        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                            if (groupSearchQuery.isEmpty()) {
-                                Text("搜索本群聊天记录", color = fc.muted, fontSize = 13.sp)
-                            }
-                            BasicTextField(
-                                value = groupSearchQuery,
-                                onValueChange = { groupSearchQuery = it },
-                                singleLine = true,
-                                textStyle = TextStyle(color = fc.text, fontSize = 13.sp),
-                                cursorBrush = SolidColor(fc.blue),
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
+                        var groupSearchFocused by remember { mutableStateOf(false) }
+                        val groupSearchStyle = forHappyInputTextStyle(
+                            color = fc.text,
+                            fontSize = 13.sp,
+                            lineHeight = 19.sp,
+                        )
+                        BasicTextField(
+                            value = groupSearchQuery,
+                            onValueChange = { groupSearchQuery = it },
+                            singleLine = true,
+                            textStyle = groupSearchStyle,
+                            cursorBrush = SolidColor(fc.blue),
+                            modifier = Modifier
+                                .weight(1f)
+                                .onFocusChanged { groupSearchFocused = it.isFocused },
+                            decorationBox = { innerTextField ->
+                                ForHappyCaretAlignedBox(
+                                    isEmpty = groupSearchQuery.isEmpty(),
+                                    isFocused = groupSearchFocused,
+                                    placeholder = "搜索本群聊天记录",
+                                    textStyle = groupSearchStyle,
+                                    placeholderColor = fc.muted,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    innerTextField = innerTextField,
+                                )
+                            },
+                        )
                         if (groupSearchQuery.isNotEmpty()) {
                             Icon(
                                 Icons.Rounded.Close,
