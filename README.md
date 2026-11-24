@@ -9,6 +9,29 @@
 - **系统要求**：Android 8.0（API 26）及以上，支持 `arm64-v8a` 设备
 - **应用内更新**：安装后可在「我的 → 版本与自动更新」中检查新版本并直接完成覆盖更新
 
+## 界面预览
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="docs/screenshots/01-wall-light.png" alt="图廊浏览" width="200" /><br />
+      <sub>图廊浏览</sub>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/02-chat-dark.png" alt="群聊与私信" width="200" /><br />
+      <sub>群聊与私信</sub>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/03-discover-light.png" alt="发现与百宝箱" width="200" /><br />
+      <sub>发现与百宝箱</sub>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/04-me-dark.png" alt="个人中心" width="200" /><br />
+      <sub>个人中心</sub>
+    </td>
+  </tr>
+</table>
+
 ## 功能特性
 
 - **图廊浏览**：支持单栏 / 双栏瀑布流切换，按最新、热门、最早、未读及标签筛选；支持高清原图双指缩放、GIF 与视频播放、帖子表情回应与短评互动，以及快捷发帖投稿。
@@ -22,6 +45,8 @@
 ```text
 .
 ├── app/                  # Android 客户端工程 (Kotlin + Jetpack Compose)
+├── docs/
+│   └── screenshots/      # 应用界面预览截图
 └── rust/
     └── forhappy-net/     # 传输层动态库 (Rust + rustls + JNI)
 ```
