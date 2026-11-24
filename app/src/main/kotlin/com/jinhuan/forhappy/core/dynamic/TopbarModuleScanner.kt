@@ -21,6 +21,7 @@ object TopbarModuleScanner {
         "/huancai",
         "/music",
         "/nsfw",
+        "/arcade",
     )
 
     val DEFAULT_BUILT_IN_MODULES = listOf(
@@ -40,10 +41,22 @@ object TopbarModuleScanner {
         "/novels" to Triple("novels", "book", true),
         "/pets" to Triple("pets", "pets", true),
         "/pet-isle" to Triple("pets", "pets", true),
+        "/valley" to Triple("pets", "pets", true),
+        "/series" to Triple("series", "gallery", true),
+        "/community-updates" to Triple("community_updates", "news", true),
     )
 
+    fun normalizeModuleRoute(rawPath: String): String {
+        val clean = normalizeRoute(rawPath)
+        return when (clean) {
+            "/valley", "/pet-isle" -> "/pets"
+            "/community-updates.html" -> "/community-updates"
+            else -> clean
+        }
+    }
+
     fun isRetiredRoute(route: String): Boolean {
-        val clean = normalizeRoute(route)
+        val clean = normalizeModuleRoute(route)
         return RETIRED_ROUTE_PREFIXES.any { prefix ->
             clean == prefix || clean.startsWith("$prefix/")
         }
@@ -72,7 +85,7 @@ object TopbarModuleScanner {
             if (href.isBlank() || href.startsWith("#") || href.startsWith("javascript:", ignoreCase = true)) {
                 return@forEach
             }
-            val normalizedRoute = normalizeRoute(href)
+            val normalizedRoute = normalizeModuleRoute(href)
             if (normalizedRoute == "/me" || normalizedRoute == "/login" || isRetiredRoute(normalizedRoute)) {
                 return@forEach
             }
@@ -83,7 +96,7 @@ object TopbarModuleScanner {
             }?.value
 
             val id = known?.first ?: normalizedRoute.trim('/').replace('/', '_').ifBlank { "mod_${seenRoutes.size}" }
-            val iconKey = known?.second ?: "web"
+            val iconKey = known?.second ?: inferIconKey(normalizedRoute)
             val builtIn = known?.third ?: false
 
             seenRoutes.putIfAbsent(
@@ -138,6 +151,18 @@ object TopbarModuleScanner {
         route.startsWith("/road") -> "鞭打"
         route.startsWith("/novels") -> "小说"
         route.startsWith("/pets") -> "鱼鱼谷"
+        route.startsWith("/series") -> "图集"
+        route.startsWith("/community-updates") -> "社区更新"
         else -> route.trim('/').uppercase().ifBlank { "扩展模块" }
+    }
+
+    private fun inferIconKey(route: String): String = when {
+        route.startsWith("/novels") -> "book"
+        route.startsWith("/pets") -> "pet"
+        route.startsWith("/community-updates") -> "news"
+        route.startsWith("/series") -> "gallery"
+        route.contains("rank") || route.contains("wealth") -> "rank"
+        route.contains("raffle") || route.contains("gift") -> "gift"
+        else -> "web"
     }
 }

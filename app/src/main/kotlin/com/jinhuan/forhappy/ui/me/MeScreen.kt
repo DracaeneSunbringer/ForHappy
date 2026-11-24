@@ -158,6 +158,7 @@ fun MeScreen(
     onRequireLogin: () -> Unit,
     onLoggedOut: () -> Unit,
     onOpenMeme: (Long) -> Unit = {},
+    onNavigateToAuthor: ((String) -> Unit)? = null,
     @Suppress("UNUSED_PARAMETER") onOpenComposeEdit: ((MemeItem) -> Unit)? = null,
     onOpenWebRoute: (route: String, title: String) -> Unit = { _, _ -> },
     onOpenNotifSettings: () -> Unit = {},
@@ -915,6 +916,10 @@ fun MeScreen(
             onOpenWebRoute = { route, title ->
                 showWalletDialog = false
                 onOpenWebRoute(route, title)
+            },
+            onNavigateToAuthor = { username ->
+                showWalletDialog = false
+                onNavigateToAuthor?.invoke(username)
             },
             onDismiss = {
                 showWalletDialog = false

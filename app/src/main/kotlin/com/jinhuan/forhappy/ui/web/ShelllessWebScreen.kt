@@ -145,6 +145,10 @@ fun ShelllessWebScreen(
     me: MeUser? = null,
     onRequireLogin: () -> Unit = {},
     onJumpToGroupChat: ((groupId: Long) -> Unit)? = null,
+    onNavigateToAuthor: ((String) -> Unit)? = null,
+    onNavigateToMeme: ((Long) -> Unit)? = null,
+    onNavigateToTag: ((String) -> Unit)? = null,
+    onOpenWealthRank: (() -> Unit)? = null,
 ) {
     val palette = LocalForHappyPalette.current
     val context = LocalContext.current
@@ -154,15 +158,37 @@ fun ShelllessWebScreen(
     val scope = rememberCoroutineScope()
 
     val cleanRoute = remember(route) { route.trim() }
-    val isPetsCanvas = remember(cleanRoute) {
-        cleanRoute.startsWith("/pets") || cleanRoute.startsWith("/arcade") || cleanRoute.startsWith("/slime")
-    }
-    val isNovelReader = remember(cleanRoute) {
-        (cleanRoute.startsWith("/novels") || cleanRoute.contains("/novels/")) && !cleanRoute.startsWith("/novels/studio")
+    val actionTag = remember(cleanRoute) {
+        cleanRoute.substringAfter('#', "").takeIf { it.startsWith("fh-") }
     }
     val targetUrl = remember(cleanRoute) {
         if (cleanRoute.startsWith("http")) cleanRoute else "https://52dmeme.com${if (cleanRoute.startsWith("/")) cleanRoute else "/$cleanRoute"}"
     }
+
+    var currentWebUrl by remember(targetUrl) { mutableStateOf(targetUrl) }
+    val parsedUri = remember(currentWebUrl) { runCatching { Uri.parse(currentWebUrl) }.getOrNull() }
+    val effectivePath = remember(parsedUri) {
+        val p = parsedUri?.path?.ifBlank { "/" } ?: "/"
+        if (p.length > 1) p.trimEnd('/') else p
+    }
+    val isModalHostPage = remember(effectivePath, actionTag) {
+        effectivePath == "/me" && actionTag != null
+    }
+    val isPetsCanvas = remember(effectivePath) {
+        effectivePath == "/pets" || effectivePath.startsWith("/pets/")
+    }
+    val isNovelReader = remember(effectivePath) {
+        effectivePath.startsWith("/novels/") &&
+            !effectivePath.startsWith("/novels/studio") &&
+            effectivePath.removePrefix("/novels/").trim('/').isNotEmpty()
+    }
+
+    val latestOnExit by rememberUpdatedState(onExit)
+    val latestOnJumpToGroupChat by rememberUpdatedState(onJumpToGroupChat)
+    val latestOnNavigateToAuthor by rememberUpdatedState(onNavigateToAuthor)
+    val latestOnNavigateToMeme by rememberUpdatedState(onNavigateToMeme)
+    val latestOnNavigateToTag by rememberUpdatedState(onNavigateToTag)
+    val latestOnOpenWealthRank by rememberUpdatedState(onOpenWealthRank)
 
     var progress by remember { mutableIntStateOf(0) }
     var isLoading by remember { mutableStateOf(true) }
@@ -267,9 +293,14 @@ fun ShelllessWebScreen(
     val statusBarTopDp = WindowInsets.statusBars.asPaddingValues().calculateTopPadding().value.toInt()
     val navBarBotDp = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding().value.toInt()
 
-    val shelllessCss = remember(isPetsCanvas, floatingCapsule, showCompactBar, isNovelReader, statusBarTopDp, navBarBotDp) {
+    val shelllessCss = remember(isPetsCanvas, isModalHostPage, floatingCapsule, showCompactBar, isNovelReader, statusBarTopDp, navBarBotDp) {
+        val modalHideCss = if (isModalHostPage) {
+            "#main{opacity:0!important;pointer-events:none!important;max-height:100dvh!important;overflow:hidden!important;} dialog.ic-dialog,dialog.tr-dialog{max-height:calc(100dvh - ${statusBarTopDp + 16}px)!important;}"
+        } else {
+            ""
+        }
         if (isPetsCanvas) {
-            ".topbar,.mobile-nav,.site-footer,.pet-dock,header.site-header{display:none!important;} html,body,#main{margin:0!important;padding:0!important;width:100%!important;height:100dvh!important;min-height:100%!important;max-width:none!important;overflow:hidden!important;}"
+            ".topbar,.mobile-nav,.site-footer,.pet-dock,header.site-header{display:none!important;} html,body,#main{margin:0!important;padding:0!important;width:100%!important;height:100dvh!important;min-height:100%!important;max-width:none!important;overflow:hidden!important;} $modalHideCss"
         } else {
             val topPadPx = when {
                 floatingCapsule -> statusBarTopDp + 44
@@ -277,7 +308,7 @@ fun ShelllessWebScreen(
                 else -> 4
             }
             val botPadPx = if (isNovelReader) 10 else navBarBotDp + 12
-            ".topbar,.mobile-nav,.site-footer,.pet-dock,header.site-header{display:none!important;} html,body{min-height:100dvh!important;} body{padding-top:${topPadPx}px!important;padding-bottom:${botPadPx}px!important;box-sizing:border-box!important;}"
+            ".topbar,.mobile-nav,.site-footer,.pet-dock,header.site-header{display:none!important;} html,body{min-height:100dvh!important;} body{padding-top:${topPadPx}px!important;padding-bottom:${botPadPx}px!important;box-sizing:border-box!important;} $modalHideCss"
         }
     }
 
@@ -523,6 +554,11 @@ fun ShelllessWebScreen(
                                         }
                                     }
                                 }
+
+                                @JavascriptInterface
+                                fun closeContainer() {
+                                    wv.post { latestOnExit?.invoke() }
+                                }
                             },
                             "ForHappyWebBridge",
                         )
@@ -551,15 +587,119 @@ fun ShelllessWebScreen(
                                 )
                             }
 
+                            override fun shouldOverrideUrlLoading(
+                                view: WebView?,
+                                request: WebResourceRequest,
+                            ): Boolean {
+                                if (!request.isForMainFrame) return false
+                                val uri = request.url ?: return false
+                                val scheme = uri.scheme?.lowercase().orEmpty()
+                                val host = uri.host?.lowercase().orEmpty()
+                                val path = (uri.path?.ifBlank { "/" } ?: "/").let {
+                                    if (it.length > 1) it.trimEnd('/') else it
+                                }
+
+                                if (scheme != "http" && scheme != "https") {
+                                    StealthExemptionGate.markInternalJump()
+                                    runCatching {
+                                        context.startActivity(
+                                            Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                        )
+                                    }
+                                    return true
+                                }
+
+                                if (host.isNotBlank() && host != "52dmeme.com" && !host.endsWith(".52dmeme.com")) {
+                                    StealthExemptionGate.markInternalJump()
+                                    runCatching {
+                                        context.startActivity(
+                                            Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                        )
+                                    }
+                                    return true
+                                }
+
+                                when {
+                                    path == "/" -> {
+                                        latestOnExit?.invoke()
+                                        return true
+                                    }
+                                    path == "/valley" || path == "/pet-isle" -> {
+                                        view?.loadUrl("https://52dmeme.com/pets")
+                                        return true
+                                    }
+                                    path == "/leaderboard" || path == "/wealth-rank" -> {
+                                        val handler = latestOnOpenWealthRank
+                                        if (handler != null) {
+                                            handler.invoke()
+                                            latestOnExit?.invoke()
+                                            return true
+                                        }
+                                    }
+                                    path.startsWith("/u/") -> {
+                                        val username = Uri.decode(path.removePrefix("/u/")).trim()
+                                        val handler = latestOnNavigateToAuthor
+                                        if (username.isNotBlank() && handler != null) {
+                                            handler.invoke(username)
+                                            latestOnExit?.invoke()
+                                            return true
+                                        }
+                                    }
+                                    path.startsWith("/m/") -> {
+                                        val memeId = path.removePrefix("/m/").substringBefore('/').toLongOrNull()
+                                        val handler = latestOnNavigateToMeme
+                                        if (memeId != null && handler != null) {
+                                            handler.invoke(memeId)
+                                            latestOnExit?.invoke()
+                                            return true
+                                        }
+                                    }
+                                    path.startsWith("/t/") -> {
+                                        val tag = Uri.decode(path.removePrefix("/t/")).trim()
+                                        val handler = latestOnNavigateToTag
+                                        if (tag.isNotBlank() && handler != null) {
+                                            handler.invoke(tag)
+                                            latestOnExit?.invoke()
+                                            return true
+                                        }
+                                    }
+                                    path == "/chat" || path.startsWith("/chat/") -> {
+                                        val gid = path.removePrefix("/chat").trim('/').toLongOrNull() ?: 1L
+                                        val handler = latestOnJumpToGroupChat
+                                        if (handler != null) {
+                                            handler.invoke(gid)
+                                            return true
+                                        }
+                                    }
+                                }
+                                return false
+                            }
+
+                            override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+                                if (!url.isNullOrBlank()) {
+                                    currentWebUrl = url
+                                }
+                                canGoBack = view?.canGoBack() == true
+                            }
+
                             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                 isLoading = true
+                                if (!url.isNullOrBlank()) {
+                                    currentWebUrl = url
+                                }
                                 canGoBack = view?.canGoBack() == true
                             }
 
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 isLoading = false
+                                if (!url.isNullOrBlank()) {
+                                    currentWebUrl = url
+                                }
                                 canGoBack = view?.canGoBack() == true
                                 view?.evaluateJavascript(latestInjectFallbackScript, null)
+                                buildShelllessActionScript(actionTag)?.let { script ->
+                                    view?.evaluateJavascript(script, null)
+                                }
                                 onCookiesSynced?.invoke()
                             }
                         }
@@ -897,4 +1037,95 @@ private fun NovelCollabBarButton(
         Icon(icon, contentDescription = label, tint = palette.primary, modifier = Modifier.size(16.dp))
         Text(label, color = palette.text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
     }
+}
+
+private fun buildShelllessActionScript(actionTag: String?): String? {
+    val tag = actionTag?.trim()?.takeIf { it.startsWith("fh-") } ?: return null
+    val qTag = JSONObject.quote(tag)
+    return """
+        (function(){
+          var tag = $qTag;
+          if (!tag || window.__fhActionRan === tag) return;
+          window.__fhActionRan = tag;
+          function normText(el){ return ((el && el.textContent) || '').replace(/\s+/g, ' ').trim(); }
+          function watchClose(dlg){
+            if (!dlg || dlg.__fhCloseBound) return;
+            dlg.__fhCloseBound = true;
+            dlg.addEventListener('close', function(){
+              setTimeout(function(){
+                var tr = document.querySelector('dialog.tr-dialog[open]');
+                if (tr) { watchClose(tr); return; }
+                var ic = document.querySelector('dialog.ic-dialog[open]');
+                if (ic) { watchClose(ic); return; }
+                if (!document.querySelector('dialog[open]') && window.ForHappyWebBridge && window.ForHappyWebBridge.closeContainer) {
+                  window.ForHappyWebBridge.closeContainer();
+                }
+              }, 260);
+            });
+          }
+          if (tag === 'fh-cards' || tag === 'fh-bubbles' || tag === 'fh-trials' || tag === 'fh-records' || tag === 'fh-raffle') {
+            var targetTab = tag === 'fh-bubbles' ? '限定气泡' : (tag === 'fh-trials' ? '体验卡' : (tag === 'fh-records' ? '参与记录' : (tag === 'fh-raffle' ? '旧场次' : '')));
+            var tries = 0;
+            var timer = setInterval(function(){
+              tries++;
+              var ic = document.querySelector('dialog.ic-dialog');
+              if (ic) {
+                watchClose(ic);
+                if (!targetTab) { clearInterval(timer); return; }
+                var btns = Array.prototype.slice.call(ic.querySelectorAll('.ic-tabs button'));
+                var hit = btns.find(function(b){ return normText(b).indexOf(targetTab) !== -1; });
+                if (hit) {
+                  clearInterval(timer);
+                  hit.click();
+                  if (tag === 'fh-raffle') {
+                    var trTries = 0;
+                    var trTimer = setInterval(function(){
+                      trTries++;
+                      var tr = document.querySelector('dialog.tr-dialog');
+                      if (tr) { clearInterval(trTimer); watchClose(tr); }
+                      else if (trTries > 40) { clearInterval(trTimer); }
+                    }, 100);
+                  }
+                }
+                return;
+              }
+              var quickBtns = Array.prototype.slice.call(document.querySelectorAll('.me-quick button, button'));
+              var gachaBtn = quickBtns.find(function(b){ return normText(b) === '抽卡'; });
+              if (gachaBtn && !window.__fhGachaClicked) {
+                window.__fhGachaClicked = true;
+                gachaBtn.click();
+              }
+              if (tries > 75) clearInterval(timer);
+            }, 80);
+          } else if (tag === 'fh-visit' || tag === 'fh-auto' || tag === 'fh-rank' || tag === 'fh-room') {
+            var pTries = 0;
+            var pTimer = setInterval(function(){
+              pTries++;
+              if (tag === 'fh-visit') {
+                var vb = document.querySelector('.isle-visit-btn');
+                if (vb) { clearInterval(pTimer); vb.click(); return; }
+              } else if (tag === 'fh-auto') {
+                var ab = document.querySelector('.isle-auto-chip');
+                if (ab) { clearInterval(pTimer); ab.click(); return; }
+              } else if (tag === 'fh-rank') {
+                var rb = document.querySelector('.isle-rank-button');
+                if (rb) { clearInterval(pTimer); rb.click(); return; }
+              } else if (tag === 'fh-room') {
+                var mb = document.querySelector('.isle-menu-btn');
+                if (mb) {
+                  clearInterval(pTimer);
+                  mb.click();
+                  setTimeout(function(){
+                    var tiles = Array.prototype.slice.call(document.querySelectorAll('.isle-menu-tile'));
+                    var roomTile = tiles.find(function(t){ return normText(t).indexOf('宠物屋') !== -1; });
+                    if (roomTile) roomTile.click();
+                  }, 100);
+                  return;
+                }
+              }
+              if (pTries > 75) clearInterval(pTimer);
+            }, 120);
+          }
+        })();
+    """.trimIndent()
 }

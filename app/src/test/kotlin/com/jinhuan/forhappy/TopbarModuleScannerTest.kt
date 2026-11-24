@@ -26,6 +26,9 @@ class TopbarModuleScannerTest {
                   <a href="/huancai">欢彩</a>
                   <a href="/music">音乐</a>
                   <a href="/nsfw">RZP</a>
+                  <a href="/arcade">游戏大厅</a>
+                  <a href="/valley">谷地别名</a>
+                  <a href="/community-updates.html">社区更新</a>
                   <a href="/event">周年活动</a>
                 </nav>
               </header>
@@ -33,7 +36,7 @@ class TopbarModuleScannerTest {
         """.trimIndent()
 
         val parsed = TopbarModuleScanner.parseTopbarHtml(sampleHtml)
-        assertEquals(6, parsed.size)
+        assertEquals(7, parsed.size)
         val eventMod = parsed.last()
         assertEquals("/event", eventMod.route)
         assertEquals("周年活动", eventMod.label)
@@ -42,6 +45,14 @@ class TopbarModuleScannerTest {
 
         val retired = TopbarModuleScanner.RETIRED_ROUTE_PREFIXES
         assertTrue(parsed.none { mod -> mod.route in retired })
+        assertFalse(parsed.any { it.route.startsWith("/arcade") })
+        // /valley normalizes to /pets and deduplicates against existing /pets
+        assertEquals(1, parsed.count { it.route == "/pets" })
+        // /community-updates.html normalizes to /community-updates
+        assertTrue(parsed.any { it.route == "/community-updates" })
+        assertTrue(TopbarModuleScanner.isRetiredRoute("/arcade/mole"))
+        assertEquals("/pets", TopbarModuleScanner.normalizeModuleRoute("https://52dmeme.com/pet-isle/"))
+        assertEquals("/community-updates", TopbarModuleScanner.normalizeModuleRoute("/community-updates.html"))
 
         val merged = TopbarModuleScanner.mergeWithDefaults(parsed)
         assertTrue(merged.none { mod -> TopbarModuleScanner.isRetiredRoute(mod.route) })

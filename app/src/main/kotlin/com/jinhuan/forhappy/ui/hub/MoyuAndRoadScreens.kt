@@ -1,5 +1,7 @@
 package com.jinhuan.forhappy.ui.hub
 
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -10,6 +12,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -35,10 +38,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.EmojiEvents
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Refresh
@@ -67,6 +72,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -87,6 +93,8 @@ import androidx.compose.ui.window.DialogProperties
 import com.jinhuan.forhappy.core.chat.ChatSessionController
 import com.jinhuan.forhappy.core.clock.ServerClock
 import com.jinhuan.forhappy.core.model.ChatGroup
+import com.jinhuan.forhappy.core.model.CommunityUpdateItem
+import com.jinhuan.forhappy.core.model.CommunityUpdatesPage
 import com.jinhuan.forhappy.core.model.ForHappyJson
 import com.jinhuan.forhappy.core.model.MeUser
 import com.jinhuan.forhappy.core.model.MoyuConfig
@@ -95,8 +103,11 @@ import com.jinhuan.forhappy.core.model.RoadCommentItem
 import com.jinhuan.forhappy.core.model.RoadItem
 import com.jinhuan.forhappy.core.model.TodayStats
 import com.jinhuan.forhappy.core.moyu.MoyuCalculator
+import com.jinhuan.forhappy.core.navigation.StealthExemptionGate
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
+import com.jinhuan.forhappy.ui.components.BadgePill
 import com.jinhuan.forhappy.ui.components.ForHappyTextField
+import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.wall.ConfigureFullscreenDialogWindow
 import com.jinhuan.forhappy.ui.wall.DialogBackOwnerScope
@@ -766,6 +777,7 @@ private fun MoyuCountdownPill(label: String, value: String) {
 fun NativeRoadDialog(
     api: ForHappyApiClient,
     me: MeUser?,
+    initialRoadItemId: Long? = null,
     onRequireLogin: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -778,6 +790,7 @@ fun NativeRoadDialog(
     var statusFilter by remember { mutableStateOf("all") }
     var showCreateDialog by remember { mutableStateOf(false) }
     var activeCommentItem by remember { mutableStateOf<RoadItem?>(null) }
+    var autoOpenedInitialItem by remember(initialRoadItemId) { mutableStateOf(false) }
     var feedbackBanner by remember { mutableStateOf<String?>(null) }
 
     fun reload() {
@@ -789,6 +802,14 @@ fun NativeRoadDialog(
     }
 
     LaunchedEffect(Unit) { reload() }
+
+    LaunchedEffect(loading, items, initialRoadItemId) {
+        val targetId = initialRoadItemId ?: return@LaunchedEffect
+        if (!loading && !autoOpenedInitialItem) {
+            autoOpenedInitialItem = true
+            items.firstOrNull { it.id == targetId }?.let { activeCommentItem = it }
+        }
+    }
 
     val filteredItems = remember(items, kindFilter, statusFilter) {
         items.filter { item ->
@@ -1366,31 +1387,151 @@ private fun RoadCommentsDialog(
     }
 }
 
-private data class ArcadeGameOption(
+private data class HubLauncherOption(
+    val id: String,
     val route: String,
     val emoji: String,
     val title: String,
     val desc: String,
+    val requiresStandbyCheck: Boolean = false,
 )
 
-private val ARCADE_GAMES = listOf(
-    ArcadeGameOption("/slime", "🧪", "史莱姆工坊", "融合粘液图鉴 · 工坊收益收集"),
-    ArcadeGameOption("/arcade/mole", "🔨", "狂揍欢鼠", "限时敲打欢鼠 · 连击冲刺排行榜"),
-    ArcadeGameOption("/arcade/rift", "⚡", "裂隙突围", "高压弹幕闪避 · 无尽生存挑战"),
+private val ISLE_GAME_OPTIONS = listOf(
+    HubLauncherOption("/pets", "/pets", "🎪", "鱼鱼游乐馆 · 小岛主城", "弹弹乐 · 鲸鱼桌球 · 鲸鱼保龄（小岛右下方进入）", requiresStandbyCheck = true),
+    HubLauncherOption("/pets#battle", "/pets#battle", "⚔️", "大肥鱼擂台", "站宠武道切磋 · 装备强化与战报排行", requiresStandbyCheck = true),
+    HubLauncherOption("/pets#fh-visit", "/pets#fh-visit", "🚤", "邻岛串门偷菜", "坐船拜访欢友小岛 · 帮忙浇水或挑战看门鱼", requiresStandbyCheck = true),
+    HubLauncherOption("/pets#fh-rank", "/pets#fh-rank", "🏆", "山谷排行榜", "小岛资产、游乐馆今日榜与总榜"),
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+private val PETS_HUB_OPTIONS = listOf(
+    HubLauncherOption("/pets", "/pets", "🏝️", "进入小岛主画布", "种菜牧场、钓鱼挖矿、市场交易与游乐馆", requiresStandbyCheck = true),
+    HubLauncherOption("/pets#battle", "/pets#battle", "⚔️", "大肥鱼擂台", "站宠切磋竞技 · 武器词条与排行", requiresStandbyCheck = true),
+    HubLauncherOption("/pets#fh-visit", "/pets#fh-visit", "🚤", "邻岛串门", "拜访邻岛帮忙浇水或挑战看门大肥鱼", requiresStandbyCheck = true),
+    HubLauncherOption("/pets#fh-room", "/pets#fh-room", "🐋", "站宠养成屋", "抚摸喂养、互动动作与更换站宠", requiresStandbyCheck = true),
+    HubLauncherOption("/pets#fh-auto", "/pets#fh-auto", "🤖", "挂机管家配置", "离线策略、自动种植与自动售卖设置"),
+    HubLauncherOption("native_pets", "native_pets", "🛡️", "邻岛动态与协防战报（原生）", "查看成熟作物状态、协防日志与站宠数值"),
+)
+
+private val NOVELS_HUB_OPTIONS = listOf(
+    HubLauncherOption("/novels", "/novels", "📚", "书架与连载阅读", "浏览全站小说书架、接龙续写与正文摘录"),
+    HubLauncherOption("/novels/studio", "/novels/studio", "✍️", "创作工坊 (Studio)", "新建作品、设定角色世界观与 AI 协同创作"),
+)
+
+private val GACHA_HUB_OPTIONS = listOf(
+    HubLauncherOption("/me#fh-cards", "/me#fh-cards", "✨", "抽卡星匣（常驻 / 限定 / 金手指）", "十连/六十连/百连抽称号、升级与体验卡"),
+    HubLauncherOption("/me#fh-bubbles", "/me#fh-bubbles", "🐯", "52B 白虎巡展（角色卡与限定气泡）", "固定 5% 命中限定气泡 + 60 连一次结算"),
+    HubLauncherOption("native_cards52b", "native_cards52b", "📖", "52B 集卡图鉴（原生卡册）", "查看已收集卡面立绘、SSR/UR 进度与卡背"),
+    HubLauncherOption("/me#fh-raffle", "/me#fh-raffle", "🎁", "历史称号抽奖（旧场次明细）", "查看旧场次中奖结果、报名记录与退款状态"),
+    HubLauncherOption("/me#fh-records", "/me#fh-records", "📜", "我的抽卡参与记录", "查看历史十连/保底与称号获取记录"),
+)
+
 @Composable
 fun ArcadeLauncherSheet(
     api: ForHappyApiClient,
     onLaunchRoute: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    HubLauncherModalSheet(
+        api = api,
+        headerEmoji = Icons.Rounded.SportsEsports,
+        title = "谷内游乐与竞技",
+        subtitle = "原 /arcade 大厅已合并至鱼鱼谷小岛，此处直达各个实时玩法入口",
+        options = ISLE_GAME_OPTIONS,
+        checkPetStandby = true,
+        onSelectOption = { opt -> onLaunchRoute(opt.route) },
+        onDismiss = onDismiss,
+    )
+}
+
+@Composable
+fun PetsHubLauncherSheet(
+    api: ForHappyApiClient,
+    onLaunchRoute: (route: String, title: String) -> Unit,
+    onOpenNativePetsOverview: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    HubLauncherModalSheet(
+        api = api,
+        headerEmoji = Icons.Rounded.AutoAwesome,
+        title = "鱼鱼谷 · 小岛与二级入口",
+        subtitle = "直达小岛主画布、大肥鱼擂台、邻岛串门、站宠屋与原生协防日志",
+        options = PETS_HUB_OPTIONS,
+        checkPetStandby = true,
+        onSelectOption = { opt ->
+            if (opt.id == "native_pets") {
+                onOpenNativePetsOverview()
+            } else {
+                onLaunchRoute(opt.route, opt.title)
+            }
+        },
+        onDismiss = onDismiss,
+    )
+}
+
+@Composable
+fun NovelsHubLauncherSheet(
+    api: ForHappyApiClient,
+    onLaunchRoute: (route: String, title: String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    HubLauncherModalSheet(
+        api = api,
+        headerEmoji = Icons.Rounded.AutoAwesome,
+        title = "尽欢书房 · 阅读与创作",
+        subtitle = "进入书架接龙阅读或打开 Studio 创作工坊",
+        options = NOVELS_HUB_OPTIONS,
+        checkPetStandby = false,
+        onSelectOption = { opt -> onLaunchRoute(opt.route, opt.title) },
+        onDismiss = onDismiss,
+    )
+}
+
+@Composable
+fun GachaHubLauncherSheet(
+    api: ForHappyApiClient,
+    me: MeUser?,
+    onRequireLogin: () -> Unit,
+    onLaunchRoute: (route: String, title: String) -> Unit,
+    onOpenNativeCards52b: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    HubLauncherModalSheet(
+        api = api,
+        headerEmoji = Icons.Rounded.EmojiEvents,
+        title = "抽卡与 52B 集卡中心",
+        subtitle = "星匣抽卡、52B 限定气泡巡展、原生集卡图鉴与旧场次抽奖详情",
+        options = GACHA_HUB_OPTIONS,
+        checkPetStandby = false,
+        onSelectOption = { opt ->
+            if (me == null) {
+                onRequireLogin()
+            } else if (opt.id == "native_cards52b") {
+                onOpenNativeCards52b()
+            } else {
+                onLaunchRoute(opt.route, opt.title)
+            }
+        },
+        onDismiss = onDismiss,
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HubLauncherModalSheet(
+    api: ForHappyApiClient,
+    headerEmoji: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String,
+    options: List<HubLauncherOption>,
+    checkPetStandby: Boolean,
+    onSelectOption: (HubLauncherOption) -> Unit,
+    onDismiss: () -> Unit,
+) {
     val palette = LocalForHappyPalette.current
     val scope = rememberCoroutineScope()
     val petUi by api.petCoordinator.uiState.collectAsState()
-    var checkingRoute by remember { mutableStateOf<String?>(null) }
-    var conflictRoute by remember { mutableStateOf<String?>(null) }
+    var checkingId by remember { mutableStateOf<String?>(null) }
+    var conflictOption by remember { mutableStateOf<HubLauncherOption?>(null) }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
@@ -1407,10 +1548,11 @@ fun ArcadeLauncherSheet(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Rounded.SportsEsports, contentDescription = null, tint = palette.primary)
-                Text("游乐厅 · 休闲小游戏", color = palette.text, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                Icon(headerEmoji, contentDescription = null, tint = palette.primary)
+                Text(title, color = palette.text, fontSize = 17.sp, fontWeight = FontWeight.Bold)
             }
-            if (petUi.arcadeStandbyActive) {
+            Text(subtitle, color = palette.muted, fontSize = 12.sp)
+            if (checkPetStandby && petUi.arcadeStandbyActive) {
                 Surface(
                     color = palette.gold.copy(alpha = 0.14f),
                     shape = RoundedCornerShape(10.dp),
@@ -1424,22 +1566,29 @@ fun ArcadeLauncherSheet(
                     )
                 }
             }
-            ARCADE_GAMES.forEach { game ->
+            options.forEach { opt ->
                 Surface(
                     color = palette.surface2,
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable(enabled = checkingRoute == null) {
-                            checkingRoute = game.route
-                            scope.launch {
-                                runCatching { api.petCoordinator.fetchWorld() }
-                                checkingRoute = null
-                                val state = api.petCoordinator.uiState.value
-                                if (state.arcadeStandbyActive) {
-                                    conflictRoute = game.route
-                                } else {
-                                    onLaunchRoute(game.route)
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable(enabled = checkingId == null) {
+                            if (!opt.requiresStandbyCheck) {
+                                onDismiss()
+                                onSelectOption(opt)
+                            } else {
+                                checkingId = opt.id
+                                scope.launch {
+                                    runCatching { api.petCoordinator.fetchWorld() }
+                                    checkingId = null
+                                    val state = api.petCoordinator.uiState.value
+                                    if (state.arcadeStandbyActive) {
+                                        conflictOption = opt
+                                    } else {
+                                        onDismiss()
+                                        onSelectOption(opt)
+                                    }
                                 }
                             }
                         },
@@ -1456,13 +1605,13 @@ fun ArcadeLauncherSheet(
                                 .background(palette.surface),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text(game.emoji, fontSize = 22.sp)
+                            Text(opt.emoji, fontSize = 22.sp)
                         }
                         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(game.title, color = palette.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                            Text(game.desc, color = palette.muted, fontSize = 12.sp)
+                            Text(opt.title, color = palette.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                            Text(opt.desc, color = palette.muted, fontSize = 12.sp)
                         }
-                        if (checkingRoute == game.route) {
+                        if (checkingId == opt.id) {
                             CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = palette.primary)
                         } else {
                             Text("进入 →", color = palette.primary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
@@ -1474,33 +1623,347 @@ fun ArcadeLauncherSheet(
         }
     }
 
-    conflictRoute?.let { pendingRoute ->
+    conflictOption?.let { pendingOpt ->
         AlertDialog(
-            onDismissRequest = { conflictRoute = null },
+            onDismissRequest = { conflictOption = null },
             containerColor = palette.surface,
             titleContentColor = palette.text,
             textContentColor = palette.text,
             title = { Text("宠物挂机冲突提醒") },
             text = {
                 Text(
-                    "检测到当前鱼鱼谷存在挂机进程（${petUi.arcadeStandbySummary?.takeIf { it.isNotBlank() } ?: "挂机收益中"}）。进入小游戏可能会暂停或覆盖挂机，确定继续进入吗？",
+                    "检测到当前鱼鱼谷存在挂机进程（${petUi.arcadeStandbySummary?.takeIf { it.isNotBlank() } ?: "挂机收益中"}）。进入该入口可能会暂停或覆盖挂机，确定继续吗？",
                     fontSize = 13.sp,
                 )
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        conflictRoute = null
-                        onLaunchRoute(pendingRoute)
+                        conflictOption = null
+                        onDismiss()
+                        onSelectOption(pendingOpt)
                     },
                 ) {
                     Text("继续进入")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { conflictRoute = null }) { Text("暂不进入") }
+                TextButton(onClick = { conflictOption = null }) { Text("暂不进入") }
             },
         )
+    }
+}
+
+private val COMMUNITY_UPDATE_KINDS = listOf(
+    "all" to "全部",
+    "feature" to "新功能",
+    "fix" to "修复",
+    "polish" to "体验优化",
+    "art" to "美术",
+    "community" to "社区",
+)
+
+private fun communityKindLabel(kind: String): String = when (kind.lowercase()) {
+    "feature" -> "新功能"
+    "fix" -> "修复"
+    "polish" -> "体验优化"
+    "art" -> "美术"
+    "community" -> "社区"
+    else -> kind.ifBlank { "更新" }
+}
+
+/**
+ * Native Community Updates viewer backed by `GET /api/community-updates`,
+ * with external GitHub issue/contributor jump support.
+ */
+@Composable
+fun CommunityUpdatesDialog(
+    api: ForHappyApiClient,
+    onOpenWebFallback: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val palette = LocalForHappyPalette.current
+    val context = LocalContext.current
+    var page by remember { mutableStateOf<CommunityUpdatesPage?>(null) }
+    var loading by remember { mutableStateOf(true) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+    var kindFilter by remember { mutableStateOf("all") }
+    var reloadSeq by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(reloadSeq) {
+        loading = true
+        errorMsg = null
+        api.fetchCommunityUpdates().fold(
+            onSuccess = { loaded ->
+                page = loaded
+                loading = false
+            },
+            onFailure = { err ->
+                errorMsg = err.message ?: "社区更新暂时打不开"
+                loading = false
+            },
+        )
+    }
+
+    fun openExternalUrl(url: String) {
+        StealthExemptionGate.markInternalJump()
+        runCatching {
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+    }
+
+    val allUpdates = page?.updates.orEmpty()
+    val shownUpdates = remember(allUpdates, kindFilter) {
+        if (kindFilter == "all") allUpdates else allUpdates.filter { it.kind == kindFilter }
+    }
+    val contributorCount = remember(allUpdates) {
+        allUpdates.mapNotNull { it.author?.trim()?.lowercase()?.takeIf { a -> a.isNotBlank() } }.toSet().size
+    }
+    val latestDate = remember(allUpdates) {
+        allUpdates.mapNotNull { it.date?.takeIf { d -> d.isNotBlank() } }.maxOrNull() ?: "—"
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = FullscreenDialogProperties,
+    ) {
+        ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+        DialogBackOwnerScope {
+            BackHandler(onBack = onDismiss)
+            val navBottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(palette.bg),
+            ) {
+                Surface(color = palette.surface) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .height(ForHappyDimens.topBarHeight)
+                            .padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
+                        }
+                        Text(
+                            "社区更新 · 站点动态",
+                            color = palette.text,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(
+                            onClick = { openExternalUrl("https://github.com/kourou25/jinhuan/issues") },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        ) {
+                            Text("GitHub 需求 ↗", fontSize = 12.sp)
+                        }
+                        IconButton(onClick = { reloadSeq++ }) {
+                            Icon(Icons.Rounded.Refresh, contentDescription = "刷新", tint = palette.muted)
+                        }
+                    }
+                }
+                HorizontalDivider(
+                    color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                    thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+                )
+
+                if (allUpdates.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(palette.surface)
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = "共 ${allUpdates.size} 条记录 · ${if (contributorCount > 0) "${contributorCount} 位贡献者 · " else ""}最近更新 $latestDate",
+                            color = palette.muted,
+                            fontSize = 12.sp,
+                        )
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            COMMUNITY_UPDATE_KINDS.forEach { (id, label) ->
+                                val count = if (id == "all") allUpdates.size else allUpdates.count { it.kind == id }
+                                if (id == "all" || count > 0) {
+                                    FilterChip(
+                                        selected = kindFilter == id,
+                                        onClick = { kindFilter = id },
+                                        label = { Text("$label $count", fontSize = 11.5.sp) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    HorizontalDivider(
+                        color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                        thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+                    )
+                }
+
+                when {
+                    loading -> {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = palette.primary)
+                        }
+                    }
+                    errorMsg != null -> {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Text(errorMsg.orEmpty(), color = palette.danger, fontSize = 13.sp)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedButton(onClick = { reloadSeq++ }) { Text("重新读取") }
+                                    TextButton(onClick = {
+                                        onDismiss()
+                                        onOpenWebFallback()
+                                    }) { Text("打开网页版") }
+                                }
+                            }
+                        }
+                    }
+                    shownUpdates.isEmpty() -> {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("该分类下暂无更新记录", color = palette.muted, fontSize = 13.sp)
+                        }
+                    }
+                    else -> {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(
+                                start = 14.dp,
+                                top = 12.dp,
+                                end = 14.dp,
+                                bottom = 14.dp + navBottomPad,
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            if (page?.stale == true) {
+                                item(key = "stale_warn") {
+                                    Surface(
+                                        color = palette.gold.copy(alpha = 0.14f),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Text(
+                                            "当前显示缓存快照（GitHub 同步暂不可用）",
+                                            color = palette.text,
+                                            fontSize = 12.sp,
+                                            modifier = Modifier.padding(10.dp),
+                                        )
+                                    }
+                                }
+                            }
+                            items(shownUpdates, key = { "${it.issue}_${it.title}" }) { item: CommunityUpdateItem ->
+                                val shape = RoundedCornerShape(14.dp)
+                                Surface(
+                                    color = palette.surface,
+                                    shape = shape,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .border(1.dp, palette.line.copy(alpha = 0.85f), shape),
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(14.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        ) {
+                                            if (item.kind.isNotBlank()) {
+                                                BadgePill(
+                                                    text = communityKindLabel(item.kind),
+                                                    containerColor = palette.primary.copy(alpha = 0.14f),
+                                                    contentColor = palette.primary,
+                                                )
+                                            }
+                                            Spacer(Modifier.weight(1f))
+                                            item.date?.takeIf { it.isNotBlank() }?.let { dt ->
+                                                Text(dt, color = palette.muted, fontSize = 11.sp)
+                                            }
+                                        }
+                                        Text(
+                                            item.title,
+                                            color = palette.text,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                        if (item.body.isNotBlank()) {
+                                            Text(
+                                                item.body,
+                                                color = palette.muted,
+                                                fontSize = 13.sp,
+                                                lineHeight = 18.sp,
+                                            )
+                                        }
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        ) {
+                                            item.author?.trim()?.takeIf { it.isNotBlank() }?.let { author ->
+                                                Surface(
+                                                    color = palette.surface2,
+                                                    shape = RoundedCornerShape(999.dp),
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(999.dp))
+                                                        .clickable { openExternalUrl("https://github.com/$author") },
+                                                ) {
+                                                    Text(
+                                                        "@$author ↗",
+                                                        color = palette.text,
+                                                        fontSize = 11.5.sp,
+                                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                                    )
+                                                }
+                                            }
+                                            if (item.issue > 0L) {
+                                                Surface(
+                                                    color = palette.primary.copy(alpha = 0.10f),
+                                                    shape = RoundedCornerShape(999.dp),
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(999.dp))
+                                                        .clickable {
+                                                            openExternalUrl("https://github.com/kourou25/jinhuan/issues/${item.issue}")
+                                                        },
+                                                ) {
+                                                    Text(
+                                                        "需求 #${item.issue} ↗",
+                                                        color = palette.primary,
+                                                        fontSize = 11.5.sp,
+                                                        fontWeight = FontWeight.Medium,
+                                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                                    )
+                                                }
+                                            }
+                                            Spacer(Modifier.weight(1f))
+                                            TextButton(
+                                                onClick = {
+                                                    onDismiss()
+                                                    onOpenWebFallback()
+                                                },
+                                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                            ) {
+                                                Text("网页原文", fontSize = 11.5.sp)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -135,6 +135,7 @@ import com.jinhuan.forhappy.ui.hub.loadPinnedHubIds
 import com.jinhuan.forhappy.ui.hub.resolveHubCatalog
 import com.jinhuan.forhappy.ui.me.MeScreen
 import com.jinhuan.forhappy.ui.me.PrivacyStealthSettingsContent
+import com.jinhuan.forhappy.ui.me.WealthRankDialog
 import com.jinhuan.forhappy.ui.notifications.NotificationsSheet
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.ForHappyPalette
@@ -211,6 +212,8 @@ fun ForHappyShell(
     var openSeriesIndexSignal by remember { mutableIntStateOf(0) }
     var wallScrollToTopSignal by remember { mutableIntStateOf(0) }
     var webLinkModalUrl by remember { mutableStateOf<String?>(null) }
+    var webLinkModalTitle by remember { mutableStateOf<String?>(null) }
+    var showShellWealthRank by remember { mutableStateOf(false) }
     var shellDetailMemeId by remember { mutableStateOf<Long?>(null) }
     var shellFullscreenImgUrl by remember { mutableStateOf<String?>(null) }
     var pendingChatJump by remember { mutableStateOf<ChatNotificationJump?>(null) }
@@ -356,10 +359,76 @@ fun ForHappyShell(
         }
     }
 
+    fun openSmartRoute(rawRoute: String, title: String = "探索页面") {
+        val clean = rawRoute.trim()
+        if (clean.isBlank()) return
+        val pathOnly = when {
+            clean.startsWith("http://", ignoreCase = true) || clean.startsWith("https://", ignoreCase = true) -> {
+                val uri = runCatching { android.net.Uri.parse(clean) }.getOrNull()
+                val host = uri?.host?.lowercase().orEmpty()
+                if (host != "52dmeme.com" && host != "www.52dmeme.com" && host != "cc.52dmeme.com") {
+                    webLinkModalTitle = title.takeIf { it != "探索页面" }
+                    webLinkModalUrl = clean
+                    return
+                }
+                uri?.path.orEmpty()
+            }
+            else -> clean.substringBefore('?').substringBefore('#')
+        }.let { p ->
+            val withSlash = if (p.startsWith("/")) p else "/$p"
+            if (withSlash.length > 1) withSlash.trimEnd('/') else withSlash
+        }
+
+        val normalizedPath = when (pathOnly) {
+            "/valley", "/pet-isle" -> "/pets"
+            "/community-updates.html" -> "/community-updates"
+            else -> pathOnly
+        }
+        val effectiveRoute = if (pathOnly == "/valley" || pathOnly == "/pet-isle") {
+            if (clean.contains("#battle")) "/pets#battle" else "/pets"
+        } else {
+            clean
+        }
+
+        when {
+            normalizedPath == "/leaderboard" || normalizedPath == "/wealth-rank" -> {
+                if (me == null) showLoginModal = true else showShellWealthRank = true
+            }
+            normalizedPath == "/series" -> {
+                openSeriesIndexSignal++
+                activeTab = "wall"
+            }
+            normalizedPath.startsWith("/moyu") ||
+                normalizedPath.startsWith("/road") ||
+                normalizedPath == "/gacha" ||
+                normalizedPath == "/cards" ||
+                normalizedPath == "/raffle" ||
+                normalizedPath.startsWith("/arcade") ||
+                normalizedPath == "/slime" ||
+                normalizedPath.startsWith("/community-updates") -> {
+                discoverInitialRoute = effectiveRoute
+                activeTab = "discover"
+            }
+            effectiveRoute.startsWith("/me#") -> {
+                if (me == null) {
+                    showLoginModal = true
+                } else {
+                    webLinkModalTitle = title.takeIf { it != "探索页面" }
+                    webLinkModalUrl = effectiveRoute
+                }
+            }
+            else -> {
+                webLinkModalTitle = title.takeIf { it != "探索页面" }
+                webLinkModalUrl = effectiveRoute
+            }
+        }
+    }
+
     fun applyDeepLinkTarget(target: DeepLinkTarget) {
         if (currentDisguise != AppDisguiseMode.NONE) {
             when (target) {
                 is DeepLinkTarget.DiscoverSubApp,
+                is DeepLinkTarget.WebModalRoute,
                 DeepLinkTarget.Road,
                 DeepLinkTarget.SeriesIndex,
                 is DeepLinkTarget.SeriesFeed,
@@ -455,6 +524,9 @@ fun ForHappyShell(
             is DeepLinkTarget.DiscoverSubApp -> {
                 discoverInitialRoute = target.route
                 activeTab = "discover"
+            }
+            is DeepLinkTarget.WebModalRoute -> {
+                openSmartRoute(target.route, target.title)
             }
             DeepLinkTarget.Road -> {
                 discoverInitialRoute = "/road"
@@ -723,7 +795,7 @@ fun ForHappyShell(
                     onTogglePrivacyShield = onTogglePrivacyShield,
                     onChangeIconAlias = onChangeIconAlias,
                     onLoggedOut = clearLoggedOutState,
-                    onOpenUrl = { url -> webLinkModalUrl = url },
+                    onOpenUrl = { url -> openSmartRoute(url) },
                 )
             }
 
@@ -749,7 +821,7 @@ fun ForHappyShell(
                     onTogglePrivacyShield = onTogglePrivacyShield,
                     onChangeIconAlias = onChangeIconAlias,
                     onLoggedOut = clearLoggedOutState,
-                    onOpenUrl = { url -> webLinkModalUrl = url },
+                    onOpenUrl = { url -> openSmartRoute(url) },
                 )
             }
 
@@ -852,7 +924,7 @@ fun ForHappyShell(
                             wallMemeArg = null
                         },
                         onOpenNotifications = { showNotifsSheet = true },
-                        onOpenUrl = { url -> webLinkModalUrl = url },
+                        onOpenUrl = { url -> openSmartRoute(url) },
                         onOpenCompose = { req -> activeComposeRequest = req },
                         onRequireLogin = { showLoginModal = true },
                         onToggleBlurAll = { enabled ->
@@ -891,7 +963,7 @@ fun ForHappyShell(
                             wallTagArg = tag
                             activeTab = "wall"
                         },
-                        onOpenUrl = { url -> webLinkModalUrl = url },
+                        onOpenUrl = { url -> openSmartRoute(url) },
                         onRequireLogin = { showLoginModal = true },
                         notifUnreadCount = notifUnreadCount,
                         onOpenNotifications = { showNotifsSheet = true },
@@ -904,7 +976,7 @@ fun ForHappyShell(
                             activeTab = "wall"
                         },
                         onOpenDiscoverRoute = { route ->
-                            webLinkModalUrl = if (route.startsWith("http")) route else "https://52dmeme.com$route"
+                            openSmartRoute(route)
                         },
                         onConvertMessageToPost = { msg ->
                             if (me == null) {
@@ -966,6 +1038,26 @@ fun ForHappyShell(
                             chatOpenRequest = ChatOpenSessionRequest(mode = "group", groupId = gid)
                             activeTab = "messages"
                         },
+                        onNavigateToAuthor = { uname ->
+                            wallTagArg = null
+                            wallSeriesArg = null
+                            wallAuthorArg = uname
+                            activeTab = "wall"
+                        },
+                        onNavigateToMeme = { id ->
+                            wallMemeArg = id
+                            activeTab = "wall"
+                        },
+                        onNavigateToTag = { tag ->
+                            wallAuthorArg = null
+                            wallSeriesArg = null
+                            wallTagArg = tag
+                            activeTab = "wall"
+                        },
+                        onOpenSeriesIndex = {
+                            openSeriesIndexSignal++
+                            activeTab = "wall"
+                        },
                     )
 
                     "me" -> MeScreen(
@@ -997,27 +1089,20 @@ fun ForHappyShell(
                             todayStats = null
                         },
                         onOpenMeme = { id -> shellDetailMemeId = id },
+                        onNavigateToAuthor = { uname ->
+                            wallTagArg = null
+                            wallSeriesArg = null
+                            wallAuthorArg = uname
+                            activeTab = "wall"
+                        },
                         onOpenComposeEdit = { meme ->
                             activeComposeRequest = ComposeLaunchRequest(
                                 triggerSeq = System.currentTimeMillis(),
                                 editingMeme = meme,
                             )
                         },
-                        onOpenWebRoute = { route, _ ->
-                            val clean = route.trim()
-                            if (clean.startsWith("/pets") ||
-                                clean.startsWith("/cards") ||
-                                clean.startsWith("/novels") ||
-                                clean.startsWith("/raffle") ||
-                                clean.startsWith("/road") ||
-                                clean.startsWith("/moyu") ||
-                                clean.startsWith("/arcade")
-                            ) {
-                                discoverInitialRoute = clean
-                                activeTab = "discover"
-                            } else {
-                                webLinkModalUrl = clean
-                            }
+                        onOpenWebRoute = { route, title ->
+                            openSmartRoute(route, title)
                         },
                         onOpenNotifSettings = {
                             openNotifPrefsDirectly = true
@@ -1443,7 +1528,7 @@ fun ForHappyShell(
                 activeTab = "messages"
             },
             onNavigateHub = { activeTab = "discover" },
-            onOpenUrl = { url -> webLinkModalUrl = url },
+            onOpenUrl = { url -> openSmartRoute(url) },
             onDismiss = {
                 showNotifsSheet = false
                 openNotifPrefsDirectly = false
@@ -1499,7 +1584,7 @@ fun ForHappyShell(
                 wallAuthorArg = uname
                 activeTab = "wall"
             },
-            onOpenUrl = { url -> webLinkModalUrl = url },
+            onOpenUrl = { url -> openSmartRoute(url) },
             onOpenEditWorkbench = { targetMeme ->
                 shellDetailMemeId = null
                 activeComposeRequest = ComposeLaunchRequest(
@@ -1653,7 +1738,10 @@ fun ForHappyShell(
 
     webLinkModalUrl?.let { url ->
         Dialog(
-            onDismissRequest = { webLinkModalUrl = null },
+            onDismissRequest = {
+                webLinkModalUrl = null
+                webLinkModalTitle = null
+            },
             properties = FullscreenDialogProperties,
         ) {
             ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
@@ -1661,26 +1749,72 @@ fun ForHappyShell(
                 Box(modifier = Modifier.fillMaxSize().background(palette.bg)) {
                     ShelllessWebScreen(
                         route = url,
-                        title = url.removePrefix("https://").removePrefix("http://"),
+                        title = webLinkModalTitle?.takeIf { it.isNotBlank() }
+                            ?: url.removePrefix("https://").removePrefix("http://"),
                         cookieJar = api.cookieJar,
                         assetCache = api.webAssetCache,
                         showCompactBar = false,
                         floatingCapsule = true,
                         pausedOverlay = currentBossActive,
-                        onExit = { webLinkModalUrl = null },
+                        onExit = {
+                            webLinkModalUrl = null
+                            webLinkModalTitle = null
+                        },
                         api = api,
                         chatController = chatController,
                         me = me,
                         onRequireLogin = { showLoginModal = true },
                         onJumpToGroupChat = { gid ->
                             webLinkModalUrl = null
+                            webLinkModalTitle = null
                             chatOpenRequest = ChatOpenSessionRequest(mode = "group", groupId = gid)
                             activeTab = "messages"
+                        },
+                        onNavigateToAuthor = { uname ->
+                            webLinkModalUrl = null
+                            webLinkModalTitle = null
+                            wallTagArg = null
+                            wallSeriesArg = null
+                            wallAuthorArg = uname
+                            activeTab = "wall"
+                        },
+                        onNavigateToMeme = { memeId ->
+                            webLinkModalUrl = null
+                            webLinkModalTitle = null
+                            wallMemeArg = memeId
+                            activeTab = "wall"
+                        },
+                        onNavigateToTag = { tag ->
+                            webLinkModalUrl = null
+                            webLinkModalTitle = null
+                            wallAuthorArg = null
+                            wallSeriesArg = null
+                            wallTagArg = tag
+                            activeTab = "wall"
+                        },
+                        onOpenWealthRank = {
+                            webLinkModalUrl = null
+                            webLinkModalTitle = null
+                            if (me == null) showLoginModal = true else showShellWealthRank = true
                         },
                     )
                 }
             }
         }
+    }
+
+    if (showShellWealthRank && !currentBossActive) {
+        WealthRankDialog(
+            api = api,
+            onNavigateToAuthor = { uname ->
+                showShellWealthRank = false
+                wallTagArg = null
+                wallSeriesArg = null
+                wallAuthorArg = uname
+                activeTab = "wall"
+            },
+            onDismiss = { showShellWealthRank = false },
+        )
     }
     }
     }

@@ -29,6 +29,7 @@ sealed interface DeepLinkTarget {
     data class GroupChat(val groupId: Long, val aroundMessageId: Long? = null) : DeepLinkTarget
     data class DirectMessage(val threadOrUserId: Long, val isNewPeer: Boolean = false) : DeepLinkTarget
     data class DiscoverSubApp(val moduleId: String, val route: String, val title: String) : DeepLinkTarget
+    data class WebModalRoute(val route: String, val title: String) : DeepLinkTarget
     data object Road : DeepLinkTarget
     data object Me : DeepLinkTarget
 }
@@ -53,6 +54,9 @@ object DeepLinkRouter {
         val query = parseQueryParams(uri.rawQuery)
 
         if (normalizedPath == "/" || TopbarModuleScanner.isRetiredRoute(normalizedPath)) {
+            if (normalizedPath == "/arcade" || normalizedPath.startsWith("/arcade/")) {
+                return DeepLinkTarget.DiscoverSubApp("arcade", "/arcade", "谷内游乐与竞技")
+            }
             return DeepLinkTarget.WallRoot
         }
 
@@ -104,33 +108,85 @@ object DeepLinkRouter {
             return DeepLinkTarget.DirectMessage(threadOrUserId = threadId, isNewPeer = false)
         }
 
-        if (normalizedPath == "/pets" || normalizedPath == "/pet-isle") {
-            return DeepLinkTarget.DiscoverSubApp("pets", normalizedPath, "鱼鱼谷")
+        if (normalizedPath == "/pets" || normalizedPath == "/pet-isle" || normalizedPath == "/valley") {
+            val frag = uri.fragment?.trim().orEmpty()
+            val targetRoute = if (frag == "battle") "/pets#battle" else "/pets"
+            return DeepLinkTarget.DiscoverSubApp("pets", targetRoute, if (frag == "battle") "大肥鱼擂台" else "鱼鱼谷")
+        }
+
+        if (normalizedPath == "/community-updates" || normalizedPath == "/community-updates.html") {
+            return DeepLinkTarget.DiscoverSubApp("community_updates", "/community-updates", "社区更新")
+        }
+
+        if (normalizedPath == "/leaderboard" || normalizedPath == "/wealth-rank") {
+            return DeepLinkTarget.DiscoverSubApp("wealth", "/wealth-rank", "站内财富榜")
+        }
+
+        if (normalizedPath == "/cards") {
+            return DeepLinkTarget.DiscoverSubApp("gacha", "/gacha", "抽卡与集卡")
+        }
+
+        if (normalizedPath == "/raffle") {
+            return DeepLinkTarget.DiscoverSubApp("gacha", "/me#fh-raffle", "历史称号抽奖")
         }
 
         if (normalizedPath == "/slime" || normalizedPath == "/arcade" || normalizedPath.startsWith("/arcade/")) {
-            return DeepLinkTarget.DiscoverSubApp("arcade", normalizedPath, "街机厅")
+            return DeepLinkTarget.DiscoverSubApp("arcade", "/arcade", "谷内游乐与竞技")
         }
 
         if (normalizedPath == "/novels" || normalizedPath.startsWith("/novels/")) {
             val isStudio = normalizedPath.startsWith("/novels/studio")
             return DeepLinkTarget.DiscoverSubApp(
                 moduleId = if (isStudio) "novel_studio" else "novels",
-                route = normalizedPath,
-                title = if (isStudio) "我的创作" else "书房",
+                route = fullPathWithQuery(normalizedPath, uri.rawQuery),
+                title = if (isStudio) "书房创作工坊" else "尽欢书房",
             )
         }
 
         if (normalizedPath == "/road") {
-            return DeepLinkTarget.Road
+            val itemId = query["item"]?.toLongOrNull()
+            return if (itemId != null && itemId > 0L) {
+                DeepLinkTarget.DiscoverSubApp("road", "/road?item=$itemId", "鞭打详情")
+            } else {
+                DeepLinkTarget.Road
+            }
+        }
+
+        if (normalizedPath == "/me/invites") {
+            return DeepLinkTarget.WebModalRoute("/me/invites", "邀请码与记录")
+        }
+
+        if (normalizedPath == "/me/account" || normalizedPath.startsWith("/me/account/")) {
+            return DeepLinkTarget.WebModalRoute(fullPathWithQuery(normalizedPath, uri.rawQuery), "账号安全")
+        }
+
+        if (normalizedPath == "/me" && query["section"] == "admin") {
+            return DeepLinkTarget.WebModalRoute(fullPathWithQuery(normalizedPath, uri.rawQuery), "站务管理面板")
         }
 
         if (normalizedPath == "/me" || normalizedPath.startsWith("/me/")) {
             return DeepLinkTarget.Me
         }
 
+        if (normalizedPath == "/admin" || normalizedPath.startsWith("/admin/")) {
+            return if (normalizedPath == "/admin") {
+                DeepLinkTarget.WebModalRoute("/me?section=admin", "站务管理面板")
+            } else {
+                val adminTitle = when (normalizedPath) {
+                    "/admin/ai" -> "AI 接入与模型管理"
+                    "/admin/invites" -> "全站邀请码管理"
+                    "/admin/flags" -> "站点功能开关"
+                    else -> "管理后台"
+                }
+                DeepLinkTarget.WebModalRoute(fullPathWithQuery(normalizedPath, uri.rawQuery), adminTitle)
+            }
+        }
+
         return DeepLinkTarget.WallRoot
     }
+
+    private fun fullPathWithQuery(normalizedPath: String, rawQuery: String?): String =
+        if (rawQuery.isNullOrBlank()) normalizedPath else "$normalizedPath?$rawQuery"
 
     private fun normalizePath(path: String): String {
         val prefixed = if (path.startsWith('/')) path else "/$path"

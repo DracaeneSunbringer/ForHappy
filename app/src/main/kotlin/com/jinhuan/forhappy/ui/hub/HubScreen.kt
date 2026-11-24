@@ -32,6 +32,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Remove
@@ -65,17 +66,22 @@ import androidx.compose.ui.window.DialogProperties
 import com.jinhuan.forhappy.core.chat.ChatSessionController
 import com.jinhuan.forhappy.core.clock.ServerClock
 import com.jinhuan.forhappy.core.db.ForHappyDatabase
+import com.jinhuan.forhappy.core.dynamic.TopbarModuleScanner
 import com.jinhuan.forhappy.core.model.AppDisguiseMode
 import com.jinhuan.forhappy.core.model.DynamicModule
 import com.jinhuan.forhappy.core.model.ForHappyJson
 import com.jinhuan.forhappy.core.model.MeUser
 import com.jinhuan.forhappy.core.model.MoyuConfig
+import com.jinhuan.forhappy.core.model.Owner52bPack
 import com.jinhuan.forhappy.core.model.TodayStats
 import com.jinhuan.forhappy.core.moyu.MoyuCalculator
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.ui.components.BadgePill
 import com.jinhuan.forhappy.ui.components.ForHappyBellIconButton
 import com.jinhuan.forhappy.ui.components.ForHappyCountBadge
+import com.jinhuan.forhappy.ui.me.Cards52bDialog
+import com.jinhuan.forhappy.ui.me.WealthRankDialog
+import com.jinhuan.forhappy.ui.pets.PetsScreen
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
 import com.jinhuan.forhappy.ui.theme.TABULAR_FONT_FEATURE
@@ -99,21 +105,30 @@ data class HubModuleEntry(
 
 private val BUILT_IN_HUB_CATALOG = listOf(
     HubModuleEntry("moyu", "摸鱼日历", "/moyu", "📅", "倒计时 · 每日日报"),
-    HubModuleEntry("road", "鞭打路线", "/road", "🛣️", "点子 · Bug · 投票"),
-    HubModuleEntry("novels", "尽欢书房", "/novels", "📖", "接龙协作 · 摘录分享"),
-    HubModuleEntry("pets", "鱼鱼谷", "/pets", "🐾", "农场养宠 · 邻居串门"),
-    HubModuleEntry("arcade", "街机游乐厅", "/arcade", "🎮", "史莱姆 · 欢鼠 · 裂隙"),
-    HubModuleEntry("cards52b", "52B 抽卡", "/cards", "🃏", "卡包抽取 · 收集图鉴"),
-    HubModuleEntry("raffle", "抽奖广场", "/raffle", "🎁", "欧皇抽奖 · 限定称号"),
+    HubModuleEntry("road", "鞭打路线", "/road", "🛣️", "点子 · Bug · 投票评论"),
+    HubModuleEntry("pets", "鱼鱼谷", "/pets", "🐾", "小岛 · 擂台 · 串门 · 管家"),
+    HubModuleEntry("novels", "尽欢书房", "/novels", "📖", "连载书架 · 创作工坊"),
+    HubModuleEntry("gacha", "抽卡与集卡", "/gacha", "🃏", "星匣 · 52B巡展 · 原生图鉴"),
+    HubModuleEntry("wealth", "站内财富榜", "/wealth-rank", "🏆", "可用余额榜 · 累计总额榜"),
+    HubModuleEntry("isle_games", "谷内游乐与竞技", "/arcade", "🎪", "游乐馆 · 擂台 · 串门 · 榜单"),
+    HubModuleEntry("series", "图集专栏", "/series", "🗂️", "主题合集 · 专栏检索"),
+    HubModuleEntry("community_updates", "社区更新", "/community-updates", "📰", "功能上新 · 修复日志 · 需求"),
 )
 
-private val EXCLUDED_DYNAMIC_PREFIXES = listOf("/wall", "/chat", "/me", "/settings")
+private val EXCLUDED_DYNAMIC_PREFIXES = listOf("/wall", "/chat", "/me", "/settings", "/dm")
+
+fun migrateLegacyPinnedHubId(rawId: String): String = when (rawId.trim()) {
+    "cards52b", "raffle" -> "gacha"
+    "arcade" -> "isle_games"
+    else -> rawId.trim()
+}
 
 fun resolveHubCatalog(dynamicModules: List<DynamicModule>): List<HubModuleEntry> {
-    val builtInRoutes = BUILT_IN_HUB_CATALOG.map { it.route.trimEnd('/') }.toSet()
+    val builtInRoutes = BUILT_IN_HUB_CATALOG.map { TopbarModuleScanner.normalizeModuleRoute(it.route) }.toSet()
     val extras = dynamicModules.mapNotNull { mod ->
-        val normRoute = mod.route.trim().let { if (it.startsWith("/")) it else "/$it" }.trimEnd('/')
+        val normRoute = TopbarModuleScanner.normalizeModuleRoute(mod.route)
         if (normRoute in builtInRoutes) return@mapNotNull null
+        if (TopbarModuleScanner.isRetiredRoute(normRoute)) return@mapNotNull null
         if (EXCLUDED_DYNAMIC_PREFIXES.any { normRoute == it || normRoute.startsWith("$it/") }) return@mapNotNull null
         val emoji = when (mod.iconKey.lowercase()) {
             "book", "novel" -> "📚"
@@ -121,6 +136,7 @@ fun resolveHubCatalog(dynamicModules: List<DynamicModule>): List<HubModuleEntry>
             "gift", "raffle" -> "🎁"
             "chart", "rank" -> "📊"
             "pet", "farm" -> "🌱"
+            "news" -> "📰"
             else -> "✨"
         }
         HubModuleEntry(
@@ -141,6 +157,7 @@ suspend fun loadPinnedHubIds(api: ForHappyApiClient, catalog: List<HubModuleEntr
     val parsed = if (!raw.isNullOrBlank()) {
         runCatching { ForHappyJson.decodeFromString(ListSerializer(String.serializer()), raw) }
             .getOrDefault(emptyList())
+            .map(::migrateLegacyPinnedHubId)
             .filter { it in validIds }
             .distinct()
             .take(8)
@@ -179,6 +196,10 @@ fun HubScreen(
     onResetMoyuForeground: () -> Unit = {},
     onPinnedIdsChanged: (List<String>) -> Unit = {},
     onJumpToGroupChat: ((Long) -> Unit)? = null,
+    onNavigateToAuthor: ((String) -> Unit)? = null,
+    onNavigateToMeme: ((Long) -> Unit)? = null,
+    onNavigateToTag: ((String) -> Unit)? = null,
+    onOpenSeriesIndex: (() -> Unit)? = null,
 ) {
     val palette = LocalForHappyPalette.current
     val scope = rememberCoroutineScope()
@@ -193,7 +214,16 @@ fun HubScreen(
 
     var showMoyuDialog by remember { mutableStateOf(false) }
     var showRoadDialog by remember { mutableStateOf(false) }
+    var initialRoadItemId by remember { mutableStateOf<Long?>(null) }
     var showArcadeSheet by remember { mutableStateOf(false) }
+    var showPetsSheet by remember { mutableStateOf(false) }
+    var showNovelsSheet by remember { mutableStateOf(false) }
+    var showGachaSheet by remember { mutableStateOf(false) }
+    var showWealthRankDialog by remember { mutableStateOf(false) }
+    var showCommunityUpdatesDialog by remember { mutableStateOf(false) }
+    var showNativePetsOverview by remember { mutableStateOf(false) }
+    var showCards52bDialog by remember { mutableStateOf(false) }
+    var cardPacks52b by remember { mutableStateOf<List<Owner52bPack>>(emptyList()) }
     var activeWebEntry by remember { mutableStateOf<HubModuleEntry?>(null) }
 
     var nowEpochSec by remember { mutableLongStateOf(ServerClock.serverNowMs() / 1000L) }
@@ -210,36 +240,94 @@ fun HubScreen(
         onPinnedIdsChanged(loaded)
     }
 
+    fun openWebRouteEntry(rawRoute: String, label: String) {
+        val clean = rawRoute.trim()
+        if (clean.startsWith("/me#") && me == null) {
+            onRequireLogin()
+            return
+        }
+        val basePath = clean.substringBefore('?').substringBefore('#').trimEnd('/').ifBlank { "/" }
+        val match = catalog.firstOrNull { it.route.trimEnd('/') == basePath }
+        activeWebEntry = if (match != null && clean == match.route) {
+            match
+        } else {
+            HubModuleEntry(
+                id = match?.id ?: "route_${clean.hashCode()}",
+                label = label.ifBlank { match?.label ?: "探索页面" },
+                route = clean,
+                emoji = match?.emoji ?: "🌐",
+                subtitle = clean,
+            )
+        }
+    }
+
     fun launchModuleEntry(entry: HubModuleEntry) {
         val route = entry.route.trimEnd('/')
-        when {
-            route == "/moyu" -> showMoyuDialog = true
-            route == "/road" -> showRoadDialog = true
-            route == "/arcade" -> showArcadeSheet = true
-            else -> activeWebEntry = entry
+        when (entry.id) {
+            "moyu" -> showMoyuDialog = true
+            "road" -> {
+                initialRoadItemId = null
+                showRoadDialog = true
+            }
+            "pets" -> showPetsSheet = true
+            "novels" -> showNovelsSheet = true
+            "gacha" -> showGachaSheet = true
+            "wealth" -> if (me == null) onRequireLogin() else showWealthRankDialog = true
+            "isle_games" -> showArcadeSheet = true
+            "series" -> if (onOpenSeriesIndex != null) onOpenSeriesIndex() else openWebRouteEntry("/series", "图集专栏")
+            "community_updates" -> showCommunityUpdatesDialog = true
+            else -> when {
+                route == "/moyu" -> showMoyuDialog = true
+                route == "/road" -> {
+                    initialRoadItemId = null
+                    showRoadDialog = true
+                }
+                route == "/arcade" -> showArcadeSheet = true
+                else -> activeWebEntry = entry
+            }
         }
     }
 
     fun launchRoute(rawRoute: String, fallbackTitle: String = "探索页面") {
         val clean = rawRoute.trim()
-        val norm = if (clean.startsWith("http")) clean else {
-            val p = if (clean.startsWith("/")) clean else "/$clean"
-            p.trimEnd('/').ifBlank { "/" }
+        val pathOnly = if (clean.startsWith("http")) {
+            runCatching { android.net.Uri.parse(clean).path.orEmpty() }.getOrDefault("/")
+        } else {
+            clean.substringBefore('?').substringBefore('#')
+        }.let { p ->
+            val withSlash = if (p.startsWith("/")) p else "/$p"
+            withSlash.trimEnd('/').ifBlank { "/" }
+        }
+        val queryPart = clean.substringAfter('?', "").substringBefore('#')
+        val normalizedPath = when (pathOnly) {
+            "/valley", "/pet-isle" -> "/pets"
+            "/community-updates.html" -> "/community-updates"
+            else -> pathOnly
         }
         when {
-            norm == "/moyu" -> showMoyuDialog = true
-            norm == "/road" -> showRoadDialog = true
-            norm == "/arcade" -> showArcadeSheet = true
-            else -> {
-                val match = catalog.firstOrNull { it.route.trimEnd('/') == norm }
-                activeWebEntry = match ?: HubModuleEntry(
-                    id = "route_${norm.hashCode()}",
-                    label = fallbackTitle,
-                    route = clean,
-                    emoji = "🌐",
-                    subtitle = clean,
-                )
+            normalizedPath == "/moyu" -> showMoyuDialog = true
+            normalizedPath == "/road" -> {
+                val itemId = Regex("""(?:^|&)item=(\d+)""").find(queryPart)?.groupValues?.get(1)?.toLongOrNull()
+                initialRoadItemId = itemId
+                showRoadDialog = true
             }
+            normalizedPath == "/gacha" || normalizedPath == "/cards" -> showGachaSheet = true
+            normalizedPath == "/raffle" -> openWebRouteEntry("/me#fh-raffle", "历史称号抽奖")
+            normalizedPath == "/wealth-rank" || normalizedPath == "/leaderboard" -> {
+                if (me == null) onRequireLogin() else showWealthRankDialog = true
+            }
+            normalizedPath == "/arcade" || normalizedPath.startsWith("/arcade/") || normalizedPath == "/slime" -> {
+                showArcadeSheet = true
+            }
+            normalizedPath == "/series" -> {
+                if (onOpenSeriesIndex != null) onOpenSeriesIndex() else openWebRouteEntry("/series", "图集专栏")
+            }
+            normalizedPath == "/community-updates" -> showCommunityUpdatesDialog = true
+            normalizedPath == "/pets" && (pathOnly == "/valley" || pathOnly == "/pet-isle") -> {
+                val suffix = if (clean.contains("#battle")) "#battle" else ""
+                openWebRouteEntry("/pets$suffix", if (suffix.isNotEmpty()) "大肥鱼擂台" else "鱼鱼谷")
+            }
+            else -> openWebRouteEntry(clean, fallbackTitle)
         }
     }
 
@@ -694,8 +782,12 @@ fun HubScreen(
         NativeRoadDialog(
             api = api,
             me = me,
+            initialRoadItemId = initialRoadItemId,
             onRequireLogin = onRequireLogin,
-            onDismiss = { showRoadDialog = false },
+            onDismiss = {
+                showRoadDialog = false
+                initialRoadItemId = null
+            },
         )
     }
 
@@ -704,10 +796,123 @@ fun HubScreen(
             api = api,
             onLaunchRoute = { gameRoute ->
                 showArcadeSheet = false
-                launchRoute(gameRoute, "街机小游戏")
+                launchRoute(gameRoute, "谷内游乐与竞技")
             },
             onDismiss = { showArcadeSheet = false },
         )
+    }
+
+    if (showPetsSheet) {
+        PetsHubLauncherSheet(
+            api = api,
+            onLaunchRoute = { route, label -> openWebRouteEntry(route, label) },
+            onOpenNativePetsOverview = { showNativePetsOverview = true },
+            onDismiss = { showPetsSheet = false },
+        )
+    }
+
+    if (showNovelsSheet) {
+        NovelsHubLauncherSheet(
+            api = api,
+            onLaunchRoute = { route, label -> openWebRouteEntry(route, label) },
+            onDismiss = { showNovelsSheet = false },
+        )
+    }
+
+    if (showGachaSheet) {
+        GachaHubLauncherSheet(
+            api = api,
+            me = me,
+            onRequireLogin = onRequireLogin,
+            onLaunchRoute = { route, label -> openWebRouteEntry(route, label) },
+            onOpenNativeCards52b = {
+                showCards52bDialog = true
+            },
+            onDismiss = { showGachaSheet = false },
+        )
+    }
+
+    if (showWealthRankDialog) {
+        WealthRankDialog(
+            api = api,
+            onNavigateToAuthor = { username ->
+                showWealthRankDialog = false
+                onNavigateToAuthor?.invoke(username)
+            },
+            onDismiss = { showWealthRankDialog = false },
+        )
+    }
+
+    if (showCommunityUpdatesDialog) {
+        CommunityUpdatesDialog(
+            api = api,
+            onOpenWebFallback = { openWebRouteEntry("/community-updates.html", "社区更新") },
+            onDismiss = { showCommunityUpdatesDialog = false },
+        )
+    }
+
+    if (showCards52bDialog && me != null) {
+        Cards52bDialog(
+            api = api,
+            initialPacks = cardPacks52b,
+            onOpenWebRoute = { route, label ->
+                showCards52bDialog = false
+                openWebRouteEntry(route, label)
+            },
+            onDismiss = { showCards52bDialog = false },
+        )
+    }
+
+    if (showNativePetsOverview) {
+        Dialog(
+            onDismissRequest = { showNativePetsOverview = false },
+            properties = FullscreenDialogProperties,
+        ) {
+            ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+            DialogBackOwnerScope {
+                BackHandler(onBack = { showNativePetsOverview = false })
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(palette.bg),
+                ) {
+                    Surface(color = palette.surface) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .statusBarsPadding()
+                                .height(ForHappyDimens.topBarHeight)
+                                .padding(horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            IconButton(onClick = { showNativePetsOverview = false }) {
+                                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
+                            }
+                            Text(
+                                "鱼鱼谷 · 协防与站宠状态",
+                                color = palette.text,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                    }
+                    HorizontalDivider(
+                        color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                        thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+                    )
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        PetsScreen(
+                            api = api,
+                            me = me,
+                            onRequireLogin = {
+                                showNativePetsOverview = false
+                                onRequireLogin()
+                            },
+                        )
+                    }
+                }
+            }
+        }
     }
 
     activeWebEntry?.let { entry ->
@@ -740,6 +945,33 @@ fun HubScreen(
                             }
                         } else {
                             null
+                        },
+                        onNavigateToAuthor = if (onNavigateToAuthor != null) {
+                            { username ->
+                                activeWebEntry = null
+                                onNavigateToAuthor.invoke(username)
+                            }
+                        } else {
+                            null
+                        },
+                        onNavigateToMeme = if (onNavigateToMeme != null) {
+                            { memeId ->
+                                activeWebEntry = null
+                                onNavigateToMeme.invoke(memeId)
+                            }
+                        } else {
+                            null
+                        },
+                        onNavigateToTag = if (onNavigateToTag != null) {
+                            { tag ->
+                                activeWebEntry = null
+                                onNavigateToTag.invoke(tag)
+                            }
+                        } else {
+                            null
+                        },
+                        onOpenWealthRank = {
+                            if (me == null) onRequireLogin() else showWealthRankDialog = true
                         },
                     )
                 }

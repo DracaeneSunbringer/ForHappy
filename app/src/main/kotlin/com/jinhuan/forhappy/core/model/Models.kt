@@ -2530,3 +2530,103 @@ internal fun parseJsonTruthy(el: JsonElement?): Boolean {
         prim.contentOrNull?.trim()?.equals("true", ignoreCase = true) == true ||
         prim.contentOrNull?.trim() == "1"
 }
+
+@Serializable
+data class WealthRankRow(
+    val name: String = "",
+    val username: String = "",
+    val amount: Double = 0.0,
+) {
+    val displayName: String get() = name.ifBlank { username.ifBlank { "欢友" } }
+}
+
+fun parseWealthRankJson(rawBody: String): List<WealthRankRow> {
+    val root = runCatching { ForHappyJson.parseToJsonElement(rawBody) as? JsonObject }.getOrNull()
+        ?: return emptyList()
+    val arr = root["rows"] as? JsonArray ?: return emptyList()
+    return arr.mapNotNull { el ->
+        val obj = el as? JsonObject ?: return@mapNotNull null
+        val amt = (obj["amount"] as? JsonPrimitive)?.doubleOrNull
+            ?: (obj["amount"] as? JsonPrimitive)?.longOrNull?.toDouble()
+            ?: 0.0
+        WealthRankRow(
+            name = obj.strOrNull("name").orEmpty(),
+            username = obj.strOrNull("username").orEmpty(),
+            amount = amt,
+        )
+    }
+}
+
+@Serializable
+data class CommunityUpdateItem(
+    val issue: Long = 0L,
+    val kind: String = "",
+    val title: String = "",
+    val body: String = "",
+    val author: String? = null,
+    val date: String? = null,
+)
+
+@Serializable
+data class CommunityUpdatesPage(
+    val updates: List<CommunityUpdateItem> = emptyList(),
+    val stale: Boolean = false,
+)
+
+fun parseCommunityUpdatesJson(rawBody: String): CommunityUpdatesPage {
+    val root = runCatching { ForHappyJson.parseToJsonElement(rawBody) as? JsonObject }.getOrNull()
+        ?: return CommunityUpdatesPage()
+    val arr = root["updates"] as? JsonArray ?: JsonArray(emptyList())
+    val stale = root.boolOrNull("stale") ?: false
+    val parsed = arr.mapNotNull { el ->
+        runCatching { ForHappyJson.decodeFromJsonElement(CommunityUpdateItem.serializer(), el) }.getOrNull()
+    }.reversed()
+    return CommunityUpdatesPage(updates = parsed, stale = stale)
+}
+
+private val WALLET_KIND_LABELS = mapOf(
+    "xian-b16-refund" to "旧版云梦仙途 D币退还",
+    "huancai-refund" to "欢彩下线退款",
+    "hb-points-send" to "红包站发放",
+    "hb-points-receive" to "红包站到账",
+    "pet-world-b15-refund" to "星谷收入补发",
+    "huancai-award-supplement" to "欢彩奖金补齐",
+    "huancai-weekly" to "欢彩周保底一等奖",
+    "huancai-award-reversal" to "欢彩奖金撤回",
+    "huancai-award-reissue" to "欢彩奖金补发",
+    "admin-slime-reward" to "史莱姆体验奖励",
+    "admin-feedback-reward" to "问题反馈奖励",
+    "title-upgrade" to "称号解锁与升级",
+    "title-entry" to "称号抽奖",
+    "title-refund" to "称号退款",
+    "farm-import" to "原农场金币承接",
+    "farm-compensation" to "农场改版补偿",
+    "farm-action" to "农场经营",
+    "owner-adjustment" to "站长余额调整",
+    "packet-send" to "发出红包",
+    "packet-claim" to "领取红包",
+    "packet-refund" to "红包退款",
+    "guess-tip-send" to "猜词打赏支出",
+    "guess-tip-receive" to "猜词打赏收入",
+    "card-pay" to "抽卡投入",
+    "card-income" to "抽卡收入",
+    "card-prize" to "抽卡奖励",
+    "card-prize-pay" to "抽卡奖池支出",
+    "huancai-buy" to "欢彩购票",
+    "huancai-scratch" to "刮刮乐中奖",
+    "huancai-lotto" to "大乐透中奖",
+    "content-post" to "发帖奖励",
+    "content-road" to "鞭打奖励",
+    "farm-rent-pay" to "租地支出",
+    "farm-rent-income" to "租金收入",
+    "farm-lease-work" to "租地经营",
+    "farm-market" to "集市交易",
+    "farm-farewell-assets" to "农场资产结算",
+    "farm-farewell-bonus" to "农场暂别补偿",
+)
+
+fun walletKindDisplayLabel(kind: String): String {
+    val clean = kind.trim()
+    if (clean.isBlank()) return "站内收支"
+    return WALLET_KIND_LABELS[clean] ?: clean
+}

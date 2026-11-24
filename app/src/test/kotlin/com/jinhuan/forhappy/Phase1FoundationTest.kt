@@ -48,7 +48,15 @@ class Phase1FoundationTest {
             DeepLinkRouter.parseDeepLinkUri("https://52dmeme.com/pets"),
         )
         assertEquals(
-            DeepLinkTarget.DiscoverSubApp("novel_studio", "/novels/studio", "我的创作"),
+            DeepLinkTarget.DiscoverSubApp("pets", "/pets#battle", "大肥鱼擂台"),
+            DeepLinkRouter.parseDeepLinkUri("https://52dmeme.com/pets#battle"),
+        )
+        assertEquals(
+            DeepLinkTarget.DiscoverSubApp("pets", "/pets", "鱼鱼谷"),
+            DeepLinkRouter.parseDeepLinkUri("https://52dmeme.com/valley"),
+        )
+        assertEquals(
+            DeepLinkTarget.DiscoverSubApp("novel_studio", "/novels/studio", "书房创作工坊"),
             DeepLinkRouter.parseDeepLinkUri("https://52dmeme.com/novels/studio"),
         )
         assertEquals(
@@ -56,8 +64,48 @@ class Phase1FoundationTest {
             DeepLinkRouter.parseDeepLinkUri("https://52dmeme.com/road"),
         )
         assertEquals(
+            DeepLinkTarget.DiscoverSubApp("road", "/road?item=42", "鞭打详情"),
+            DeepLinkRouter.parseDeepLinkUri("https://52dmeme.com/road?item=42"),
+        )
+        assertEquals(
+            DeepLinkTarget.DiscoverSubApp("wealth", "/wealth-rank", "站内财富榜"),
+            DeepLinkRouter.parseDeepLinkUri("https://52dmeme.com/leaderboard"),
+        )
+        assertEquals(
+            DeepLinkTarget.DiscoverSubApp("community_updates", "/community-updates", "社区更新"),
+            DeepLinkRouter.parseDeepLinkUri("https://52dmeme.com/community-updates.html"),
+        )
+        assertEquals(
+            DeepLinkTarget.DiscoverSubApp("gacha", "/gacha", "抽卡与集卡"),
+            DeepLinkRouter.parseDeepLinkUri("https://52dmeme.com/cards"),
+        )
+        assertEquals(
+            DeepLinkTarget.DiscoverSubApp("gacha", "/me#fh-raffle", "历史称号抽奖"),
+            DeepLinkRouter.parseDeepLinkUri("https://52dmeme.com/raffle"),
+        )
+        assertEquals(
+            DeepLinkTarget.DiscoverSubApp("arcade", "/arcade", "谷内游乐与竞技"),
+            DeepLinkRouter.parseDeepLinkUri("https://52dmeme.com/arcade/mole"),
+        )
+        assertEquals(
             DeepLinkTarget.Me,
             DeepLinkRouter.parseDeepLinkUri("https://52dmeme.com/me"),
+        )
+        assertEquals(
+            DeepLinkTarget.WebModalRoute("/me/invites", "邀请码与记录"),
+            DeepLinkRouter.parseDeepLinkUri("https://52dmeme.com/me/invites"),
+        )
+        assertEquals(
+            DeepLinkTarget.WebModalRoute("/me/account/password", "账号安全"),
+            DeepLinkRouter.parseDeepLinkUri("https://52dmeme.com/me/account/password"),
+        )
+        assertEquals(
+            DeepLinkTarget.WebModalRoute("/me?section=admin", "站务管理面板"),
+            DeepLinkRouter.parseDeepLinkUri("https://52dmeme.com/admin"),
+        )
+        assertEquals(
+            DeepLinkTarget.WebModalRoute("/admin/ai", "AI 接入与模型管理"),
+            DeepLinkRouter.parseDeepLinkUri("https://52dmeme.com/admin/ai"),
         )
 
         // Retired modules always fall back safely to WallRoot

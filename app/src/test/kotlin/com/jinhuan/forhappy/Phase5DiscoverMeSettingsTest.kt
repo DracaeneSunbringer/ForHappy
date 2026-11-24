@@ -12,7 +12,11 @@ import com.jinhuan.forhappy.core.model.NOTIF_CATEGORY_TABS
 import com.jinhuan.forhappy.core.model.NOTIF_PREF_OPTIONS
 import com.jinhuan.forhappy.core.model.RoadCommentItem
 import com.jinhuan.forhappy.core.model.TodayStats
+import com.jinhuan.forhappy.core.model.parseCommunityUpdatesJson
+import com.jinhuan.forhappy.core.model.parseWealthRankJson
+import com.jinhuan.forhappy.core.model.walletKindDisplayLabel
 import com.jinhuan.forhappy.core.moyu.MoyuCalculator
+import com.jinhuan.forhappy.ui.hub.migrateLegacyPinnedHubId
 import com.jinhuan.forhappy.ui.hub.resolveHubCatalog
 import com.jinhuan.forhappy.ui.notifications.NOTIF_PREF_GROUPS
 import kotlinx.serialization.encodeToString
@@ -142,6 +146,45 @@ class Phase5DiscoverMeSettingsTest {
         val wiki = catalog.first { it.route == "/wiki" }
         assertTrue(wiki.isNew)
         assertEquals(1, catalog.count { it.route == "/novels" })
+        assertTrue(catalog.any { it.route == "/wealth-rank" && it.label == "站内财富榜" })
+        assertTrue(catalog.any { it.route == "/community-updates" && it.label == "社区更新" })
+        assertTrue(catalog.none { it.route == "/cards" || it.route == "/raffle" })
+        assertEquals("gacha", migrateLegacyPinnedHubId("cards52b"))
+        assertEquals("gacha", migrateLegacyPinnedHubId("raffle"))
+        assertEquals("isle_games", migrateLegacyPinnedHubId("arcade"))
+    }
+
+    @Test
+    fun wealthRankCommunityUpdatesAndWalletLabelsParseLiveSchemas() {
+        val wealthRaw = """
+            {"rows":[{"name":"小白","username":"xiaobai","amount":123456},{"name":"","username":"anon","amount":88.5}]}
+        """.trimIndent()
+        val rows = parseWealthRankJson(wealthRaw)
+        assertEquals(2, rows.size)
+        assertEquals("小白", rows[0].displayName)
+        assertEquals("xiaobai", rows[0].username)
+        assertEquals(123456.0, rows[0].amount, 0.01)
+        assertEquals("anon", rows[1].displayName)
+        assertEquals(88.5, rows[1].amount, 0.01)
+
+        val updatesRaw = """
+            {"updates":[
+              {"issue":1,"body":"旧条目","title":"首发入口"},
+              {"issue":9,"kind":"feature","author":"kourou25","date":"2026-11-20","body":"新条目","title":"上线财富榜"}
+            ],"stale":true}
+        """.trimIndent()
+        val updatesPage = parseCommunityUpdatesJson(updatesRaw)
+        assertTrue(updatesPage.stale)
+        assertEquals(2, updatesPage.updates.size)
+        // Reversed so newest comes first (matching community-updates.js)
+        assertEquals(9L, updatesPage.updates[0].issue)
+        assertEquals("上线财富榜", updatesPage.updates[0].title)
+        assertEquals(1L, updatesPage.updates[1].issue)
+
+        assertEquals("抽卡投入", walletKindDisplayLabel("card-pay"))
+        assertEquals("星谷收入补发", walletKindDisplayLabel("pet-world-b15-refund"))
+        assertEquals("领取红包", walletKindDisplayLabel("packet-claim"))
+        assertEquals("站内收支", walletKindDisplayLabel("   "))
     }
 
     @Test

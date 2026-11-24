@@ -364,11 +364,41 @@ fun SettingsCenterDialog(
                             SettingsGroupCard {
                                 SettingsNavRow(
                                     icon = Icons.Rounded.AdminPanelSettings,
-                                    title = "管理后台",
-                                    subtitle = "站务、审计与 AI 管理控制台",
+                                    title = "站务管理面板",
+                                    subtitle = "举报处理、内容审计与受限名单",
                                     onClick = {
                                         onDismiss()
-                                        onOpenWebRoute("/admin", "管理后台")
+                                        onOpenWebRoute("/me?section=admin", "站务管理面板")
+                                    },
+                                )
+                                HorizontalDivider(color = palette.line.copy(alpha = 0.6f))
+                                SettingsNavRow(
+                                    icon = Icons.Rounded.AutoAwesome,
+                                    title = "AI 接入与模型管理",
+                                    subtitle = "连接池配置、猜词模型与任务队列",
+                                    onClick = {
+                                        onDismiss()
+                                        onOpenWebRoute("/admin/ai", "AI 接入与模型管理")
+                                    },
+                                )
+                                HorizontalDivider(color = palette.line.copy(alpha = 0.6f))
+                                SettingsNavRow(
+                                    icon = Icons.Rounded.Person,
+                                    title = "全站邀请码管理",
+                                    subtitle = "邀请额度、生成记录与异常处理",
+                                    onClick = {
+                                        onDismiss()
+                                        onOpenWebRoute("/admin/invites", "全站邀请码管理")
+                                    },
+                                )
+                                HorizontalDivider(color = palette.line.copy(alpha = 0.6f))
+                                SettingsNavRow(
+                                    icon = Icons.Rounded.Tune,
+                                    title = "站点功能开关",
+                                    subtitle = "模块灰度与运行时开关控制",
+                                    onClick = {
+                                        onDismiss()
+                                        onOpenWebRoute("/admin/flags", "站点功能开关")
                                     },
                                 )
                             }
@@ -420,6 +450,10 @@ fun SettingsCenterDialog(
                             onOpenInvites = {
                                 onDismiss()
                                 onOpenInvites()
+                            },
+                            onOpenAccountCenter = {
+                                onDismiss()
+                                onOpenWebRoute("/me/account", "账号安全")
                             },
                             onRequireLogin = {
                                 onDismiss()
@@ -1422,6 +1456,7 @@ private fun AccountSecuritySubpage(
     api: ForHappyApiClient,
     me: MeUser?,
     onOpenInvites: () -> Unit,
+    onOpenAccountCenter: () -> Unit,
     onRequireLogin: () -> Unit,
     onLoggedOut: () -> Unit,
 ) {
@@ -1437,6 +1472,9 @@ private fun AccountSecuritySubpage(
             } else {
                 Text("用户名：@${me.username}", color = palette.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 Text("信任等级：TL${me.trustLevel} · LINUX DO ${if ((me.linuxdoId ?: 0L) > 0L) "已绑定" else "未绑定"}", color = palette.muted, fontSize = 12.sp)
+                OutlinedButton(onClick = onOpenAccountCenter, modifier = Modifier.fillMaxWidth()) {
+                    Text("账号安全中心（三方绑定 / 会话 / 合并 / 改密）")
+                }
                 OutlinedButton(onClick = onOpenInvites, modifier = Modifier.fillMaxWidth()) { Text("管理我的邀请码") }
                 OutlinedButton(
                     onClick = { confirmLogout = true },

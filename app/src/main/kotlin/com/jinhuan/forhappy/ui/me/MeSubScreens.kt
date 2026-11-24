@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -33,6 +34,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -105,6 +107,8 @@ import com.jinhuan.forhappy.core.model.Owner52bCard
 import com.jinhuan.forhappy.core.model.Owner52bPack
 import com.jinhuan.forhappy.core.model.WalletLedgerRow
 import com.jinhuan.forhappy.core.model.WalletSummary
+import com.jinhuan.forhappy.core.model.WealthRankRow
+import com.jinhuan.forhappy.core.model.walletKindDisplayLabel
 import com.jinhuan.forhappy.core.navigation.StealthExemptionGate
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
@@ -319,7 +323,7 @@ private fun walletRowGroup(kind: String): String {
     return when {
         k.contains("redpack") || k.contains("hb") || k.contains("packet") -> "redpack"
         k.contains("guess") -> "guess"
-        k.contains("card") || k.contains("52b") || k.contains("draw") -> "card"
+        k.contains("card") || k.contains("52b") || k.contains("draw") || k.contains("title") -> "card"
         k.contains("farm") || k.contains("pet") || k.contains("crop") -> "farm"
         else -> "other"
     }
@@ -330,6 +334,7 @@ fun WalletDetailDialog(
     api: ForHappyApiClient,
     initialWallet: WalletSummary?,
     onOpenWebRoute: (route: String, title: String) -> Unit,
+    onNavigateToAuthor: ((String) -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
     val palette = LocalForHappyPalette.current
@@ -348,6 +353,7 @@ fun WalletDetailDialog(
     var hbBusy by remember { mutableStateOf(false) }
     var confirmRevokeKey by remember { mutableStateOf(false) }
     var bannerText by remember { mutableStateOf<String?>(null) }
+    var showWealthRank by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         val fresh = api.fetchWallet()
@@ -419,7 +425,7 @@ fun WalletDetailDialog(
                         modifier = Modifier.weight(1f),
                     )
                     OutlinedButton(
-                        onClick = { onOpenWebRoute("/leaderboard", "财富榜") },
+                        onClick = { showWealthRank = true },
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                     ) {
                         Icon(Icons.Rounded.EmojiEvents, contentDescription = null, modifier = Modifier.size(15.dp), tint = palette.gold)
@@ -527,16 +533,35 @@ fun WalletDetailDialog(
                             ),
                     ) {
                         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            val hasHbKey = !hbStatus.keyId.isNullOrBlank()
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Icon(Icons.Rounded.Key, contentDescription = null, tint = palette.primary, modifier = Modifier.size(18.dp))
                                 Text("红包站密钥", color = palette.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                                 BadgePill(
-                                    text = if (hbStatus.bound) "已绑定" else "未生成",
-                                    containerColor = if (hbStatus.bound) palette.primary.copy(alpha = 0.14f) else palette.surface2,
-                                    contentColor = if (hbStatus.bound) palette.primary else palette.muted,
+                                    text = when {
+                                        !hbStatus.bound -> "未绑定 LINUX DO"
+                                        hasHbKey -> "已生效"
+                                        else -> "未签发"
+                                    },
+                                    containerColor = if (hasHbKey) palette.primary.copy(alpha = 0.14f) else palette.surface2,
+                                    contentColor = if (hasHbKey) palette.primary else palette.muted,
                                 )
                             }
-                            if (hbStatus.bound) {
+                            if (!hbStatus.bound) {
+                                Text(
+                                    text = "需先在账号安全绑定 LINUX DO，才可生成红包站密钥并使用 D 币发红包。",
+                                    color = palette.muted,
+                                    fontSize = 12.sp,
+                                )
+                                OutlinedButton(
+                                    onClick = {
+                                        onDismiss()
+                                        onOpenWebRoute("/me/account", "账号安全")
+                                    },
+                                ) {
+                                    Text("前往账号安全绑定 →", fontSize = 12.sp)
+                                }
+                            } else if (hasHbKey) {
                                 Text(
                                     text = "密钥 ID：${hbStatus.keyId ?: "--"}",
                                     color = palette.muted,
@@ -565,6 +590,10 @@ fun WalletDetailDialog(
                                     OutlinedButton(
                                         enabled = !hbBusy,
                                         onClick = {
+                                            if (hbRevealedPlain != null) {
+                                                hbRevealedPlain = null
+                                                return@OutlinedButton
+                                            }
                                             hbBusy = true
                                             scope.launch {
                                                 val res = api.postHbKeyAction("reveal", hbStatus.keyId)
@@ -583,7 +612,7 @@ fun WalletDetailDialog(
                                     ) {
                                         Icon(Icons.Rounded.Visibility, contentDescription = null, modifier = Modifier.size(15.dp))
                                         Spacer(Modifier.width(4.dp))
-                                        Text("查看明文", fontSize = 12.sp)
+                                        Text(if (hbRevealedPlain != null) "隐藏明文" else "查看明文", fontSize = 12.sp)
                                     }
                                     OutlinedButton(
                                         enabled = !hbBusy,
@@ -594,12 +623,17 @@ fun WalletDetailDialog(
                                     }
                                 }
                             } else {
+                                Text(
+                                    text = "把密钥填入 lafish 的红包站，即可用钱包里的 D 币发红包。有人领到时从你的钱包扣款。",
+                                    color = palette.muted,
+                                    fontSize = 12.sp,
+                                )
                                 Button(
                                     enabled = !hbBusy,
                                     onClick = {
                                         hbBusy = true
                                         scope.launch {
-                                            val res = api.postHbKeyAction("generate")
+                                            val res = api.postHbKeyAction("issue")
                                             hbBusy = false
                                             res.fold(
                                                 onSuccess = { st ->
@@ -646,7 +680,7 @@ fun WalletDetailDialog(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(row.kind.ifBlank { "账目变更" }, color = palette.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                    Text(walletKindDisplayLabel(row.kind), color = palette.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                                     Text(formatMeTime(row.createdAt), color = palette.muted, fontSize = 11.sp)
                                 }
                                 Column(horizontalAlignment = Alignment.End) {
@@ -713,7 +747,7 @@ fun WalletDetailDialog(
                             hbBusy = false
                             res.fold(
                                 onSuccess = {
-                                    hbStatus = HbKeyStatus(bound = false)
+                                    hbStatus = HbKeyStatus(bound = true, keyId = null, revealedKey = null)
                                     hbRevealedPlain = null
                                     bannerText = "密钥已收回"
                                 },
@@ -727,6 +761,303 @@ fun WalletDetailDialog(
                 TextButton(onClick = { confirmRevokeKey = false }) { Text("取消") }
             },
         )
+    }
+
+    if (showWealthRank) {
+        WealthRankDialog(
+            api = api,
+            onNavigateToAuthor = { username ->
+                showWealthRank = false
+                onDismiss()
+                onNavigateToAuthor?.invoke(username)
+            },
+            onDismiss = { showWealthRank = false },
+        )
+    }
+}
+
+/**
+ * Native 站内财富榜 (`GET /api/me/wealth?sort=balance|total`), ported directly from
+ * `52dmeme.com/wealth-rank.js` so Wallet and Discover open live rankings instead of broken `/leaderboard`.
+ */
+@Composable
+fun WealthRankDialog(
+    api: ForHappyApiClient,
+    onNavigateToAuthor: ((String) -> Unit)? = null,
+    onDismiss: () -> Unit,
+) {
+    val palette = LocalForHappyPalette.current
+    val walletGold = if (palette.isDark) Color(0xFFF0C573) else Color(0xFF92600F)
+    val walletTint = if (palette.isDark) Color(0xFF302B20) else Color(0xFFFBF3E2)
+    val walletLine = if (palette.isDark) Color(0xFF76613D) else Color(0xFFD7BB83)
+    val walletSilver = if (palette.isDark) Color(0xFFBFCCD7) else Color(0xFF506477)
+    val walletBronze = if (palette.isDark) Color(0xFFE5AE86) else Color(0xFF95603D)
+    val selectedBtnText = if (palette.isDark) Color(0xFF261E10) else palette.surface
+
+    var sort by remember { mutableStateOf("balance") }
+    var rows by remember { mutableStateOf<List<WealthRankRow>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+    var reloadSeq by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(sort, reloadSeq) {
+        loading = true
+        errorMsg = null
+        api.fetchWealthRank(sort).fold(
+            onSuccess = { list ->
+                rows = list
+                loading = false
+            },
+            onFailure = { err ->
+                errorMsg = err.message ?: "排行读取失败"
+                loading = false
+            },
+        )
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = FullscreenDialogProperties,
+    ) {
+        ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+        DialogBackOwnerScope {
+            BackHandler(onBack = onDismiss)
+            val navBottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(palette.bg),
+            ) {
+                Surface(color = walletTint) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .height(ForHappyDimens.topBarHeight)
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
+                        }
+                        AsyncImage(
+                            model = MediaUrlRewriter.rewriteMediaUrl("https://52dmeme.com/assets/farm/dcoin-banana-v1.webp"),
+                            imageLoader = api.imageLoader,
+                            contentDescription = null,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.size(34.dp),
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            "站内财富榜",
+                            color = palette.text,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(onClick = { reloadSeq++ }) {
+                            Icon(Icons.Rounded.Refresh, contentDescription = "刷新", tint = palette.muted)
+                        }
+                    }
+                }
+                HorizontalDivider(color = walletLine, thickness = 1.dp)
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(palette.surface)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("balance" to "余额", "total" to "总额").forEach { (id, label) ->
+                            val selected = sort == id
+                            val btnShape = RoundedCornerShape(8.dp)
+                            Surface(
+                                color = if (selected) walletGold else palette.surface,
+                                shape = btnShape,
+                                modifier = Modifier
+                                    .defaultMinSize(minWidth = 84.dp)
+                                    .border(1.dp, if (selected) walletGold else palette.line, btnShape)
+                                    .clip(btnShape)
+                                    .clickable { sort = id },
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                ) {
+                                    Text(
+                                        text = label,
+                                        color = if (selected) selectedBtnText else palette.text,
+                                        fontSize = 13.sp,
+                                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Text(
+                        text = if (sort == "balance") {
+                            "当前可用 D 币 · 前 50 名"
+                        } else {
+                            "累计获得 D 币 · 前 50 名，退款回流不重复计入"
+                        },
+                        color = palette.muted,
+                        fontSize = 12.sp,
+                    )
+                }
+                HorizontalDivider(
+                    color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                    thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+                )
+
+                when {
+                    loading -> {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = walletGold)
+                        }
+                    }
+                    errorMsg != null -> {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Text(errorMsg.orEmpty(), color = palette.danger, fontSize = 13.sp)
+                                OutlinedButton(onClick = { reloadSeq++ }) {
+                                    Text("重试")
+                                }
+                            }
+                        }
+                    }
+                    rows.isEmpty() -> {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("暂无排行记录", color = palette.muted, fontSize = 13.sp)
+                        }
+                    }
+                    else -> {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(palette.surface),
+                            contentPadding = PaddingValues(
+                                start = 16.dp,
+                                end = 16.dp,
+                                bottom = 14.dp + navBottomPad,
+                            ),
+                        ) {
+                            itemsIndexed(rows) { idx, row ->
+                                val rank = idx + 1
+                                val placeColor = when (rank) {
+                                    1 -> walletGold
+                                    2 -> walletSilver
+                                    3 -> walletBronze
+                                    else -> palette.muted
+                                }
+                                val canClick = row.username.isNotBlank() && onNavigateToAuthor != null
+                                val amountText = NumberFormat.getNumberInstance(Locale.CHINA).apply {
+                                    maximumFractionDigits = 2
+                                }.format(row.amount)
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable(enabled = canClick) {
+                                            onDismiss()
+                                            onNavigateToAuthor?.invoke(row.username)
+                                        }
+                                        .padding(vertical = 13.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier.width(32.dp),
+                                    ) {
+                                        if (rank in 1..3) {
+                                            Box(
+                                                contentAlignment = Alignment.Center,
+                                                modifier = Modifier
+                                                    .size(30.dp)
+                                                    .border(1.dp, placeColor, CircleShape),
+                                            ) {
+                                                Box(
+                                                    contentAlignment = Alignment.Center,
+                                                    modifier = Modifier
+                                                        .size(24.dp)
+                                                        .clip(CircleShape)
+                                                        .background(walletTint)
+                                                        .border(2.dp, placeColor, CircleShape),
+                                                ) {
+                                                    Text(
+                                                        text = "$rank",
+                                                        color = placeColor,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        style = TextStyle(fontFeatureSettings = TABULAR_FONT_FEATURE),
+                                                    )
+                                                }
+                                            }
+                                        } else {
+                                            Text(
+                                                text = "$rank",
+                                                color = placeColor,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                style = TextStyle(fontFeatureSettings = TABULAR_FONT_FEATURE),
+                                            )
+                                        }
+                                    }
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = row.displayName,
+                                            color = palette.text,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        if (row.username.isNotBlank() && !row.username.equals(row.displayName, ignoreCase = true)) {
+                                            Text(
+                                                text = "@${row.username}",
+                                                color = palette.muted,
+                                                fontSize = 11.5.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        }
+                                    }
+
+                                    Row(verticalAlignment = Alignment.Bottom) {
+                                        Text(
+                                            text = amountText,
+                                            color = if (rank == 1) walletGold else palette.text,
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            style = TextStyle(fontFeatureSettings = TABULAR_FONT_FEATURE),
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(
+                                            text = "D 币",
+                                            color = palette.muted,
+                                            fontSize = 11.sp,
+                                            modifier = Modifier.padding(bottom = 1.dp),
+                                        )
+                                    }
+                                }
+                                if (idx < rows.lastIndex) {
+                                    HorizontalDivider(
+                                        color = palette.line.copy(alpha = 0.7f),
+                                        thickness = 0.75.dp,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -790,7 +1121,7 @@ fun Cards52bDialog(
                         Button(
                             onClick = {
                                 onDismiss()
-                                onOpenWebRoute("/cards", "52B 抽卡")
+                                onOpenWebRoute("/me#fh-bubbles", "52B 巡展抽卡")
                             },
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                         ) {
@@ -2505,7 +2836,7 @@ fun InviteCodesDialog(
                             TextButton(
                                 onClick = {
                                     onDismiss()
-                                    onOpenWebRoute("/me", "邀请记录")
+                                    onOpenWebRoute("/me/invites", "邀请码与记录")
                                 },
                                 contentPadding = PaddingValues(0.dp),
                             ) {

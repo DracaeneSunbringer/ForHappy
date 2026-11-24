@@ -26,6 +26,7 @@ import com.jinhuan.forhappy.core.model.ChatRepliesResponse
 import com.jinhuan.forhappy.core.model.ChatReplyItem
 import com.jinhuan.forhappy.core.model.ChatSearchResponse
 import com.jinhuan.forhappy.core.model.ChatUser
+import com.jinhuan.forhappy.core.model.CommunityUpdatesPage
 import com.jinhuan.forhappy.core.model.CreditFundingStatus
 import com.jinhuan.forhappy.core.model.DaysResponse
 import com.jinhuan.forhappy.core.model.DmMessage
@@ -74,7 +75,13 @@ import com.jinhuan.forhappy.core.model.TitleRaffleItem
 import com.jinhuan.forhappy.core.model.TodayStats
 import com.jinhuan.forhappy.core.model.UploadedMedia
 import com.jinhuan.forhappy.core.model.WalletSummary
+import com.jinhuan.forhappy.core.model.WealthRankRow
 import com.jinhuan.forhappy.core.model.WhoReactedResponse
+import com.jinhuan.forhappy.core.model.parseCommunityUpdatesJson
+import com.jinhuan.forhappy.core.model.parseOwner52bPacksJson
+import com.jinhuan.forhappy.core.model.parseRedpackArchivePageJson
+import com.jinhuan.forhappy.core.model.parseSenderStatsJson
+import com.jinhuan.forhappy.core.model.parseWealthRankJson
 import com.jinhuan.forhappy.core.network.cookie.CookieSyncBridge
 import com.jinhuan.forhappy.core.network.cookie.PersistentCookieJar
 import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
@@ -1927,6 +1934,25 @@ class ForHappyApiClient(
         return runCatching { ForHappyJson.decodeFromString<WalletSummary>(res.body) }.getOrNull()
     }
 
+    suspend fun fetchWealthRank(sort: String = "balance"): Result<List<WealthRankRow>> {
+        val safeSort = if (sort == "total") "total" else "balance"
+        val res = executeRawJson("GET", "/api/me/wealth?sort=$safeSort")
+        if (res.code !in 200..299) {
+            val errObj = runCatching { ForHappyJson.parseToJsonElement(res.body).jsonObject }.getOrNull()
+            val msg = errObj?.get("error")?.jsonPrimitive?.contentOrNull ?: "排行读取失败 (${res.code})"
+            return Result.failure(IllegalStateException(msg))
+        }
+        return Result.success(parseWealthRankJson(res.body))
+    }
+
+    suspend fun fetchCommunityUpdates(): Result<CommunityUpdatesPage> {
+        val res = executeRawJson("GET", "/api/community-updates")
+        if (res.code !in 200..299) {
+            return Result.failure(IllegalStateException("社区更新读取失败 (${res.code})"))
+        }
+        return Result.success(parseCommunityUpdatesJson(res.body))
+    }
+
     suspend fun fetchHbKeyStatus(): HbKeyStatus {
         val res = executeRawJson("GET", "/api/me/hb-key")
         if (res.code !in 200..299) return HbKeyStatus()
@@ -1935,7 +1961,8 @@ class ForHappyApiClient(
         return HbKeyStatus(
             bound = obj["bound"]?.jsonPrimitive?.booleanOrNull ?: false,
             keyId = keyObj?.get("id")?.jsonPrimitive?.contentOrNull,
-            revealedKey = obj["key"]?.let { runCatching { it.jsonPrimitive.contentOrNull }.getOrNull() },
+            revealedKey = keyObj?.get("key")?.jsonPrimitive?.contentOrNull
+                ?: runCatching { obj["key"]?.jsonPrimitive?.contentOrNull }.getOrNull(),
         )
     }
 
