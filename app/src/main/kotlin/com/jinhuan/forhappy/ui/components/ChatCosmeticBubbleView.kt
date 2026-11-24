@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -59,7 +60,7 @@ import kotlin.math.roundToInt
  * Draws a 9-slice artwork onto this [DrawScope] relative to `(boxX, boxY, boxW, boxH)` with CSS
  * `border-image-outset` expansion and proportional clamping on compact short-text bubbles.
  */
-private fun DrawScope.drawNineSliceArtwork(
+internal fun DrawScope.drawNineSliceArtwork(
     spec: NineSliceSpec,
     loadedArt: RasterizedArtwork,
     boxX: Float,
@@ -197,12 +198,13 @@ fun NineSliceFrameCanvas(
 }
 
 @Composable
-private fun BubblePseudoLayerCanvas(
+internal fun BubblePseudoLayerCanvas(
     layer: BubblePseudoLayer,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val httpClient = LocalCosmeticHttpClient.current
+    val hasPureShape = layer.shapeFillColor != null || layer.shapeBorderColor != null || layer.shadowDot != null
     val allUrls = remember(layer) {
         buildList {
             layer.bgImagesBottomToTop.forEach { add(it.sourceUrl) }
@@ -218,28 +220,74 @@ private fun BubblePseudoLayerCanvas(
         }
         value = out
     }
-    if (artMap.isEmpty()) return
+    if (artMap.isEmpty() && !hasPureShape) return
 
     Canvas(modifier = modifier) {
         val pw = when {
             layer.widthDp != null -> layer.widthDp.dp.toPx()
             layer.leftDp != null && layer.rightDp != null -> (size.width - layer.leftDp.dp.toPx() - layer.rightDp.dp.toPx()).coerceAtLeast(1f)
+            hasPureShape && layer.shadowDot != null -> 6.dp.toPx()
             else -> size.width
         }
         val ph = when {
             layer.heightDp != null -> layer.heightDp.dp.toPx()
             layer.topDp != null && layer.bottomDp != null -> (size.height - layer.topDp.dp.toPx() - layer.bottomDp.dp.toPx()).coerceAtLeast(1f)
+            hasPureShape && layer.shadowDot != null -> 6.dp.toPx()
             else -> size.height
         }
         val px0 = when {
+            layer.centerX -> (size.width - pw) * 0.5f + layer.offsetXDp.dp.toPx()
             layer.leftDp != null -> layer.leftDp.dp.toPx()
             layer.rightDp != null -> size.width - layer.rightDp.dp.toPx() - pw
-            else -> 0f
+            else -> layer.offsetXDp.dp.toPx()
         }
         val py0 = when {
+            layer.centerY -> (size.height - ph) * 0.5f + layer.offsetYDp.dp.toPx()
             layer.topDp != null -> layer.topDp.dp.toPx()
             layer.bottomDp != null -> size.height - layer.bottomDp.dp.toPx() - ph
-            else -> 0f
+            else -> layer.offsetYDp.dp.toPx()
+        }
+
+        if (layer.shapeFillColor != null) {
+            if (layer.isCircle) {
+                drawOval(
+                    color = layer.shapeFillColor,
+                    topLeft = Offset(px0, py0),
+                    size = Size(pw, ph),
+                )
+            } else {
+                drawRect(
+                    color = layer.shapeFillColor,
+                    topLeft = Offset(px0, py0),
+                    size = Size(pw, ph),
+                )
+            }
+        }
+        if (layer.shapeBorderColor != null && layer.shapeBorderWidthDp > 0f) {
+            val stroke = Stroke(width = layer.shapeBorderWidthDp.dp.toPx())
+            if (layer.isCircle) {
+                drawOval(
+                    color = layer.shapeBorderColor,
+                    topLeft = Offset(px0, py0),
+                    size = Size(pw, ph),
+                    style = stroke,
+                )
+            } else {
+                drawRect(
+                    color = layer.shapeBorderColor,
+                    topLeft = Offset(px0, py0),
+                    size = Size(pw, ph),
+                    style = stroke,
+                )
+            }
+        }
+        layer.shadowDot?.let { dot ->
+            val r = (min(pw, ph) * 0.5f + dot.spreadDp.dp.toPx()).coerceAtLeast(1f)
+            drawCircle(
+                color = dot.color,
+                radius = r,
+                center = Offset(px0 + pw * 0.5f + dot.dxDp.dp.toPx(), py0 + ph * 0.5f + dot.dyDp.dp.toPx()),
+            )
         }
 
         layer.bgImagesBottomToTop.forEach { bg: BubbleBgImageSpec ->
@@ -319,6 +367,14 @@ fun ChatCosmeticBubbleBox(
         return
     }
 
+    val context = LocalContext.current
+    val httpClient = LocalCosmeticHttpClient.current
+    style.dynamicCssSpec?.let { spec ->
+        LaunchedEffect(spec) {
+            BadgeArtworkCache.ensureCommunityCssLoaded(context, httpClient, spec)
+        }
+    }
+
     val bubbleShape = remember(style.shapeKind) {
         when (val k = style.shapeKind) {
             is BubbleShapeKind.Rounded -> RoundedCornerShape(
@@ -338,9 +394,18 @@ fun ChatCosmeticBubbleBox(
         is BubbleOrnament.RaffleRailcannon -> 18f
         else -> 0f
     }
-    val startReserveDp = (style.nineSliceSpec?.outsetLeftDp ?: 0f).coerceAtLeast(0f).dp
-    val topReserveDp = (style.nineSliceSpec?.outsetTopDp ?: 0f).coerceAtLeast(0f).dp
-    val bottomReserveDp = (style.nineSliceSpec?.outsetBottomDp ?: 0f).coerceAtLeast(0f).dp
+    val startReserveDp = max(
+        style.startOverflowReserveDp,
+        (style.nineSliceSpec?.outsetLeftDp ?: 0f).coerceAtLeast(0f),
+    ).dp
+    val topReserveDp = max(
+        style.topOverflowReserveDp,
+        (style.nineSliceSpec?.outsetTopDp ?: 0f).coerceAtLeast(0f),
+    ).dp
+    val bottomReserveDp = max(
+        style.bottomOverflowReserveDp,
+        (style.nineSliceSpec?.outsetBottomDp ?: 0f).coerceAtLeast(0f),
+    ).dp
     val trailingReserveDp = max(
         max(ornamentEndDp, style.endOverflowReserveDp),
         (style.nineSliceSpec?.outsetRightDp ?: 0f).coerceAtLeast(0f),
@@ -891,6 +956,14 @@ fun ChatCosmeticBoostPill(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit,
 ) {
+    val context = LocalContext.current
+    val httpClient = LocalCosmeticHttpClient.current
+    style?.dynamicCssSpec?.let { spec ->
+        LaunchedEffect(spec) {
+            BadgeArtworkCache.ensureCommunityCssLoaded(context, httpClient, spec)
+        }
+    }
+
     val pillShape = if (style != null) {
         when (val k = style.shapeKind) {
             is BubbleShapeKind.Rounded -> RoundedCornerShape(
@@ -905,35 +978,73 @@ fun ChatCosmeticBoostPill(
         RoundedCornerShape(999.dp)
     }
 
+    val startRes = max(
+        style?.startOverflowReserveDp ?: 0f,
+        (style?.nineSliceSpec?.outsetLeftDp ?: 0f).coerceAtLeast(0f),
+    ).dp
+    val topRes = max(
+        style?.topOverflowReserveDp ?: 0f,
+        (style?.nineSliceSpec?.outsetTopDp ?: 0f).coerceAtLeast(0f),
+    ).dp
+    val endRes = max(
+        style?.endOverflowReserveDp ?: 0f,
+        (style?.nineSliceSpec?.outsetRightDp ?: 0f).coerceAtLeast(0f),
+    ).dp
+    val bottomRes = max(
+        style?.bottomOverflowReserveDp ?: 0f,
+        (style?.nineSliceSpec?.outsetBottomDp ?: 0f).coerceAtLeast(0f),
+    ).dp
+    val hasNineSlice = style?.nineSliceSpec != null
+    val shouldClip = !hasNineSlice
+
     Box(
         modifier = modifier
-            .clip(pillShape)
-            .then(
-                when {
-                    style?.fillBrush != null -> Modifier.background(style.fillBrush)
-                    style != null && style.fillColor != Color.Transparent -> Modifier.background(style.fillColor)
-                    else -> Modifier.background(defaultContainerColor)
-                },
-            )
-            .then(
-                when {
-                    style?.borderBrush != null && style.borderWidthDp > 0f ->
-                        Modifier.border(style.borderWidthDp.dp, style.borderBrush, pillShape)
-                    style != null && style.borderWidthDp > 0f && style.borderColor != Color.Transparent ->
-                        Modifier.border(style.borderWidthDp.dp, style.borderColor, pillShape)
-                    defaultBorderColor != Color.Transparent ->
-                        Modifier.border(0.8.dp, defaultBorderColor, pillShape)
-                    else -> Modifier
-                },
-            )
+            .padding(start = startRes, top = topRes, end = endRes, bottom = bottomRes)
             .clickable(onClick = onClick),
     ) {
-        style?.nineSliceSpec?.let { spec ->
-            NineSliceFrameCanvas(spec = spec, modifier = Modifier.matchParentSize())
-        }
         Box(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-            content = content,
-        )
+            modifier = Modifier
+                .then(if (shouldClip) Modifier.clip(pillShape) else Modifier)
+                .then(
+                    when {
+                        hasNineSlice -> Modifier
+                        style?.fillBrush != null -> Modifier.background(style.fillBrush)
+                        style != null && style.fillColor != Color.Transparent -> Modifier.background(style.fillColor)
+                        else -> Modifier.background(defaultContainerColor)
+                    },
+                )
+                .then(
+                    when {
+                        hasNineSlice -> Modifier
+                        style?.borderBrush != null && style.borderWidthDp > 0f ->
+                            Modifier.border(style.borderWidthDp.dp, style.borderBrush, pillShape)
+                        style != null && style.borderWidthDp > 0f && style.borderColor != Color.Transparent ->
+                            Modifier.border(style.borderWidthDp.dp, style.borderColor, pillShape)
+                        defaultBorderColor != Color.Transparent ->
+                            Modifier.border(0.8.dp, defaultBorderColor, pillShape)
+                        else -> Modifier
+                    },
+                ),
+        ) {
+            style?.nineSliceSpec?.let { spec ->
+                NineSliceFrameCanvas(
+                    spec = spec,
+                    fallbackColor = style.fillColor,
+                    modifier = Modifier.matchParentSize(),
+                )
+            }
+            style?.pseudoLayers?.forEach { layer ->
+                BubblePseudoLayerCanvas(
+                    layer = layer,
+                    modifier = Modifier.matchParentSize(),
+                )
+            }
+            Box(
+                modifier = Modifier.padding(
+                    style?.contentPadding ?: PaddingValues(horizontal = 8.dp, vertical = 3.dp),
+                ),
+                content = content,
+            )
+        }
     }
 }

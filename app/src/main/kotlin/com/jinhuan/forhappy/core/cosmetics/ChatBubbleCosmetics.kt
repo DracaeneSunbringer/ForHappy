@@ -59,6 +59,60 @@ data class PersonalV1PaletteSpec(
     val accentHex: String,
 )
 
+data class PersonalV2ArtSpec(
+    val titleX: Float = 0.50f,
+    val titleY: Float = 0.50f,
+    val titlePadDp: Float = 16f,
+)
+
+data class PseudoBoxShadowDot(
+    val dxDp: Float,
+    val dyDp: Float,
+    val spreadDp: Float,
+    val color: Color,
+)
+
+data class CommunityTitleRenderSpec(
+    val fixedHeightDp: Float? = null,
+    val minHeightDp: Float = 22f,
+    val padTopDp: Float = 2f,
+    val padRightDp: Float = 8f,
+    val padBottomDp: Float = 2f,
+    val padLeftDp: Float = 8f,
+    val startOverflowReserveDp: Float = 0f,
+    val endOverflowReserveDp: Float = 0f,
+    val topOverflowReserveDp: Float = 0f,
+    val bottomOverflowReserveDp: Float = 0f,
+    val bgColors: List<Color> = emptyList(),
+    val bgAngleDeg: Float? = null,
+    val borderColor: Color = Color.Transparent,
+    val borderWidthDp: Float = 0f,
+    val cornerRadiiDp: List<Float> = listOf(999f, 999f, 999f, 999f),
+    val textColor: Color = Color(0xFF1E293B),
+    val fontWeight: FontWeight = FontWeight.Bold,
+    val letterSpacingSp: Float? = null,
+    val textShadowColor: Color? = null,
+    val nineSliceSpec: NineSliceSpec? = null,
+    val pseudoLayers: List<BubblePseudoLayer> = emptyList(),
+)
+
+data class CommunityBadgeRenderSpec(
+    val widthDp: Float = 24f,
+    val heightDp: Float = 24f,
+    val hasImage: Boolean = false,
+    val hasDarkImageVariant: Boolean = false,
+    val baseUrlIdx: Int = 0,
+    val spriteCols: Int = 1,
+    val spriteRows: Int = 1,
+    val spriteCol: Int = 0,
+    val spriteRow: Int = 0,
+    val topReserveDp: Float = 0f,
+    val rightReserveDp: Float = 0f,
+    val bottomReserveDp: Float = 0f,
+    val leftReserveDp: Float = 0f,
+    val pseudoLayers: List<BubblePseudoLayer> = emptyList(),
+)
+
 data class RaffleBubbleSliceSpec(
     val framePath: String,
     val sliceTop: Int,
@@ -122,6 +176,15 @@ data class BubblePseudoLayer(
     val leftDp: Float? = null,
     val widthDp: Float? = null,
     val heightDp: Float? = null,
+    val centerX: Boolean = false,
+    val centerY: Boolean = false,
+    val offsetXDp: Float = 0f,
+    val offsetYDp: Float = 0f,
+    val shapeFillColor: Color? = null,
+    val shapeBorderColor: Color? = null,
+    val shapeBorderWidthDp: Float = 0f,
+    val isCircle: Boolean = false,
+    val shadowDot: PseudoBoxShadowDot? = null,
     val bgImagesBottomToTop: List<BubbleBgImageSpec> = emptyList(),
     val nineSliceSpec: NineSliceSpec? = null,
 )
@@ -187,6 +250,10 @@ data class ResolvedChatBubbleStyle(
     val nineSliceSpec: NineSliceSpec? = null,
     val pseudoLayers: List<BubblePseudoLayer> = emptyList(),
     val ornament: BubbleOrnament = BubbleOrnament.None,
+    val dynamicCssSpec: String? = null,
+    val topOverflowReserveDp: Float = 0f,
+    val bottomOverflowReserveDp: Float = 0f,
+    val startOverflowReserveDp: Float = 0f,
 )
 
 object ChatBubbleCosmetics {
@@ -305,6 +372,210 @@ object ChatBubbleCosmetics {
         "cloud" to "M6 19C-1 17 1 9 7 10 7 2 19 2 19 11c7 1 5 8-1 8H6ZM7 22h9",
     )
 
+    val PERSONAL_V2_ART_SPECS: Map<String, PersonalV2ArtSpec> = mapOf(
+        "pv2-p001-doodle" to PersonalV2ArtSpec(0.50f, 0.51f, 16f),
+        "pv2-p001-ssr" to PersonalV2ArtSpec(0.50f, 0.46f, 16f),
+        "pv2-p002-doodle" to PersonalV2ArtSpec(0.50f, 0.51f, 16f),
+        "pv2-p002-ssr" to PersonalV2ArtSpec(0.50f, 0.55f, 16f),
+        "pv2-p003-doodle" to PersonalV2ArtSpec(0.50f, 0.46f, 16f),
+        "pv2-p003-ssr" to PersonalV2ArtSpec(0.50f, 0.57f, 16f),
+        "pv2-p004-doodle" to PersonalV2ArtSpec(0.50f, 0.50f, 16f),
+        "pv2-p004-ssr" to PersonalV2ArtSpec(0.50f, 0.50f, 16f),
+        "pv2-p005-doodle" to PersonalV2ArtSpec(0.50f, 0.50f, 16f),
+        "pv2-p005-ssr" to PersonalV2ArtSpec(0.50f, 0.47f, 16f),
+        "pv2-p006-doodle" to PersonalV2ArtSpec(0.50f, 0.40f, 16f),
+        "pv2-p006-ssr" to PersonalV2ArtSpec(0.50f, 0.45f, 16f),
+        "pv2-p007-doodle" to PersonalV2ArtSpec(0.50f, 0.51f, 16f),
+        "pv2-p007-ssr" to PersonalV2ArtSpec(0.50f, 0.51f, 16f),
+        "pv2-p008-doodle" to PersonalV2ArtSpec(0.50f, 0.52f, 16f),
+        "pv2-p008-ssr" to PersonalV2ArtSpec(0.50f, 0.50f, 16f),
+        "pv2-p009-doodle" to PersonalV2ArtSpec(0.50f, 0.50f, 16f),
+        "pv2-p009-ssr" to PersonalV2ArtSpec(0.50f, 0.42f, 16f),
+        "pv2-p010-doodle" to PersonalV2ArtSpec(0.50f, 0.50f, 16f),
+        "pv2-p010-ssr" to PersonalV2ArtSpec(0.50f, 0.49f, 16f),
+        "pv2-p011-doodle" to PersonalV2ArtSpec(0.50f, 0.50f, 16f),
+        "pv2-p011-ssr" to PersonalV2ArtSpec(0.50f, 0.48f, 16f),
+        "pv2-p012-doodle" to PersonalV2ArtSpec(0.50f, 0.56f, 16f),
+        "pv2-p012-ssr" to PersonalV2ArtSpec(0.50f, 0.58f, 16f),
+        "pv2-p013-doodle" to PersonalV2ArtSpec(0.50f, 0.51f, 16f),
+        "pv2-p013-ssr" to PersonalV2ArtSpec(0.50f, 0.45f, 16f),
+        "pv2-p014-doodle" to PersonalV2ArtSpec(0.50f, 0.50f, 16f),
+        "pv2-p014-ssr" to PersonalV2ArtSpec(0.50f, 0.42f, 16f),
+        "pv2-p015-doodle" to PersonalV2ArtSpec(0.50f, 0.58f, 16f),
+        "pv2-p015-ssr" to PersonalV2ArtSpec(0.50f, 0.52f, 16f),
+        "pv2-p016-doodle" to PersonalV2ArtSpec(0.50f, 0.49f, 16f),
+        "pv2-p016-ssr" to PersonalV2ArtSpec(0.50f, 0.49f, 16f),
+        "pv2-p017-doodle" to PersonalV2ArtSpec(0.50f, 0.48f, 16f),
+        "pv2-p017-ssr" to PersonalV2ArtSpec(0.50f, 0.44f, 16f),
+        "pv2-p018-doodle" to PersonalV2ArtSpec(0.50f, 0.58f, 16f),
+        "pv2-p018-ssr" to PersonalV2ArtSpec(0.50f, 0.51f, 16f),
+        "pv2-p019-doodle" to PersonalV2ArtSpec(0.50f, 0.56f, 16f),
+        "pv2-p019-ssr" to PersonalV2ArtSpec(0.50f, 0.55f, 16f),
+        "pv2-p020-doodle" to PersonalV2ArtSpec(0.50f, 0.52f, 16f),
+        "pv2-p020-ssr" to PersonalV2ArtSpec(0.50f, 0.47f, 16f),
+        "pv2-p021-doodle" to PersonalV2ArtSpec(0.50f, 0.55f, 16f),
+        "pv2-p021-ssr" to PersonalV2ArtSpec(0.50f, 0.50f, 16f),
+        "pv2-p022-doodle" to PersonalV2ArtSpec(0.50f, 0.56f, 16f),
+        "pv2-p022-ssr" to PersonalV2ArtSpec(0.50f, 0.52f, 16f),
+        "pv2-p023-doodle" to PersonalV2ArtSpec(0.50f, 0.52f, 16f),
+        "pv2-p023-ssr" to PersonalV2ArtSpec(0.50f, 0.52f, 16f),
+        "pv2-p024-doodle" to PersonalV2ArtSpec(0.50f, 0.46f, 16f),
+        "pv2-p024-ssr" to PersonalV2ArtSpec(0.50f, 0.40f, 16f),
+        "pv2-p025-doodle" to PersonalV2ArtSpec(0.50f, 0.56f, 16f),
+        "pv2-p025-ssr" to PersonalV2ArtSpec(0.50f, 0.50f, 16f),
+        "pv2-p026-doodle" to PersonalV2ArtSpec(0.50f, 0.50f, 16f),
+        "pv2-p026-ssr" to PersonalV2ArtSpec(0.50f, 0.49f, 16f),
+        "pv2-p027-doodle" to PersonalV2ArtSpec(0.50f, 0.45f, 16f),
+        "pv2-p027-ssr" to PersonalV2ArtSpec(0.50f, 0.48f, 16f),
+        "pv2-p028-doodle" to PersonalV2ArtSpec(0.50f, 0.50f, 16f),
+        "pv2-p028-ssr" to PersonalV2ArtSpec(0.50f, 0.54f, 16f),
+        "pv2-p029-doodle" to PersonalV2ArtSpec(0.50f, 0.50f, 16f),
+        "pv2-p029-ssr" to PersonalV2ArtSpec(0.50f, 0.44f, 16f),
+        "pv2-p030-doodle" to PersonalV2ArtSpec(0.50f, 0.57f, 16f),
+        "pv2-p030-ssr" to PersonalV2ArtSpec(0.50f, 0.51f, 16f),
+        "pv2-p031-doodle" to PersonalV2ArtSpec(0.50f, 0.53f, 16f),
+        "pv2-p031-ssr" to PersonalV2ArtSpec(0.50f, 0.47f, 16f),
+        "pv2-p032-doodle" to PersonalV2ArtSpec(0.50f, 0.54f, 16f),
+        "pv2-p032-ssr" to PersonalV2ArtSpec(0.50f, 0.48f, 16f),
+        "pv2-p033-doodle" to PersonalV2ArtSpec(0.50f, 0.48f, 16f),
+        "pv2-p033-ssr" to PersonalV2ArtSpec(0.50f, 0.44f, 16f),
+        "pv2-p034-doodle" to PersonalV2ArtSpec(0.50f, 0.51f, 16f),
+        "pv2-p034-ssr" to PersonalV2ArtSpec(0.50f, 0.47f, 16f),
+        "pv2-p035-doodle" to PersonalV2ArtSpec(0.50f, 0.53f, 16f),
+        "pv2-p035-ssr" to PersonalV2ArtSpec(0.50f, 0.54f, 16f),
+        "pv2-p036-doodle" to PersonalV2ArtSpec(0.50f, 0.48f, 16f),
+        "pv2-p036-ssr" to PersonalV2ArtSpec(0.50f, 0.52f, 16f),
+        "pv2-p037-doodle" to PersonalV2ArtSpec(0.50f, 0.51f, 16f),
+        "pv2-p037-ssr" to PersonalV2ArtSpec(0.50f, 0.48f, 16f),
+        "pv2-p038-doodle" to PersonalV2ArtSpec(0.50f, 0.60f, 16f),
+        "pv2-p038-ssr" to PersonalV2ArtSpec(0.50f, 0.40f, 16f),
+        "pv2-p039-doodle" to PersonalV2ArtSpec(0.50f, 0.52f, 16f),
+        "pv2-p039-ssr" to PersonalV2ArtSpec(0.50f, 0.42f, 16f),
+        "pv2-p040-doodle" to PersonalV2ArtSpec(0.50f, 0.47f, 16f),
+        "pv2-p040-ssr" to PersonalV2ArtSpec(0.50f, 0.44f, 16f),
+        "pv2-p041-doodle" to PersonalV2ArtSpec(0.50f, 0.49f, 16f),
+        "pv2-p041-ssr" to PersonalV2ArtSpec(0.50f, 0.53f, 16f),
+        "pv2-p042-doodle" to PersonalV2ArtSpec(0.50f, 0.53f, 16f),
+        "pv2-p042-ssr" to PersonalV2ArtSpec(0.50f, 0.44f, 16f),
+        "pv2-p043-doodle" to PersonalV2ArtSpec(0.50f, 0.49f, 16f),
+        "pv2-p043-ssr" to PersonalV2ArtSpec(0.50f, 0.52f, 16f),
+        "pv2-p044-doodle" to PersonalV2ArtSpec(0.50f, 0.52f, 16f),
+        "pv2-p044-ssr" to PersonalV2ArtSpec(0.50f, 0.50f, 16f),
+        "pv2-p045-doodle" to PersonalV2ArtSpec(0.50f, 0.52f, 16f),
+        "pv2-p045-ssr" to PersonalV2ArtSpec(0.50f, 0.49f, 16f),
+        "pv2-p046-doodle" to PersonalV2ArtSpec(0.50f, 0.56f, 16f),
+        "pv2-p046-ssr" to PersonalV2ArtSpec(0.50f, 0.49f, 16f),
+        "pv2-p047-doodle" to PersonalV2ArtSpec(0.50f, 0.50f, 16f),
+        "pv2-p047-ssr" to PersonalV2ArtSpec(0.50f, 0.47f, 16f),
+        "pv2-p048-doodle" to PersonalV2ArtSpec(0.50f, 0.52f, 16f),
+        "pv2-p048-ssr" to PersonalV2ArtSpec(0.50f, 0.47f, 16f),
+        "pv2-p049-doodle" to PersonalV2ArtSpec(0.50f, 0.50f, 16f),
+        "pv2-p049-ssr" to PersonalV2ArtSpec(0.50f, 0.41f, 16f),
+        "pv2-p050-doodle" to PersonalV2ArtSpec(0.50f, 0.56f, 16f),
+        "pv2-p050-ssr" to PersonalV2ArtSpec(0.50f, 0.51f, 16f),
+        "pv2-p051-doodle" to PersonalV2ArtSpec(0.50f, 0.54f, 16f),
+        "pv2-p051-ssr" to PersonalV2ArtSpec(0.50f, 0.56f, 16f),
+        "pv2-p052-doodle" to PersonalV2ArtSpec(0.50f, 0.48f, 16f),
+        "pv2-p052-ssr" to PersonalV2ArtSpec(0.50f, 0.46f, 16f),
+        "pv2-p053-doodle" to PersonalV2ArtSpec(0.50f, 0.56f, 16f),
+        "pv2-p053-ssr" to PersonalV2ArtSpec(0.50f, 0.40f, 16f),
+        "pv2-p054-doodle" to PersonalV2ArtSpec(0.50f, 0.51f, 16f),
+        "pv2-p054-ssr" to PersonalV2ArtSpec(0.50f, 0.48f, 16f),
+        "pv2-p055-doodle" to PersonalV2ArtSpec(0.50f, 0.46f, 16f),
+        "pv2-p055-ssr" to PersonalV2ArtSpec(0.50f, 0.45f, 16f),
+        "pv2-p056-doodle" to PersonalV2ArtSpec(0.50f, 0.49f, 16f),
+        "pv2-p056-ssr" to PersonalV2ArtSpec(0.50f, 0.51f, 16f),
+        "pv2-p057-doodle" to PersonalV2ArtSpec(0.50f, 0.41f, 16f),
+        "pv2-p057-ssr" to PersonalV2ArtSpec(0.50f, 0.40f, 16f),
+        "pv2-p058-doodle" to PersonalV2ArtSpec(0.50f, 0.42f, 16f),
+        "pv2-p058-ssr" to PersonalV2ArtSpec(0.50f, 0.44f, 16f),
+        "pv2-p059-doodle" to PersonalV2ArtSpec(0.50f, 0.53f, 16f),
+        "pv2-p059-ssr" to PersonalV2ArtSpec(0.50f, 0.52f, 16f),
+    )
+
+    private val dynamicPersonalV2Art = ConcurrentHashMap<String, PersonalV2ArtSpec>()
+    private val dynamicPersonalV1Palettes = ConcurrentHashMap<String, PersonalV1PaletteSpec>()
+    private val dynamicTitleSymbolPaths = ConcurrentHashMap<String, String>()
+
+    fun resolvePersonalV2Art(id: String): PersonalV2ArtSpec =
+        dynamicPersonalV2Art[id] ?: PERSONAL_V2_ART_SPECS[id] ?: PersonalV2ArtSpec()
+
+    fun resolvePersonalV1Palette(id: String): PersonalV1PaletteSpec =
+        dynamicPersonalV1Palettes[id] ?: PERSONAL_V1_PALETTES[id]
+        ?: PersonalV1PaletteSpec("#367a78", "#e0f2e9", "#f2bc72")
+
+    fun resolveTitleSymbolPath(id: String): String =
+        dynamicTitleSymbolPaths[id] ?: TITLE_SYMBOL_PATHS[id] ?: TITLE_SYMBOL_PATHS.getValue("star")
+
+    fun parsePersonalV2ArtCss(cssText: String): Map<String, PersonalV2ArtSpec> {
+        if (cssText.isBlank()) return emptyMap()
+        val ruleRe = Regex("""\.pt-(pv2-[a-z0-9-]+)\s*\{([^}]*)\}""")
+        val xRe = Regex("""--pv-title-x\s*:\s*(\d+(?:\.\d+)?)%""")
+        val yRe = Regex("""--pv-title-y\s*:\s*(\d+(?:\.\d+)?)%""")
+        val padRe = Regex("""--pv-title-pad\s*:\s*(\d+(?:\.\d+)?)px""")
+        val out = LinkedHashMap<String, PersonalV2ArtSpec>()
+        for (m in ruleRe.findAll(cssText)) {
+            val id = m.groupValues[1]
+            val body = m.groupValues[2]
+            val x = (xRe.find(body)?.groupValues?.get(1)?.toFloatOrNull() ?: 50f) / 100f
+            val y = (yRe.find(body)?.groupValues?.get(1)?.toFloatOrNull() ?: 50f) / 100f
+            val pad = padRe.find(body)?.groupValues?.get(1)?.toFloatOrNull() ?: 16f
+            out[id] = PersonalV2ArtSpec(x, y, pad)
+        }
+        if (out.isNotEmpty()) {
+            dynamicPersonalV2Art.putAll(out)
+        }
+        return out
+    }
+
+    fun parsePersonalPalettesCss(cssText: String): Map<String, PersonalV1PaletteSpec> {
+        if (cssText.isBlank()) return emptyMap()
+        val ruleRe = Regex("""\.pt-(p\d+)\s*\{([^}]*)\}""")
+        val inkRe = Regex("""--pt-ink\s*:\s*(#[0-9a-fA-F]{3,8})""")
+        val paperRe = Regex("""--pt-paper\s*:\s*(#[0-9a-fA-F]{3,8})""")
+        val accentRe = Regex("""--pt-accent\s*:\s*(#[0-9a-fA-F]{3,8})""")
+        val out = LinkedHashMap<String, PersonalV1PaletteSpec>()
+        for (m in ruleRe.findAll(cssText)) {
+            val id = m.groupValues[1]
+            val body = m.groupValues[2]
+            val ink = inkRe.find(body)?.groupValues?.get(1) ?: continue
+            val paper = paperRe.find(body)?.groupValues?.get(1) ?: continue
+            val accent = accentRe.find(body)?.groupValues?.get(1) ?: ink
+            out[id] = PersonalV1PaletteSpec(ink, paper, accent)
+        }
+        if (out.isNotEmpty()) {
+            dynamicPersonalV1Palettes.putAll(out)
+        }
+        return out
+    }
+
+    fun parseTitleSymbolsJs(jsText: String): Map<String, String> {
+        if (jsText.isBlank()) return emptyMap()
+        val pairRe = Regex("""([a-z0-9_-]+)\s*:\s*['"](M[^'"]+)['"]""")
+        val out = LinkedHashMap<String, String>()
+        for (m in pairRe.findAll(jsText)) {
+            val id = m.groupValues[1].trim()
+            val path = m.groupValues[2].trim()
+            if (id.isNotEmpty() && path.isNotEmpty()) {
+                out[id] = path
+            }
+        }
+        if (out.isNotEmpty()) {
+            dynamicTitleSymbolPaths.putAll(out)
+        }
+        return out
+    }
+
+    fun applyWebDynamicAssets(
+        v2ArtSpecs: Map<String, PersonalV2ArtSpec> = emptyMap(),
+        v1Palettes: Map<String, PersonalV1PaletteSpec> = emptyMap(),
+        symbolPaths: Map<String, String> = emptyMap(),
+    ) {
+        if (v2ArtSpecs.isNotEmpty()) dynamicPersonalV2Art.putAll(v2ArtSpecs)
+        if (v1Palettes.isNotEmpty()) dynamicPersonalV1Palettes.putAll(v1Palettes)
+        if (symbolPaths.isNotEmpty()) dynamicTitleSymbolPaths.putAll(symbolPaths)
+    }
+
     val RAFFLE_BUBBLE_SLICES: Map<String, RaffleBubbleSliceSpec> = mapOf(
         "gpt" to RaffleBubbleSliceSpec("/assets/raffle/bubble-anime-v9/gpt.webp", 35, 140, 20, 140, 0.2500f, 0.1429f),
         "claude" to RaffleBubbleSliceSpec("/assets/raffle/bubble-anime-v9/claude.webp", 35, 140, 20, 140, 0.2500f, 0.1429f),
@@ -395,6 +666,75 @@ object ChatBubbleCosmetics {
         "waibi-babu" to CommunityTitlePalette("#fff0a9", "#ffcf62", "#543510", "#bc8331", "pill", "grad"),
     )
 
+    private fun mapParsedPseudoLayers(
+        layers: List<ParsedPseudoLayer>,
+        lightCssPrefix: String?,
+    ): List<BubblePseudoLayer> = layers.mapNotNull { layer ->
+        val hasShape = layer.shapeFillColor != null || layer.shapeBorderColor != null || layer.shadowDot != null
+        val mappedBgs = if (lightCssPrefix != null) {
+            layer.bgImagesBottomToTop.map { bg ->
+                BubbleBgImageSpec(
+                    sourceUrl = "$lightCssPrefix:${bg.urlIdx}",
+                    widthDp = bg.widthDp,
+                    widthFraction = bg.widthFraction,
+                    widthSubFromFullDp = bg.widthSubFromFullDp,
+                    heightDp = bg.heightDp,
+                    heightFraction = bg.heightFraction,
+                    alignCenterX = bg.alignCenterX,
+                    offsetXDp = bg.offsetXDp,
+                    offsetRightDp = bg.offsetRightDp,
+                    alignCenterY = bg.alignCenterY,
+                    offsetYDp = bg.offsetYDp,
+                    offsetBottomDp = bg.offsetBottomDp,
+                )
+            }
+        } else {
+            emptyList()
+        }
+        val mappedNs = if (lightCssPrefix != null) {
+            layer.nineSlice?.let { ns ->
+                NineSliceSpec(
+                    sourceUrl = "$lightCssPrefix:${ns.urlIdx}",
+                    sliceTop = ns.sliceTop,
+                    sliceRight = ns.sliceRight,
+                    sliceBottom = ns.sliceBottom,
+                    sliceLeft = ns.sliceLeft,
+                    isPercentSlice = ns.isPercentSlice,
+                    borderTopDp = ns.borderTopDp,
+                    borderRightDp = ns.borderRightDp,
+                    borderBottomDp = ns.borderBottomDp,
+                    borderLeftDp = ns.borderLeftDp,
+                    outsetTopDp = ns.outsetTopDp,
+                    outsetRightDp = ns.outsetRightDp,
+                    outsetBottomDp = ns.outsetBottomDp,
+                    outsetLeftDp = ns.outsetLeftDp,
+                )
+            }
+        } else {
+            null
+        }
+        if (!hasShape && mappedBgs.isEmpty() && mappedNs == null) return@mapNotNull null
+        BubblePseudoLayer(
+            topDp = layer.topDp,
+            rightDp = layer.rightDp,
+            bottomDp = layer.bottomDp,
+            leftDp = layer.leftDp,
+            widthDp = layer.widthDp,
+            heightDp = layer.heightDp,
+            centerX = layer.centerX,
+            centerY = layer.centerY,
+            offsetXDp = layer.offsetXDp,
+            offsetYDp = layer.offsetYDp,
+            shapeFillColor = layer.shapeFillColor,
+            shapeBorderColor = layer.shapeBorderColor,
+            shapeBorderWidthDp = layer.shapeBorderWidthDp,
+            isCircle = layer.isCircle,
+            shadowDot = layer.shadowDot,
+            bgImagesBottomToTop = mappedBgs,
+            nineSliceSpec = mappedNs,
+        )
+    }
+
     internal fun resolveCommunityTitleStyle(
         id: String,
         skin: CommunitySkinCatalogItem?,
@@ -403,30 +743,105 @@ object ChatBubbleCosmetics {
         val label = skin?.name ?: id
         val titleImg = skin?.titleImgSha?.let { "$ORIGIN/api/community-skins/image/$it" }
         val titleCssSha = skin?.titleCssSha
-        val builtInTitleSha = BadgeAndCosmeticRegistry.COMMUNITY_SKINS[id]?.titleCssSha
         val p = COMMUNITY_TITLE_PALETTES[id]
-        val preferDynamic = !titleCssSha.isNullOrBlank() && (p == null || titleCssSha != builtInTitleSha)
-        val dynTitle = if (preferDynamic) dynamicParsedTitles[titleCssSha] else null
+        val dynTitle = titleCssSha?.takeIf { it.isNotBlank() }?.let { dynamicParsedTitles[it] }
         if (dynTitle != null) {
-            val border = if (isDarkTheme) (dynTitle.darkBorderHex ?: dynTitle.borderHex) else dynTitle.borderHex
+            val isDarkSkinVariant = isDarkTheme && dynTitle.darkHasImageVariant && titleCssSha != null
+            val effBgHex = if (isDarkTheme) (dynTitle.darkBgHex ?: dynTitle.bgHex) else dynTitle.bgHex
+            val effSecHex = if (isDarkTheme) (dynTitle.darkSecondaryBgHex ?: dynTitle.secondaryBgHex ?: effBgHex) else (dynTitle.secondaryBgHex ?: effBgHex)
+            val effTextHex = if (isDarkTheme) (dynTitle.darkTextHex ?: dynTitle.textHex) else dynTitle.textHex
+            val effBorderHex = if (isDarkTheme) (dynTitle.darkBorderHex ?: dynTitle.borderHex) else dynTitle.borderHex
+            val baseSrc = when {
+                !dynTitle.hasNineSlice -> null
+                isDarkSkinVariant -> "community-css-dark:$id:title:$titleCssSha:0"
+                titleImg != null -> titleImg
+                else -> "community-css:$id:title:$titleCssSha:${dynTitle.baseUrlIdx}"
+            }
+            val nineSlice = if (dynTitle.hasNineSlice && baseSrc != null) {
+                NineSliceSpec(
+                    sourceUrl = baseSrc,
+                    sliceTop = dynTitle.sliceTop,
+                    sliceRight = dynTitle.sliceRight,
+                    sliceBottom = dynTitle.sliceBottom,
+                    sliceLeft = dynTitle.sliceLeft,
+                    isPercentSlice = dynTitle.isPercentSlice,
+                    borderTopDp = dynTitle.borderImgTopDp,
+                    borderRightDp = dynTitle.borderImgRightDp,
+                    borderBottomDp = dynTitle.borderImgBottomDp,
+                    borderLeftDp = dynTitle.borderImgLeftDp,
+                    outsetTopDp = dynTitle.outsetTopDp,
+                    outsetRightDp = dynTitle.outsetRightDp,
+                    outsetBottomDp = dynTitle.outsetBottomDp,
+                    outsetLeftDp = dynTitle.outsetLeftDp,
+                )
+            } else {
+                null
+            }
+            val lightCssPrefix = titleCssSha?.let { "community-css:$id:title:$it" }
+            val mappedPseudo = mapParsedPseudoLayers(dynTitle.pseudoLayers, lightCssPrefix)
+            var topRes = 0f
+            var endRes = 0f
+            var botRes = 0f
+            var startRes = 0f
+            for (layer in mappedPseudo) {
+                layer.leftDp?.takeIf { it < 0f }?.let { startRes = max(startRes, -it) }
+                layer.rightDp?.takeIf { it < 0f }?.let { endRes = max(endRes, -it) }
+                layer.topDp?.takeIf { it < 0f }?.let { topRes = max(topRes, -it) }
+                layer.bottomDp?.takeIf { it < 0f }?.let { botRes = max(botRes, -it) }
+            }
+            val bgColorsList = if (dynTitle.hasNineSlice) {
+                emptyList()
+            } else if (dynTitle.fillMode == "grad") {
+                listOf(parseHexColorPure(effBgHex), parseHexColorPure(effSecHex))
+            } else {
+                val c = parseHexColorPure(effBgHex)
+                if (c != Color.Transparent) listOf(c) else emptyList()
+            }
+            val renderSpec = CommunityTitleRenderSpec(
+                fixedHeightDp = dynTitle.fixedHeightDp,
+                minHeightDp = dynTitle.minHeightDp,
+                padTopDp = dynTitle.padTopDp,
+                padRightDp = dynTitle.padRightDp,
+                padBottomDp = dynTitle.padBottomDp,
+                padLeftDp = dynTitle.padLeftDp,
+                startOverflowReserveDp = startRes,
+                endOverflowReserveDp = endRes,
+                topOverflowReserveDp = topRes,
+                bottomOverflowReserveDp = botRes,
+                bgColors = bgColorsList,
+                bgAngleDeg = dynTitle.bgAngleDeg,
+                borderColor = if (dynTitle.hasNineSlice) Color.Transparent else parseHexColorPure(effBorderHex),
+                borderWidthDp = if (dynTitle.hasNineSlice) 0f else dynTitle.borderWidthDp,
+                cornerRadiiDp = dynTitle.cornerRadiiDp ?: listOf(999f, 999f, 999f, 999f),
+                textColor = parseHexColorPure(effTextHex, Color(0xFF1E293B)),
+                fontWeight = dynTitle.fontWeight,
+                letterSpacingSp = dynTitle.letterSpacingSp,
+                textShadowColor = if (isDarkTheme && dynTitle.hasNineSlice) Color(0xC818081E) else null,
+                nineSliceSpec = nineSlice,
+                pseudoLayers = mappedPseudo,
+            )
             return ResolvedTitleChip(
                 key = "community:$id",
                 label = dynTitle.overrideLabel?.takeIf { it.isNotBlank() } ?: label,
                 rarity = "normal",
-                bgHex = dynTitle.bgHex,
-                textHex = dynTitle.textHex,
-                borderHex = border,
+                bgHex = effBgHex,
+                textHex = effTextHex,
+                borderHex = effBorderHex,
                 fillMode = dynTitle.fillMode,
-                shape = "pill",
-                secondaryBgHex = dynTitle.secondaryBgHex ?: dynTitle.bgHex,
+                shape = p?.shape ?: "pill",
+                secondaryBgHex = effSecHex,
+                effect = p?.effect ?: "none",
+                fontKey = p?.fontKey.orEmpty(),
                 bgImageUrl = titleImg,
                 specialKind = "community",
                 customCss = dynTitle.cornerRadiiDp?.takeIf { it.size == 4 }?.let { ParsedSafeCss(cornerRadiiDp = it) },
-                leadingIconUrl = dynTitle.leadingIconIdx?.let { titleCssSha?.let { sha -> "community-css:$id:title:$sha:$it" } },
-                trailingIconUrl = dynTitle.trailingIconIdx?.let { titleCssSha?.let { sha -> "community-css:$id:title:$sha:$it" } },
+                leadingIconUrl = (dynTitle.leadingIconIdx ?: p?.leadingIconIdx)?.let { "community-css:$id:title:$titleCssSha:$it" },
+                trailingIconUrl = (dynTitle.trailingIconIdx ?: p?.trailingIconIdx)?.let { "community-css:$id:title:$titleCssSha:$it" },
                 dynamicCssSpec = null,
+                communitySpec = renderSpec,
             )
         }
+        val missingDynamicCss = titleCssSha?.takeIf { it.isNotBlank() }?.let { "$id:title:$it" }
         return if (p != null) {
             val (bg, secBg, fg, border) = if (isDarkTheme && id == "lanting-ink") {
                 listOf("#18191e", "#201e24", "#fef3c7", "#d4af37")
@@ -457,7 +872,7 @@ object ChatBubbleCosmetics {
                 customCss = p.cornerRadiiDp?.let { ParsedSafeCss(cornerRadiiDp = it) },
                 leadingIconUrl = p.leadingIconIdx?.let { idx -> titleCssSha?.let { sha -> "community-css:$id:title:$sha:$idx" } },
                 trailingIconUrl = p.trailingIconIdx?.let { idx -> titleCssSha?.let { sha -> "community-css:$id:title:$sha:$idx" } },
-                dynamicCssSpec = if (preferDynamic) "$id:title:$titleCssSha" else null,
+                dynamicCssSpec = missingDynamicCss,
             )
         } else {
             ResolvedTitleChip(
@@ -471,9 +886,47 @@ object ChatBubbleCosmetics {
                 shape = "pill",
                 bgImageUrl = titleImg,
                 specialKind = "community",
-                dynamicCssSpec = titleCssSha?.takeIf { it.isNotBlank() }?.let { "$id:title:$it" },
+                dynamicCssSpec = missingDynamicCss,
             )
         }
+    }
+
+    fun resolveCommunityBadgeSpec(
+        id: String,
+        imgSha: String?,
+        cssSha: String?,
+        isDarkTheme: Boolean = false,
+    ): CommunityBadgeRenderSpec? {
+        if (cssSha.isNullOrBlank()) return null
+        val parsed = dynamicParsedBadges[cssSha] ?: return null
+        val lightPrefix = "community-css:$id:badge:$cssSha"
+        val mappedPseudo = mapParsedPseudoLayers(parsed.pseudoLayers, lightPrefix)
+        var topRes = 0f
+        var rightRes = 0f
+        var bottomRes = 0f
+        var leftRes = 0f
+        for (layer in mappedPseudo) {
+            layer.topDp?.takeIf { it < 0f }?.let { topRes = max(topRes, -it) }
+            layer.rightDp?.takeIf { it < 0f }?.let { rightRes = max(rightRes, -it) }
+            layer.bottomDp?.takeIf { it < 0f }?.let { bottomRes = max(bottomRes, -it) }
+            layer.leftDp?.takeIf { it < 0f }?.let { leftRes = max(leftRes, -it) }
+        }
+        return CommunityBadgeRenderSpec(
+            widthDp = parsed.widthDp,
+            heightDp = parsed.heightDp,
+            hasImage = parsed.hasImage,
+            hasDarkImageVariant = parsed.hasDarkImageVariant,
+            baseUrlIdx = parsed.baseUrlIdx,
+            spriteCols = parsed.spriteCols,
+            spriteRows = parsed.spriteRows,
+            spriteCol = parsed.spriteCol,
+            spriteRow = parsed.spriteRow,
+            topReserveDp = topRes,
+            rightReserveDp = rightRes,
+            bottomReserveDp = bottomRes,
+            leftReserveDp = leftRes,
+            pseudoLayers = mappedPseudo,
+        )
     }
 
     private val CSS_URL_TOKEN_RE = Regex(
@@ -519,6 +972,15 @@ object ChatBubbleCosmetics {
         val leftDp: Float? = null,
         val widthDp: Float? = null,
         val heightDp: Float? = null,
+        val centerX: Boolean = false,
+        val centerY: Boolean = false,
+        val offsetXDp: Float = 0f,
+        val offsetYDp: Float = 0f,
+        val shapeFillColor: Color? = null,
+        val shapeBorderColor: Color? = null,
+        val shapeBorderWidthDp: Float = 0f,
+        val isCircle: Boolean = false,
+        val shadowDot: PseudoBoxShadowDot? = null,
         val bgImagesBottomToTop: List<ParsedPseudoBgImage> = emptyList(),
         val nineSlice: ParsedPseudoNineSlice? = null,
     )
@@ -540,7 +1002,10 @@ object ChatBubbleCosmetics {
         val outsetRightDp: Float = 0f,
         val outsetBottomDp: Float = 0f,
         val outsetLeftDp: Float = 0f,
+        val startOverflowReserveDp: Float = 0f,
         val endOverflowReserveDp: Float = 0f,
+        val topOverflowReserveDp: Float = 0f,
+        val bottomOverflowReserveDp: Float = 0f,
         val padTopDp: Float,
         val padRightDp: Float,
         val padBottomDp: Float,
@@ -563,10 +1028,55 @@ object ChatBubbleCosmetics {
         val leadingIconIdx: Int? = null,
         val trailingIconIdx: Int? = null,
         val overrideLabel: String? = null,
+        val bgAngleDeg: Float? = null,
+        val darkBgHex: String? = null,
+        val darkSecondaryBgHex: String? = null,
+        val darkTextHex: String? = null,
+        val darkHasImageVariant: Boolean = false,
+        val hasNineSlice: Boolean = false,
+        val baseUrlIdx: Int = 0,
+        val sliceTop: Float = 0f,
+        val sliceRight: Float = 0f,
+        val sliceBottom: Float = 0f,
+        val sliceLeft: Float = 0f,
+        val isPercentSlice: Boolean = false,
+        val borderImgTopDp: Float = 0f,
+        val borderImgRightDp: Float = 0f,
+        val borderImgBottomDp: Float = 0f,
+        val borderImgLeftDp: Float = 0f,
+        val outsetTopDp: Float = 0f,
+        val outsetRightDp: Float = 0f,
+        val outsetBottomDp: Float = 0f,
+        val outsetLeftDp: Float = 0f,
+        val fixedHeightDp: Float? = null,
+        val minHeightDp: Float = 22f,
+        val padTopDp: Float = 2f,
+        val padRightDp: Float = 8f,
+        val padBottomDp: Float = 2f,
+        val padLeftDp: Float = 8f,
+        val borderWidthDp: Float = 1f,
+        val letterSpacingSp: Float? = null,
+        val fontWeight: FontWeight = FontWeight.Bold,
+        val hasImage: Boolean = false,
+        val pseudoLayers: List<ParsedPseudoLayer> = emptyList(),
+    )
+
+    data class ParsedCommunityBadgeCss(
+        val widthDp: Float = 24f,
+        val heightDp: Float = 24f,
+        val hasImage: Boolean = false,
+        val hasDarkImageVariant: Boolean = false,
+        val baseUrlIdx: Int = 0,
+        val spriteCols: Int = 1,
+        val spriteRows: Int = 1,
+        val spriteCol: Int = 0,
+        val spriteRow: Int = 0,
+        val pseudoLayers: List<ParsedPseudoLayer> = emptyList(),
     )
 
     private val dynamicParsedBubbles = ConcurrentHashMap<String, ParsedCommunityBubbleCss>()
     private val dynamicParsedTitles = ConcurrentHashMap<String, ParsedCommunityTitleCss>()
+    private val dynamicParsedBadges = ConcurrentHashMap<String, ParsedCommunityBadgeCss>()
 
     private fun isValidCssImageUrl(raw: String): Boolean =
         raw.startsWith("data:image/", ignoreCase = true) ||
@@ -968,7 +1478,78 @@ object ChatBubbleCosmetics {
         return CssBgPosSpec(centerX, xDp, rightDp, centerY, yDp, bottomDp)
     }
 
-    private fun parsePseudoRule(body: String, vars: Map<String, String>): ParsedPseudoLayer? {
+    private data class PartitionedCommunityCss(
+        val baseStr: String,
+        val beforeStr: String,
+        val afterStr: String,
+        val darkStr: String,
+        val urlCounter: Int,
+        val darkImageCount: Int,
+        val baseVars: Map<String, String>,
+        val beforeVars: Map<String, String>,
+        val afterVars: Map<String, String>,
+    )
+
+    private fun partitionCommunityCss(cssText: String): PartitionedCommunityCss {
+        val noComments = cssText.replace(CSS_COMMENT_RE, "")
+        val (rules, initialVars) = stripCssAtBlocks(noComments)
+        var urlCounter = 0
+        val baseBodies = StringBuilder()
+        val beforeBodies = StringBuilder()
+        val afterBodies = StringBuilder()
+        val darkBodies = StringBuilder()
+        var darkImageCount = 0
+
+        for ((selector, body) in rules) {
+            if (selector.contains("data-theme", ignoreCase = true)) {
+                val darkReplaced = CSS_URL_TOKEN_RE.replace(body) { m ->
+                    val raw = (m.groupValues[1].ifEmpty { m.groupValues[2].ifEmpty { m.groupValues[3] } }).trim()
+                    if (isValidCssImageUrl(raw)) {
+                        darkImageCount++
+                        "__DARK_URL__"
+                    } else {
+                        m.value
+                    }
+                }
+                darkBodies.append(darkReplaced).append(';')
+            } else {
+                val replaced = CSS_URL_TOKEN_RE.replace(body) { m ->
+                    val raw = (m.groupValues[1].ifEmpty { m.groupValues[2].ifEmpty { m.groupValues[3] } }).trim()
+                    if (isValidCssImageUrl(raw)) "__URL_${urlCounter++}__" else m.value
+                }
+                when {
+                    selector.contains("::before", ignoreCase = true) -> beforeBodies.append(replaced).append(';')
+                    selector.contains("::after", ignoreCase = true) -> afterBodies.append(replaced).append(';')
+                    else -> baseBodies.append(replaced).append(';')
+                }
+            }
+        }
+
+        val baseStr = baseBodies.toString()
+        val beforeStr = beforeBodies.toString()
+        val afterStr = afterBodies.toString()
+        val darkStr = darkBodies.toString()
+        val baseVars = buildResolvedVars(initialVars, baseStr)
+        val beforeVars = buildResolvedVars(baseVars, beforeStr)
+        val afterVars = buildResolvedVars(baseVars, afterStr)
+        return PartitionedCommunityCss(
+            baseStr = baseStr,
+            beforeStr = beforeStr,
+            afterStr = afterStr,
+            darkStr = darkStr,
+            urlCounter = urlCounter,
+            darkImageCount = darkImageCount,
+            baseVars = baseVars,
+            beforeVars = beforeVars,
+            afterVars = afterVars,
+        )
+    }
+
+    private fun parsePseudoRule(
+        body: String,
+        vars: Map<String, String>,
+        parentBorderW: List<Float> = listOf(0f, 0f, 0f, 0f),
+    ): ParsedPseudoLayer? {
         if (body.isBlank()) return null
         val urlTokenRe = Regex("""__URL_(\d+)__""")
         var topDp: Float? = null
@@ -977,6 +1558,16 @@ object ChatBubbleCosmetics {
         var leftDp: Float? = null
         var widthDp: Float? = null
         var heightDp: Float? = null
+        var topPercent50 = false
+        var leftPercent50 = false
+        var calcTopCenterOffsetDp: Float? = null
+        var transformRaw = ""
+
+        var shapeFillColor: Color? = null
+        var shapeBorderColor: Color? = null
+        var shapeBorderWidthDp = 0f
+        var isCircle = false
+        var shadowDot: PseudoBoxShadowDot? = null
 
         var nsUrlIdx: Int? = null
         var nsSlice: List<Float>? = null
@@ -1005,12 +1596,57 @@ object ChatBubbleCosmetics {
                         }
                     }
                 }
-                "top" -> parsePxLength(rawVal)?.let { topDp = it }
+                "top", "inset-block-start" -> {
+                    val trimmed = rawVal.replace(" ", "").lowercase()
+                    val calcMatch = Regex("""^calc\(50%([+-]\d*\.?\d+)px\)$""").matchEntire(trimmed)
+                    when {
+                        trimmed == "50%" -> topPercent50 = true
+                        calcMatch != null -> calcTopCenterOffsetDp = calcMatch.groupValues[1].toFloatOrNull()
+                        else -> parsePxLength(rawVal)?.let { topDp = it }
+                    }
+                }
                 "right", "inset-inline-end" -> parsePxLength(rawVal)?.let { rightDp = it }
-                "bottom" -> parsePxLength(rawVal)?.let { bottomDp = it }
-                "left", "inset-inline-start" -> parsePxLength(rawVal)?.let { leftDp = it }
+                "bottom", "inset-block-end" -> parsePxLength(rawVal)?.let { bottomDp = it }
+                "left", "inset-inline-start" -> {
+                    if (rawVal.replace(" ", "").lowercase() == "50%") {
+                        leftPercent50 = true
+                    } else {
+                        parsePxLength(rawVal)?.let { leftDp = it }
+                    }
+                }
+                "transform" -> transformRaw = rawVal.lowercase()
                 "width", "inline-size" -> parsePxLength(rawVal)?.let { widthDp = it }
                 "height", "block-size" -> parsePxLength(rawVal)?.let { heightDp = it }
+                "border-radius" -> {
+                    if (rawVal.contains("50%") || (parseBoxFourNumbers(rawVal).firstOrNull() ?: 0f) >= 20f) {
+                        isCircle = true
+                    }
+                }
+                "border", "border-color", "border-width" -> {
+                    CSS_COLOR_TOKEN_RE.find(rawVal.lowercase())?.let { m ->
+                        parseCssColor(m.value)?.takeIf { it != Color.Transparent }?.let { shapeBorderColor = it }
+                    }
+                    if (prop == "border" || prop == "border-width") {
+                        val widthOnly = CSS_COLOR_TOKEN_RE.replace(rawVal.lowercase(), "")
+                        parseBoxFourNumbers(widthOnly).firstOrNull()?.let { shapeBorderWidthDp = it }
+                    }
+                }
+                "box-shadow" -> {
+                    if (!rawVal.contains("inset", ignoreCase = true)) {
+                        val m = Regex(
+                            """(-?\d*\.?\d+)(?:px)?\s+(-?\d*\.?\d+)(?:px)?\s+(?:\d*\.?\d+(?:px)?\s+)?(-?\d*\.?\d+)(?:px)?\s+(#[0-9a-fA-F]{3,8}|(?:rgba?|hsla?)\([^)]+\))""",
+                            RegexOption.IGNORE_CASE,
+                        ).find(rawVal)
+                        if (m != null) {
+                            val dx = m.groupValues[1].toFloatOrNull() ?: 0f
+                            val dy = m.groupValues[2].toFloatOrNull() ?: 0f
+                            val spread = m.groupValues[3].toFloatOrNull() ?: 0f
+                            parseCssColor(m.groupValues[4].lowercase())?.let { col ->
+                                shadowDot = PseudoBoxShadowDot(dx, dy, spread, col)
+                            }
+                        }
+                    }
+                }
                 "border-image-source", "border-image" -> {
                     urlTokenRe.find(rawVal)?.groupValues?.get(1)?.toIntOrNull()?.let { nsUrlIdx = it }
                 }
@@ -1020,9 +1656,15 @@ object ChatBubbleCosmetics {
                 }
                 "border-image-width" -> expandBoxFour(parseBoxFourNumbers(rawVal))?.let { nsBorderW = it }
                 "border-image-outset" -> expandBoxFour(parseBoxFourNumbers(rawVal))?.let { nsOutset = it }
-                "background-image", "background" -> {
+                "background-image", "background", "background-color" -> {
                     val found = urlTokenRe.findAll(rawVal).mapNotNull { it.groupValues[1].toIntOrNull() }.toList()
-                    if (found.isNotEmpty()) bgUrlIndices = found
+                    if (found.isNotEmpty()) {
+                        bgUrlIndices = found
+                    } else if (!rawVal.contains("gradient(", ignoreCase = true)) {
+                        CSS_COLOR_TOKEN_RE.findAll(rawVal.lowercase()).lastOrNull()?.let { m ->
+                            parseCssColor(m.value)?.takeIf { it != Color.Transparent }?.let { shapeFillColor = it }
+                        } ?: parseCssColor(rawVal)?.takeIf { it != Color.Transparent }?.let { shapeFillColor = it }
+                    }
                 }
                 "background-size" -> {
                     bgSizes = splitTopLevel(rawVal, onWhitespace = false).map(::parseCssBgSizeLayer)
@@ -1031,6 +1673,31 @@ object ChatBubbleCosmetics {
                     bgPositions = splitTopLevel(rawVal, onWhitespace = false).map(::parseCssBgPosLayer)
                 }
             }
+        }
+
+        // Convert CSS padding-box offsets into parent border-box coordinates
+        val bwTop = parentBorderW.getOrElse(0) { 0f }
+        val bwRight = parentBorderW.getOrElse(1) { 0f }
+        val bwBottom = parentBorderW.getOrElse(2) { 0f }
+        val bwLeft = parentBorderW.getOrElse(3) { 0f }
+        if (topDp != null) topDp = topDp!! + bwTop
+        if (rightDp != null) rightDp = rightDp!! + bwRight
+        if (bottomDp != null) bottomDp = bottomDp!! + bwBottom
+        if (leftDp != null) leftDp = leftDp!! + bwLeft
+
+        var centerX = false
+        var centerY = false
+        var offsetXDp = 0f
+        var offsetYDp = 0f
+        val compactTf = transformRaw.replace(" ", "")
+        if (topPercent50 && (compactTf.contains("translatey(-50%)") || compactTf.contains("translate(-50%,-50%)"))) {
+            centerY = true
+        } else if (calcTopCenterOffsetDp != null) {
+            centerY = true
+            offsetYDp = calcTopCenterOffsetDp!! + (if (compactTf.contains("translatey(-50%)")) 0f else (heightDp ?: 0f) * 0.5f)
+        }
+        if (leftPercent50 && (compactTf.contains("translatex(-50%)") || compactTf.contains("translate(-50%,-50%)"))) {
+            centerX = true
         }
 
         val nineSlice = if (nsUrlIdx != null && nsSlice != null) {
@@ -1071,7 +1738,8 @@ object ChatBubbleCosmetics {
             emptyList()
         }
 
-        if (nineSlice == null && bgBottomToTop.isEmpty()) return null
+        val hasPureShape = shapeFillColor != null || (shapeBorderColor != null && shapeBorderWidthDp > 0f) || shadowDot != null
+        if (nineSlice == null && bgBottomToTop.isEmpty() && !hasPureShape) return null
         return ParsedPseudoLayer(
             topDp = topDp,
             rightDp = rightDp,
@@ -1079,76 +1747,94 @@ object ChatBubbleCosmetics {
             leftDp = leftDp,
             widthDp = widthDp,
             heightDp = heightDp,
+            centerX = centerX,
+            centerY = centerY,
+            offsetXDp = offsetXDp,
+            offsetYDp = offsetYDp,
+            shapeFillColor = shapeFillColor,
+            shapeBorderColor = shapeBorderColor,
+            shapeBorderWidthDp = shapeBorderWidthDp,
+            isCircle = isCircle,
+            shadowDot = shadowDot,
             bgImagesBottomToTop = bgBottomToTop,
             nineSlice = nineSlice,
         )
     }
 
+    private fun applyPaddingDecl(prop: String, rawVal: String, curPad: MutableList<Float>): Boolean {
+        return when (prop) {
+            "padding" -> {
+                expandBoxFour(parseBoxFourNumbers(rawVal))?.let {
+                    for (i in 0..3) curPad[i] = it[i]
+                }
+                true
+            }
+            "padding-top", "padding-block-start" -> {
+                parseBoxFourNumbers(rawVal).firstOrNull()?.let { curPad[0] = it }
+                true
+            }
+            "padding-right", "padding-inline-end" -> {
+                parseBoxFourNumbers(rawVal).firstOrNull()?.let { curPad[1] = it }
+                true
+            }
+            "padding-bottom", "padding-block-end" -> {
+                parseBoxFourNumbers(rawVal).firstOrNull()?.let { curPad[2] = it }
+                true
+            }
+            "padding-left", "padding-inline-start" -> {
+                parseBoxFourNumbers(rawVal).firstOrNull()?.let { curPad[3] = it }
+                true
+            }
+            "padding-inline" -> {
+                val nums = parseBoxFourNumbers(rawVal)
+                if (nums.isNotEmpty()) {
+                    curPad[3] = nums[0]
+                    curPad[1] = nums.getOrElse(1) { nums[0] }
+                }
+                true
+            }
+            "padding-block" -> {
+                val nums = parseBoxFourNumbers(rawVal)
+                if (nums.isNotEmpty()) {
+                    curPad[0] = nums[0]
+                    curPad[2] = nums.getOrElse(1) { nums[0] }
+                }
+                true
+            }
+            else -> false
+        }
+    }
+
     fun parseCommunityBubbleCss(cssText: String): ParsedCommunityBubbleCss? {
         if (cssText.isBlank()) return null
-        val noComments = cssText.replace(CSS_COMMENT_RE, "")
-        val (rules, initialVars) = stripCssAtBlocks(noComments)
+        val part = partitionCommunityCss(cssText)
         val urlTokenRe = Regex("""__URL_(\d+)__""")
-
-        var urlCounter = 0
-        val baseBodies = StringBuilder()
-        val beforeBodies = StringBuilder()
-        val afterBodies = StringBuilder()
-        val darkBodies = StringBuilder()
-        var darkImageCount = 0
-
-        for ((selector, body) in rules) {
-            if (selector.contains("data-theme", ignoreCase = true)) {
-                val darkReplaced = CSS_URL_TOKEN_RE.replace(body) { m ->
-                    val raw = (m.groupValues[1].ifEmpty { m.groupValues[2].ifEmpty { m.groupValues[3] } }).trim()
-                    if (isValidCssImageUrl(raw)) {
-                        darkImageCount++
-                        "__DARK_URL__"
-                    } else {
-                        m.value
-                    }
-                }
-                darkBodies.append(darkReplaced).append(';')
-            } else {
-                val replaced = CSS_URL_TOKEN_RE.replace(body) { m ->
-                    val raw = (m.groupValues[1].ifEmpty { m.groupValues[2].ifEmpty { m.groupValues[3] } }).trim()
-                    if (isValidCssImageUrl(raw)) "__URL_${urlCounter++}__" else m.value
-                }
-                when {
-                    selector.contains("::before", ignoreCase = true) -> beforeBodies.append(replaced).append(';')
-                    selector.contains("::after", ignoreCase = true) -> afterBodies.append(replaced).append(';')
-                    else -> baseBodies.append(replaced).append(';')
-                }
-            }
-        }
-
-        val baseStr = baseBodies.toString()
-        val beforeStr = beforeBodies.toString()
-        val afterStr = afterBodies.toString()
-        val darkStr = darkBodies.toString()
-
-        val baseVars = buildResolvedVars(initialVars, baseStr)
-        val beforeVars = buildResolvedVars(baseVars, beforeStr)
-        val afterVars = buildResolvedVars(baseVars, afterStr)
 
         var baseUrlIdx = 0
         var sliceArr: List<Float>? = null
         var slicePercent = false
         var borderImageW: List<Float>? = null
         var borderW: List<Float>? = null
-        var outsetW: List<Float>? = null
-        var pad: List<Float>? = null
+        val curPad = mutableListOf(0f, 0f, 0f, 0f)
+        var hasPad = false
         var minWidth = 72f
+        var startOverflowReserve = 0f
         var endOverflowReserve = 0f
+        var topOverflowReserve = 0f
+        var bottomOverflowReserve = 0f
         var textCol: Color? = null
         val safeDeclBuf = StringBuilder()
 
-        for (decl in baseStr.split(';')) {
+        for (decl in part.baseStr.split(';')) {
             val colon = decl.indexOf(':')
             if (colon <= 0) continue
             val prop = decl.substring(0, colon).trim().lowercase()
             if (prop.startsWith("--")) continue
-            val rawVal = resolveCssVars(decl.substring(colon + 1).trim(), baseVars).replace("!important", "", ignoreCase = true).trim()
+            val rawVal = resolveCssVars(decl.substring(colon + 1).trim(), part.baseVars).replace("!important", "", ignoreCase = true).trim()
+            if (applyPaddingDecl(prop, rawVal, curPad)) {
+                hasPad = true
+                continue
+            }
             when (prop) {
                 "border-image-source", "border-image" -> {
                     urlTokenRe.find(rawVal)?.groupValues?.get(1)?.toIntOrNull()?.let { baseUrlIdx = it }
@@ -1158,19 +1844,16 @@ object ChatBubbleCosmetics {
                     expandBoxFour(parseBoxFourNumbers(rawVal))?.let { sliceArr = it }
                 }
                 "border-image-width" -> expandBoxFour(parseBoxFourNumbers(rawVal))?.let { borderImageW = it }
-                "border-image-outset" -> expandBoxFour(parseBoxFourNumbers(rawVal))?.let { outsetW = it }
-                "border-width" -> expandBoxFour(parseBoxFourNumbers(rawVal))?.let { borderW = it }
-                "padding" -> expandBoxFour(parseBoxFourNumbers(rawVal))?.let { pad = it }
-                "padding-top", "padding-right", "padding-bottom", "padding-left" -> {
-                    val v = parseBoxFourNumbers(rawVal).firstOrNull() ?: continue
-                    val cur = (pad ?: listOf(0f, 0f, 0f, 0f)).toMutableList()
-                    when (prop) {
-                        "padding-top" -> cur[0] = v
-                        "padding-right" -> cur[1] = v
-                        "padding-bottom" -> cur[2] = v
-                        "padding-left" -> cur[3] = v
+                "border-image-outset" -> expandBoxFour(parseBoxFourNumbers(rawVal))?.let { outsetW ->
+                    // Handled below via final outset assignment
+                    safeDeclBuf.append("__OUTSET__=").append(outsetW.joinToString(",")).append("; ")
+                }
+                "border-width", "border" -> {
+                    val widthOnly = CSS_COLOR_TOKEN_RE.replace(rawVal.lowercase(), "")
+                    expandBoxFour(parseBoxFourNumbers(widthOnly))?.let { borderW = it }
+                    if (prop == "border") {
+                        safeDeclBuf.append("border: ").append(rawVal).append("; ")
                     }
-                    pad = cur
                 }
                 "max-width", "max-inline-size" -> {
                     Regex("""calc\(\s*100%\s*-\s*(\d*\.?\d+)px\s*\)""", RegexOption.IGNORE_CASE).find(rawVal)?.let { m ->
@@ -1200,26 +1883,24 @@ object ChatBubbleCosmetics {
             }
         }
 
+        val bw = borderW ?: listOf(0f, 0f, 0f, 0f)
         val pseudoLayers = ArrayList<ParsedPseudoLayer>(2)
-        parsePseudoRule(beforeStr, beforeVars)?.let { layer ->
-            pseudoLayers.add(layer)
-            layer.rightDp?.takeIf { it < 0f }?.let { rNeg ->
-                endOverflowReserve = max(endOverflowReserve, -rNeg)
-            }
-        }
-        parsePseudoRule(afterStr, afterVars)?.let { layer ->
-            pseudoLayers.add(layer)
-            layer.rightDp?.takeIf { it < 0f }?.let { rNeg ->
-                endOverflowReserve = max(endOverflowReserve, -rNeg)
+        listOf(part.beforeStr to part.beforeVars, part.afterStr to part.afterVars).forEach { (pStr, pVars) ->
+            parsePseudoRule(pStr, pVars, bw)?.let { layer ->
+                pseudoLayers.add(layer)
+                layer.leftDp?.takeIf { it < 0f }?.let { startOverflowReserve = max(startOverflowReserve, -it) }
+                layer.rightDp?.takeIf { it < 0f }?.let { endOverflowReserve = max(endOverflowReserve, -it) }
+                layer.topDp?.takeIf { it < 0f }?.let { topOverflowReserve = max(topOverflowReserve, -it) }
+                layer.bottomDp?.takeIf { it < 0f }?.let { bottomOverflowReserve = max(bottomOverflowReserve, -it) }
             }
         }
 
         var darkTextCol: Color? = null
-        for (decl in darkStr.split(';')) {
+        for (decl in part.darkStr.split(';')) {
             val colon = decl.indexOf(':')
             if (colon <= 0) continue
             val prop = decl.substring(0, colon).trim().lowercase()
-            val rawVal = resolveCssVars(decl.substring(colon + 1).trim(), baseVars).replace("!important", "", ignoreCase = true).trim()
+            val rawVal = resolveCssVars(decl.substring(colon + 1).trim(), part.baseVars).replace("!important", "", ignoreCase = true).trim()
             if (prop == "color") parseCssColor(rawVal)?.let { darkTextCol = it }
         }
 
@@ -1236,12 +1917,13 @@ object ChatBubbleCosmetics {
             safeCssLight = parseSafeCss(safeDeclBuf.toString()),
         )
         val bImg = borderImageW ?: borderW ?: listOf(18f, 24f, 18f, 24f)
-        val out = outsetW ?: listOf(0f, 0f, 0f, 0f)
-        val bw = borderW ?: listOf(0f, 0f, 0f, 0f)
-        val p = pad ?: listOf(0f, 0f, 0f, 0f)
+        val outMatch = Regex("""__OUTSET__=([0-9.,-]+)""").find(safeDeclBuf)
+        val out = outMatch?.groupValues?.get(1)?.split(',')?.mapNotNull { it.toFloatOrNull() }?.takeIf { it.size == 4 }
+            ?: listOf(0f, 0f, 0f, 0f)
+        val p = if (hasPad) curPad else listOf(0f, 0f, 0f, 0f)
         return ParsedCommunityBubbleCss(
-            hasImage = urlCounter > 0,
-            hasDarkImageVariant = darkImageCount > 0,
+            hasImage = part.urlCounter > 0,
+            hasDarkImageVariant = part.darkImageCount > 0,
             baseUrlIdx = baseUrlIdx,
             sliceTop = effSlice[0],
             sliceRight = effSlice[1],
@@ -1256,11 +1938,14 @@ object ChatBubbleCosmetics {
             outsetRightDp = out[1],
             outsetBottomDp = out[2],
             outsetLeftDp = out[3],
+            startOverflowReserveDp = startOverflowReserve,
             endOverflowReserveDp = endOverflowReserve,
-            padTopDp = (bw[0] + p[0]).coerceAtLeast(8f),
-            padRightDp = (bw[1] + p[1]).coerceAtLeast(12f),
-            padBottomDp = (bw[2] + p[2]).coerceAtLeast(8f),
-            padLeftDp = (bw[3] + p[3]).coerceAtLeast(12f),
+            topOverflowReserveDp = topOverflowReserve,
+            bottomOverflowReserveDp = bottomOverflowReserve,
+            padTopDp = (bw[0] + p[0]).coerceAtLeast(2f),
+            padRightDp = (bw[1] + p[1]).coerceAtLeast(6f),
+            padBottomDp = (bw[2] + p[2]).coerceAtLeast(2f),
+            padLeftDp = (bw[3] + p[3]).coerceAtLeast(6f),
             minWidthDp = minWidth,
             textColorLight = textCol,
             textColorDark = darkTextCol,
@@ -1279,114 +1964,169 @@ object ChatBubbleCosmetics {
 
     fun parseCommunityTitleCss(cssText: String): ParsedCommunityTitleCss? {
         if (cssText.isBlank()) return null
-        val (baseRaw, _, vars) = extractCssSections(cssText)
-        val noComments = cssText.replace(CSS_COMMENT_RE, "")
+        val part = partitionCommunityCss(cssText)
+        val urlTokenRe = Regex("""__URL_(\d+)__""")
         val urls = extractCssImageUrls(cssText, preferDark = false)
 
-        // Inspect ::after for color & label, base rule for background / border / border-radius, [data-theme="dark"] for dark border
         var gradColors: List<Color>? = null
+        var bgAngleDeg: Float? = null
         var solidBg: Color? = null
         var fgCol: Color? = null
         var bdCol: Color? = null
-        var darkBdCol: Color? = null
+        var borderW: List<Float>? = null
         var radii: List<Float>? = null
         var overrideLabel: String? = null
+        var fixedHeightDp: Float? = null
+        var minHeightDp = 22f
+        val curPad = mutableListOf(2f, 8f, 2f, 8f)
+        var letterSpacingSp: Float? = null
+        var fontWeight = FontWeight.Bold
+
+        var baseUrlIdx = 0
+        var sliceArr: List<Float>? = null
+        var slicePercent = false
+        var borderImageW: List<Float>? = null
+        var outsetW: List<Float>? = null
+
+        var darkGradColors: List<Color>? = null
+        var darkSolidBg: Color? = null
+        var darkFgCol: Color? = null
+        var darkBdCol: Color? = null
+
         var leadingIdx: Int? = null
         var trailingIdx: Int? = null
 
-        fun inspectUrlsInRule(ruleSlice: String, startIdxHint: Int): Pair<Int?, Int?> {
-            var lead: Int? = null
-            var trail: Int? = null
-            var idx = startIdxHint
-            for (m in CSS_URL_TOKEN_RE.findAll(ruleSlice)) {
-                val u = m.groupValues[1].ifEmpty { m.groupValues[2].ifEmpty { m.groupValues[3] } }
-                if (!u.startsWith("data:image/", true) && !u.startsWith("http", true) && !u.startsWith("/api/", true)) continue
+        fun inspectUrlPlacement(ruleSlice: String) {
+            for (m in urlTokenRe.findAll(ruleSlice)) {
+                val uIdx = m.groupValues[1].toIntOrNull() ?: continue
                 val tail = ruleSlice.substring(m.range.last, (m.range.last + 120).coerceAtMost(ruleSlice.length)).lowercase()
-                if (tail.contains("right")) trail = idx else lead = idx
-                idx++
+                if (tail.contains("right")) trailingIdx = uIdx else if (leadingIdx == null) leadingIdx = uIdx
             }
-            return lead to trail
         }
 
-        val noUrlBase = CSS_URL_TOKEN_RE.replace(baseRaw) { "__URL__" }
-        for (decl in noUrlBase.split(';')) {
+        for (decl in part.baseStr.split(';')) {
             val colon = decl.indexOf(':')
             if (colon <= 0) continue
             val prop = decl.substring(0, colon).trim().lowercase()
-            val rawVal = resolveCssVars(decl.substring(colon + 1).trim(), vars).replace("!important", "").trim()
+            if (prop.startsWith("--")) continue
+            val rawVal = resolveCssVars(decl.substring(colon + 1).trim(), part.baseVars).replace("!important", "", ignoreCase = true).trim()
+            if (applyPaddingDecl(prop, rawVal, curPad)) continue
             when (prop) {
-                "background", "background-image", "background-color" -> {
-                    if (rawVal.contains("gradient(")) {
-                        val cols = CSS_COLOR_TOKEN_RE.findAll(rawVal.lowercase()).mapNotNull { parseCssColor(it.value) }.toList()
-                        if (cols.size >= 2) gradColors = cols
-                    } else {
-                        parseCssColor(rawVal)?.let { if (it.alpha > 0.2f) solidBg = it }
-                    }
+                "height", "block-size" -> parsePxLength(rawVal)?.let { fixedHeightDp = it }
+                "min-height", "min-block-size" -> parsePxLength(rawVal)?.let { minHeightDp = it }
+                "border-image-source", "border-image" -> {
+                    urlTokenRe.find(rawVal)?.groupValues?.get(1)?.toIntOrNull()?.let { baseUrlIdx = it }
                 }
-                "color" -> parseCssColor(rawVal)?.let { if (it.alpha > 0.2f) fgCol = it }
+                "border-image-slice" -> {
+                    slicePercent = rawVal.contains('%')
+                    expandBoxFour(parseBoxFourNumbers(rawVal))?.let { sliceArr = it }
+                }
+                "border-image-width" -> expandBoxFour(parseBoxFourNumbers(rawVal))?.let { borderImageW = it }
+                "border-image-outset" -> expandBoxFour(parseBoxFourNumbers(rawVal))?.let { outsetW = it }
+                "border-width" -> expandBoxFour(parseBoxFourNumbers(rawVal))?.let { borderW = it }
                 "border", "border-color" -> {
                     CSS_COLOR_TOKEN_RE.find(rawVal.lowercase())?.let { m -> parseCssColor(m.value)?.let { bdCol = it } }
                         ?: parseCssColor(rawVal)?.let { bdCol = it }
+                    if (prop == "border") {
+                        val widthOnly = CSS_COLOR_TOKEN_RE.replace(rawVal.lowercase(), "")
+                        expandBoxFour(parseBoxFourNumbers(widthOnly))?.let { borderW = it }
+                    }
                 }
                 "border-radius" -> expandBoxFour(parseBoxFourNumbers(rawVal))?.let { radii = it }
-            }
-        }
-
-        // Check ::before and ::after blocks explicitly from original cssText
-        val afterMatch = Regex("""\.cskin-title-[a-z0-9-]+::after\s*\{([^}]*)\}""").find(noComments)
-        val beforeMatch = Regex("""\.cskin-title-[a-z0-9-]+::before\s*\{([^}]*)\}""").find(noComments)
-        val darkMatch = Regex("""\[data-theme[^]]*\]\s*\.cskin-title-[a-z0-9-]+\s*\{([^}]*)\}""").find(noComments)
-
-        if (afterMatch != null) {
-            val afterBody = afterMatch.groupValues[1]
-            Regex("""content\s*:\s*["']([^"']+)["']""").find(afterBody)?.let { m ->
-                overrideLabel = m.groupValues[1].trim().takeIf { it.isNotEmpty() }
-            }
-            for (decl in CSS_URL_TOKEN_RE.replace(afterBody) { "__URL__" }.split(';')) {
-                val colon = decl.indexOf(':')
-                if (colon <= 0) continue
-                val prop = decl.substring(0, colon).trim().lowercase()
-                val rawVal = decl.substring(colon + 1).replace("!important", "").trim()
-                if (prop == "color") parseCssColor(rawVal)?.let { fgCol = it }
-            }
-        }
-        if (darkMatch != null) {
-            for (decl in darkMatch.groupValues[1].split(';')) {
-                val colon = decl.indexOf(':')
-                if (colon <= 0) continue
-                val prop = decl.substring(0, colon).trim().lowercase()
-                val rawVal = decl.substring(colon + 1).replace("!important", "").trim()
-                if (prop == "border-color" || prop == "border") {
-                    CSS_COLOR_TOKEN_RE.find(rawVal.lowercase())?.let { m -> parseCssColor(m.value)?.let { darkBdCol = it } }
+                "background", "background-image", "background-color" -> {
+                    if (urlTokenRe.containsMatchIn(rawVal)) {
+                        inspectUrlPlacement(rawVal)
+                    }
+                    if (rawVal.contains("gradient(")) {
+                        val cols = CSS_COLOR_TOKEN_RE.findAll(rawVal.lowercase()).mapNotNull { parseCssColor(it.value) }.toList()
+                        if (cols.size >= 2) {
+                            gradColors = cols
+                            bgAngleDeg = Regex("""(-?\d+(?:\.\d+)?)deg""").find(rawVal.lowercase())?.groupValues?.get(1)?.toFloatOrNull()
+                        }
+                    } else if (!rawVal.contains("transparent", ignoreCase = true) || prop == "background-color") {
+                        val cleanedColor = rawVal.replace(urlTokenRe, "").trim()
+                        parseCssColor(cleanedColor)?.let { if (it.alpha > 0.2f) solidBg = it }
+                    }
+                }
+                "color" -> parseCssColor(rawVal)?.let { if (it.alpha > 0.2f) fgCol = it }
+                "letter-spacing" -> parsePxOrEm(rawVal)?.let { letterSpacingSp = it }
+                "font-weight" -> {
+                    val fw = rawVal.toIntOrNull()
+                    if (rawVal == "bold" || (fw != null && fw >= 700)) fontWeight = FontWeight.Bold
+                    else if (fw != null && fw >= 600) fontWeight = FontWeight.SemiBold
                 }
             }
         }
 
-        val baseRuleCount = CSS_URL_TOKEN_RE.findAll(baseRaw).count { m ->
-            val u = m.groupValues[1].ifEmpty { m.groupValues[2].ifEmpty { m.groupValues[3] } }
-            u.startsWith("data:image/", true) || u.startsWith("http", true) || u.startsWith("/api/", true)
-        }
-        val (baseLead, baseTrail) = inspectUrlsInRule(baseRaw, 0)
-        leadingIdx = baseLead
-        trailingIdx = baseTrail
-        if (beforeMatch != null) {
-            val (bLead, bTrail) = inspectUrlsInRule(beforeMatch.groupValues[1], baseRuleCount)
-            if (leadingIdx == null && bLead != null) leadingIdx = bLead
-            if (trailingIdx == null && bTrail != null) trailingIdx = bTrail
-            // For rules like `inset-inline-start: 5px` on ::before without explicit "left"/"right"
-            if (bLead == null && bTrail == null && CSS_URL_TOKEN_RE.containsMatchIn(beforeMatch.groupValues[1])) {
-                val bb = beforeMatch.groupValues[1].lowercase()
-                if (bb.contains("inset-inline-end") || bb.contains("right:")) trailingIdx = baseRuleCount else leadingIdx = baseRuleCount
+        if (part.afterStr.isNotBlank()) {
+            Regex("""content\s*:\s*["']([^"']+)["']""").find(part.afterStr)?.let { m ->
+                overrideLabel = m.groupValues[1].trim().takeIf { it.isNotEmpty() }
+            }
+            for (decl in part.afterStr.split(';')) {
+                val colon = decl.indexOf(':')
+                if (colon <= 0) continue
+                val prop = decl.substring(0, colon).trim().lowercase()
+                val rawVal = resolveCssVars(decl.substring(colon + 1).trim(), part.afterVars).replace("!important", "", ignoreCase = true).trim()
+                if (prop == "color") parseCssColor(rawVal)?.takeIf { it.alpha > 0.2f }?.let { fgCol = it }
             }
         }
-        if (urls.isNotEmpty() && leadingIdx == null && trailingIdx == null) {
+        if (part.beforeStr.isNotBlank()) {
+            val bb = part.beforeStr.lowercase()
+            urlTokenRe.find(part.beforeStr)?.groupValues?.get(1)?.toIntOrNull()?.let { idx ->
+                if (bb.contains("inset-inline-end") || bb.contains("right:")) trailingIdx = trailingIdx ?: idx
+                else leadingIdx = leadingIdx ?: idx
+            }
+        }
+        if (urls.isNotEmpty() && sliceArr == null && leadingIdx == null && trailingIdx == null) {
             leadingIdx = 0
         }
 
-        val bg = gradColors?.firstOrNull() ?: solidBg ?: return null
+        if (part.darkStr.isNotBlank()) {
+            val darkVars = buildResolvedVars(part.baseVars, part.darkStr)
+            for (decl in part.darkStr.split(';')) {
+                val colon = decl.indexOf(':')
+                if (colon <= 0) continue
+                val prop = decl.substring(0, colon).trim().lowercase()
+                val rawVal = resolveCssVars(decl.substring(colon + 1).trim(), darkVars).replace("!important", "", ignoreCase = true).trim()
+                when (prop) {
+                    "color" -> parseCssColor(rawVal)?.takeIf { it.alpha > 0.2f }?.let { darkFgCol = it }
+                    "border-color", "border" -> {
+                        CSS_COLOR_TOKEN_RE.find(rawVal.lowercase())?.let { m -> parseCssColor(m.value)?.let { darkBdCol = it } }
+                    }
+                    "background", "background-image", "background-color" -> {
+                        if (rawVal.contains("gradient(")) {
+                            val cols = CSS_COLOR_TOKEN_RE.findAll(rawVal.lowercase()).mapNotNull { parseCssColor(it.value) }.toList()
+                            if (cols.size >= 2) darkGradColors = cols
+                        } else {
+                            parseCssColor(rawVal)?.takeIf { it.alpha > 0.2f }?.let { darkSolidBg = it }
+                        }
+                    }
+                }
+            }
+        }
+
+        val bw = borderW ?: listOf(1f, 1f, 1f, 1f)
+        val hasNineSlice = sliceArr != null && urls.isNotEmpty()
+        val bwForPseudo = if (hasNineSlice) (borderW ?: listOf(0f, 0f, 0f, 0f)) else bw
+        val pseudoLayers = ArrayList<ParsedPseudoLayer>(2)
+        parsePseudoRule(part.beforeStr, part.beforeVars, bwForPseudo)?.let { pseudoLayers.add(it) }
+        parsePseudoRule(part.afterStr, part.afterVars, bwForPseudo)?.let { pseudoLayers.add(it) }
+
+        if (!hasNineSlice && gradColors == null && solidBg == null) return null
+        val bg = gradColors?.firstOrNull() ?: solidBg ?: Color.Transparent
         val secBg = gradColors?.lastOrNull()
         val fg = fgCol ?: Color.White
         val bd = bdCol ?: bg
+        val effSlice = sliceArr ?: listOf(0f, 0f, 0f, 0f)
+        val effBImg = borderImageW ?: borderW ?: listOf(0f, 0f, 0f, 0f)
+        val effOut = outsetW ?: listOf(0f, 0f, 0f, 0f)
+        val padBase = if (hasNineSlice) {
+            val pBw = borderW ?: listOf(0f, 0f, 0f, 0f)
+            listOf(pBw[0] + curPad[0], pBw[1] + curPad[1], pBw[2] + curPad[2], pBw[3] + curPad[3])
+        } else {
+            listOf(bw[0] + curPad[0], bw[1] + curPad[1], bw[2] + curPad[2], bw[3] + curPad[3])
+        }
+
         return ParsedCommunityTitleCss(
             bgHex = colorToHex(bg),
             secondaryBgHex = secBg?.let(::colorToHex),
@@ -1398,6 +2138,109 @@ object ChatBubbleCosmetics {
             leadingIconIdx = leadingIdx?.takeIf { it < urls.size },
             trailingIconIdx = trailingIdx?.takeIf { it < urls.size },
             overrideLabel = overrideLabel,
+            bgAngleDeg = bgAngleDeg,
+            darkBgHex = (darkGradColors?.firstOrNull() ?: darkSolidBg)?.let(::colorToHex),
+            darkSecondaryBgHex = darkGradColors?.lastOrNull()?.let(::colorToHex),
+            darkTextHex = darkFgCol?.let(::colorToHex),
+            darkHasImageVariant = part.darkImageCount > 0,
+            hasNineSlice = hasNineSlice,
+            baseUrlIdx = baseUrlIdx,
+            sliceTop = effSlice[0],
+            sliceRight = effSlice[1],
+            sliceBottom = effSlice[2],
+            sliceLeft = effSlice[3],
+            isPercentSlice = slicePercent,
+            borderImgTopDp = effBImg[0],
+            borderImgRightDp = effBImg[1],
+            borderImgBottomDp = effBImg[2],
+            borderImgLeftDp = effBImg[3],
+            outsetTopDp = effOut[0],
+            outsetRightDp = effOut[1],
+            outsetBottomDp = effOut[2],
+            outsetLeftDp = effOut[3],
+            fixedHeightDp = fixedHeightDp,
+            minHeightDp = minHeightDp,
+            padTopDp = padBase[0],
+            padRightDp = padBase[1],
+            padBottomDp = padBase[2],
+            padLeftDp = padBase[3],
+            borderWidthDp = bw.firstOrNull() ?: 1f,
+            letterSpacingSp = letterSpacingSp,
+            fontWeight = fontWeight,
+            hasImage = urls.isNotEmpty(),
+            pseudoLayers = pseudoLayers,
+        )
+    }
+
+    fun parseCommunityBadgeCss(cssText: String): ParsedCommunityBadgeCss? {
+        if (cssText.isBlank()) return null
+        val part = partitionCommunityCss(cssText)
+        val urlTokenRe = Regex("""__URL_(\d+)__""")
+
+        var widthDp = 24f
+        var heightDp = 24f
+        var baseUrlIdx = 0
+        var hasUrl = false
+        var spriteCols = 1
+        var spriteRows = 1
+        var spriteCol = 0
+        var spriteRow = 0
+        var posXPct: Float? = null
+        var posYPct: Float? = null
+
+        for (decl in part.baseStr.split(';')) {
+            val colon = decl.indexOf(':')
+            if (colon <= 0) continue
+            val prop = decl.substring(0, colon).trim().lowercase()
+            if (prop.startsWith("--")) continue
+            val rawVal = resolveCssVars(decl.substring(colon + 1).trim(), part.baseVars).replace("!important", "", ignoreCase = true).trim()
+            when (prop) {
+                "width", "inline-size" -> parsePxLength(rawVal)?.let { widthDp = it.coerceIn(18f, 40f) }
+                "height", "block-size" -> parsePxLength(rawVal)?.let { heightDp = it.coerceIn(18f, 40f) }
+                "background", "background-image" -> {
+                    urlTokenRe.find(rawVal)?.groupValues?.get(1)?.toIntOrNull()?.let {
+                        baseUrlIdx = it
+                        hasUrl = true
+                    }
+                }
+                "background-size" -> {
+                    val pcts = Regex("""(\d+(?:\.\d+)?)%""").findAll(rawVal).mapNotNull { it.groupValues[1].toFloatOrNull() }.toList()
+                    if (pcts.size >= 2) {
+                        spriteCols = (pcts[0] / 100f).toInt().coerceAtLeast(1)
+                        spriteRows = (pcts[1] / 100f).toInt().coerceAtLeast(1)
+                    }
+                }
+                "background-position" -> {
+                    val pcts = Regex("""(\d+(?:\.\d+)?)%""").findAll(rawVal).mapNotNull { it.groupValues[1].toFloatOrNull() }.toList()
+                    if (pcts.size >= 2) {
+                        posXPct = pcts[0]
+                        posYPct = pcts[1]
+                    }
+                }
+            }
+        }
+        if (spriteCols > 1 && posXPct != null) {
+            spriteCol = kotlin.math.round((posXPct / 100f) * (spriteCols - 1)).toInt().coerceIn(0, spriteCols - 1)
+        }
+        if (spriteRows > 1 && posYPct != null) {
+            spriteRow = kotlin.math.round((posYPct / 100f) * (spriteRows - 1)).toInt().coerceIn(0, spriteRows - 1)
+        }
+
+        val pseudoLayers = ArrayList<ParsedPseudoLayer>(2)
+        parsePseudoRule(part.beforeStr, part.beforeVars, listOf(0f, 0f, 0f, 0f))?.let { pseudoLayers.add(it) }
+        parsePseudoRule(part.afterStr, part.afterVars, listOf(0f, 0f, 0f, 0f))?.let { pseudoLayers.add(it) }
+
+        return ParsedCommunityBadgeCss(
+            widthDp = widthDp,
+            heightDp = heightDp,
+            hasImage = hasUrl || part.urlCounter > 0,
+            hasDarkImageVariant = part.darkImageCount > 0,
+            baseUrlIdx = baseUrlIdx,
+            spriteCols = spriteCols,
+            spriteRows = spriteRows,
+            spriteCol = spriteCol,
+            spriteRow = spriteRow,
+            pseudoLayers = pseudoLayers,
         )
     }
 
@@ -1419,6 +2262,17 @@ object ChatBubbleCosmetics {
                 if (dynamicParsedTitles.containsKey(sha)) return false
                 val parsed = parseCommunityTitleCss(cssText) ?: return false
                 val prev = dynamicParsedTitles.putIfAbsent(sha, parsed)
+                if (prev == null) {
+                    BadgeAndCosmeticRegistry.notifyDynamicCosmeticParsed()
+                    true
+                } else {
+                    false
+                }
+            }
+            "badge" -> {
+                if (dynamicParsedBadges.containsKey(sha)) return false
+                val parsed = parseCommunityBadgeCss(cssText) ?: return false
+                val prev = dynamicParsedBadges.putIfAbsent(sha, parsed)
                 if (prev == null) {
                     BadgeAndCosmeticRegistry.notifyDynamicCosmeticParsed()
                     true
@@ -1806,7 +2660,8 @@ object ChatBubbleCosmetics {
     ): ResolvedChatBubbleStyle? {
         if (hideBubble) return null
         val obj = runCatching { deco?.jsonObject }.getOrNull() ?: return null
-        val sc = obj["sc"]?.jsonPrimitive?.contentOrNull ?: obj["decoScope"]?.jsonPrimitive?.contentOrNull ?: "all"
+        val rawSc = obj["sc"]?.jsonPrimitive?.contentOrNull ?: obj["decoScope"]?.jsonPrimitive?.contentOrNull ?: "all"
+        val sc = if (rawSc == "wall") "post" else rawSc
         if (where != "card" && sc != "all" && sc != where) return null
 
         val ptId = obj["pt"]?.jsonPrimitive?.contentOrNull ?: obj["equippedPersonalId"]?.jsonPrimitive?.contentOrNull
@@ -1840,7 +2695,7 @@ object ChatBubbleCosmetics {
         }
 
         // 5. Personal suit bubble (`pt`)
-        if (!ptId.isNullOrBlank() && BadgeAndCosmeticRegistry.PERSONAL_TITLES[ptId] != null) {
+        if (!ptId.isNullOrBlank() && BadgeAndCosmeticRegistry.resolvePersonalTitle(ptId) != null) {
             return resolvePersonalBubble(ptId, frame, isDarkTheme)
         }
 
@@ -2001,21 +2856,36 @@ object ChatBubbleCosmetics {
             )
         }
 
-        // Image-based 9-slice community skins (shadow-dao, shadow-path) or CSS-embedded data-URI 9-slice skins (laowu*, laoda, oiia, round-maodie, step-by-step-bird, taike-lili, waibi-babu)
+        // Community 9-slice, data-URI CSS, or dynamically synced CSS skins (`bubble` / `reply`)
         if (skin != null) {
             val commKey = if (frame) "reply" else "bubble"
             val imgSha = if (frame) skin.replyImgSha else skin.bubbleImgSha
             val cssSha = if (frame) skin.replyCssSha else skin.bubbleCssSha
             val sliceArr = if (frame) skin.replySlice else skin.bubbleSlice
-            val builtInSkin = BadgeAndCosmeticRegistry.COMMUNITY_SKINS[id]
-            val builtInCssSha = if (frame) builtInSkin?.replyCssSha else builtInSkin?.bubbleCssSha
-            val hasHardcodedMetrics = id in KNOWN_COMMUNITY_NINE_SLICE_IDS
-            val preferDynamic = !cssSha.isNullOrBlank() && ((!frame && imgSha == null) || !hasHardcodedMetrics || cssSha != builtInCssSha)
-            val dynCss = if (preferDynamic) dynamicParsedBubbles[cssSha] else null
+            val dynCss = cssSha?.takeIf { it.isNotBlank() }?.let { dynamicParsedBubbles[it] }
+            val missingDynamicCss = if (!cssSha.isNullOrBlank() && dynCss == null) "$id:$commKey:$cssSha" else null
+            val lightCssPrefix = cssSha?.let { "community-css:$id:$commKey:$it" }
             if (dynCss != null && !dynCss.hasImage && dynCss.safeCssLight != null) {
-                return buildStandaloneCustomCssBubble(dynCss.safeCssLight, isDarkTheme).copy(
+                val mappedPseudo = mapParsedPseudoLayers(dynCss.pseudoLayers, lightCssPrefix)
+                val base = buildStandaloneCustomCssBubble(dynCss.safeCssLight, isDarkTheme)
+                return base.copy(
                     key = "community:$id",
                     textColor = if (isDarkTheme) (dynCss.textColorDark ?: dynCss.safeCssLight.textColor ?: Color(0xFFF1F5F9)) else (dynCss.textColorLight ?: dynCss.safeCssLight.textColor ?: Color(0xFF1E293B)),
+                    startOverflowReserveDp = dynCss.startOverflowReserveDp,
+                    endOverflowReserveDp = dynCss.endOverflowReserveDp,
+                    topOverflowReserveDp = dynCss.topOverflowReserveDp,
+                    bottomOverflowReserveDp = dynCss.bottomOverflowReserveDp,
+                    pseudoLayers = mappedPseudo,
+                    contentPadding = if (frame) {
+                        PaddingValues(
+                            start = dynCss.padLeftDp.coerceAtLeast(6f).dp,
+                            end = dynCss.padRightDp.coerceAtLeast(6f).dp,
+                            top = dynCss.padTopDp.coerceAtLeast(2f).dp,
+                            bottom = dynCss.padBottomDp.coerceAtLeast(2f).dp,
+                        )
+                    } else {
+                        base.contentPadding
+                    },
                 )
             }
             val isDarkSkinVariant = isDarkTheme &&
@@ -2039,54 +2909,7 @@ object ChatBubbleCosmetics {
                     } else {
                         "${cssUrlPrefix ?: sourceUrl}:${dynCss.baseUrlIdx}"
                     }
-                    val mappedPseudo = if (!frame && cssUrlPrefix != null) {
-                        dynCss.pseudoLayers.map { layer ->
-                            BubblePseudoLayer(
-                                topDp = layer.topDp,
-                                rightDp = layer.rightDp,
-                                bottomDp = layer.bottomDp,
-                                leftDp = layer.leftDp,
-                                widthDp = layer.widthDp,
-                                heightDp = layer.heightDp,
-                                bgImagesBottomToTop = layer.bgImagesBottomToTop.map { bg ->
-                                    BubbleBgImageSpec(
-                                        sourceUrl = "$cssUrlPrefix:${bg.urlIdx}",
-                                        widthDp = bg.widthDp,
-                                        widthFraction = bg.widthFraction,
-                                        widthSubFromFullDp = bg.widthSubFromFullDp,
-                                        heightDp = bg.heightDp,
-                                        heightFraction = bg.heightFraction,
-                                        alignCenterX = bg.alignCenterX,
-                                        offsetXDp = bg.offsetXDp,
-                                        offsetRightDp = bg.offsetRightDp,
-                                        alignCenterY = bg.alignCenterY,
-                                        offsetYDp = bg.offsetYDp,
-                                        offsetBottomDp = bg.offsetBottomDp,
-                                    )
-                                },
-                                nineSliceSpec = layer.nineSlice?.let { ns ->
-                                    NineSliceSpec(
-                                        sourceUrl = "$cssUrlPrefix:${ns.urlIdx}",
-                                        sliceTop = ns.sliceTop,
-                                        sliceRight = ns.sliceRight,
-                                        sliceBottom = ns.sliceBottom,
-                                        sliceLeft = ns.sliceLeft,
-                                        isPercentSlice = ns.isPercentSlice,
-                                        borderTopDp = ns.borderTopDp,
-                                        borderRightDp = ns.borderRightDp,
-                                        borderBottomDp = ns.borderBottomDp,
-                                        borderLeftDp = ns.borderLeftDp,
-                                        outsetTopDp = ns.outsetTopDp,
-                                        outsetRightDp = ns.outsetRightDp,
-                                        outsetBottomDp = ns.outsetBottomDp,
-                                        outsetLeftDp = ns.outsetLeftDp,
-                                    )
-                                },
-                            )
-                        }
-                    } else {
-                        emptyList()
-                    }
+                    val mappedPseudo = mapParsedPseudoLayers(dynCss.pseudoLayers, lightCssPrefix)
                     return ResolvedChatBubbleStyle(
                         key = "community:$id",
                         fillColor = fallbackBg,
@@ -2096,17 +2919,16 @@ object ChatBubbleCosmetics {
                         borderColor = Color.Transparent,
                         shapeKind = BubbleShapeKind.Rounded(0f, 0f, 0f, 0f),
                         minWidthDp = if (frame) 0f else dynCss.minWidthDp,
-                        endOverflowReserveDp = if (frame) 0f else dynCss.endOverflowReserveDp,
-                        contentPadding = if (frame) {
-                            PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                        } else {
-                            PaddingValues(
-                                start = dynCss.padLeftDp.dp,
-                                end = dynCss.padRightDp.dp,
-                                top = dynCss.padTopDp.dp,
-                                bottom = dynCss.padBottomDp.dp,
-                            )
-                        },
+                        startOverflowReserveDp = dynCss.startOverflowReserveDp,
+                        endOverflowReserveDp = dynCss.endOverflowReserveDp,
+                        topOverflowReserveDp = dynCss.topOverflowReserveDp,
+                        bottomOverflowReserveDp = dynCss.bottomOverflowReserveDp,
+                        contentPadding = PaddingValues(
+                            start = dynCss.padLeftDp.coerceAtLeast(if (frame) 6f else 12f).dp,
+                            end = dynCss.padRightDp.coerceAtLeast(if (frame) 6f else 12f).dp,
+                            top = dynCss.padTopDp.coerceAtLeast(if (frame) 2f else 8f).dp,
+                            bottom = dynCss.padBottomDp.coerceAtLeast(if (frame) 2f else 8f).dp,
+                        ),
                         nineSliceSpec = NineSliceSpec(
                             sourceUrl = baseSrc,
                             sliceTop = dynCss.sliceTop,
@@ -2155,6 +2977,7 @@ object ChatBubbleCosmetics {
                         borderBottomDp = m.bBottom,
                         borderLeftDp = m.bLeft,
                     ),
+                    dynamicCssSpec = missingDynamicCss,
                 )
             }
         }
@@ -2177,13 +3000,6 @@ object ChatBubbleCosmetics {
         }
         return null
     }
-
-    private val KNOWN_COMMUNITY_NINE_SLICE_IDS = setOf(
-        "laoda-purple", "laowu-dispatch", "laowu-dispatch-all-in", "laowu-dispatch-black",
-        "laowu-dispatch-calico", "laowu-dispatch-gray", "laowu-dispatch-siamese",
-        "laowu-dispatch-white", "oiia-loaf", "round-maodie", "waibi-babu",
-        "shadow-dao", "shadow-path", "step-by-step-bird", "taike-lili",
-    )
 
     private data class CommunityNineSliceTuple(
         val sTop: Int,
@@ -2304,12 +3120,22 @@ object ChatBubbleCosmetics {
         } else {
             CommunityNineSliceTuple(45, 49, 43, 47, 40.135f, 43.622f, 38.351f, 41.577f, 23f, 32f, 25f, 31f, Color(0xFF6B2D84), Color(0xFFFFF9FF), minWidthDp = 108f)
         }
-        else -> CommunityNineSliceTuple(
-            sliceArr?.getOrNull(0) ?: 36, sliceArr?.getOrNull(1) ?: 36, sliceArr?.getOrNull(2) ?: 36, sliceArr?.getOrNull(3) ?: 36,
-            14f, 16f, 14f, 16f, 10f, 18f, 10f, 18f,
-            if (isDarkTheme) Color(0xFF252F3D) else Color(0xFFF1F5F9),
-            if (isDarkTheme) Color(0xFFF1F5F9) else Color(0xFF1E293B),
-        )
+        else -> if (frame) {
+            CommunityNineSliceTuple(
+                sliceArr?.getOrNull(0) ?: 36, sliceArr?.getOrNull(1) ?: 36, sliceArr?.getOrNull(2) ?: 36, sliceArr?.getOrNull(3) ?: 36,
+                10f, 14f, 10f, 14f, 4f, 12f, 4f, 12f,
+                if (isDarkTheme) Color(0xFF252F3D) else Color(0xFFF1F5F9),
+                if (isDarkTheme) Color(0xFFF1F5F9) else Color(0xFF1E293B),
+                minWidthDp = 0f,
+            )
+        } else {
+            CommunityNineSliceTuple(
+                sliceArr?.getOrNull(0) ?: 36, sliceArr?.getOrNull(1) ?: 36, sliceArr?.getOrNull(2) ?: 36, sliceArr?.getOrNull(3) ?: 36,
+                14f, 16f, 14f, 16f, 10f, 18f, 10f, 18f,
+                if (isDarkTheme) Color(0xFF252F3D) else Color(0xFFF1F5F9),
+                if (isDarkTheme) Color(0xFFF1F5F9) else Color(0xFF1E293B),
+            )
+        }
     }
 
     private fun resolveGrowthBubble(
@@ -2397,7 +3223,7 @@ object ChatBubbleCosmetics {
         frame: Boolean,
         isDarkTheme: Boolean,
     ): ResolvedChatBubbleStyle {
-        val item = BadgeAndCosmeticRegistry.PERSONAL_TITLES[ptId]
+        val item = BadgeAndCosmeticRegistry.resolvePersonalTitle(ptId)
         val isV2 = item?.art == "v2"
         if (isV2) {
             // `personal-v2.css`: frame 9-slice (`30% 18% 30% 18% fill`) + right mascot (`pt-character.webp`)
@@ -2436,7 +3262,7 @@ object ChatBubbleCosmetics {
         }
 
         // Personal v1 (`p001`..`p059`, `personal-palettes.css` + `personal.css`)
-        val pal = PERSONAL_V1_PALETTES[ptId] ?: PersonalV1PaletteSpec("#367a78", "#e0f2e9", "#f2bc72")
+        val pal = resolvePersonalV1Palette(ptId)
         val ink = parseHexColorPure(pal.inkHex)
         val paper = parseHexColorPure(pal.paperHex)
         val accent = parseHexColorPure(pal.accentHex)

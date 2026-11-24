@@ -85,6 +85,8 @@ import com.jinhuan.forhappy.core.network.rust.RustNetManager
 import com.jinhuan.forhappy.core.network.scheduler.RequestSchedulerInterceptor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.encodeToString
@@ -159,10 +161,18 @@ class ForHappyApiClient(
         private const val KV_MODULES_CACHE = "dynamic.topbar_modules"
         private const val KV_COSMETICS_ME_CATALOG = "cosmetics.me_catalog.v1"
         private const val KV_COSMETICS_COMMUNITY_SKINS = "cosmetics.community_skins.v1"
+        private const val KV_COSMETICS_WEB_CATALOG = "cosmetics.web_catalog.v1"
+        private const val KV_COSMETICS_WEB_VER = "cosmetics.web_ver.v1"
+        private const val KV_COSMETICS_COMMUNITY_OWNED = "cosmetics.community.owned.v1"
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     }
 
     init {
+        runCatching {
+            db.getKvBlocking(KV_COSMETICS_WEB_CATALOG)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { BadgeAndCosmeticRegistry.applyWebCatalogSnapshotJson(it) }
+        }
         runCatching {
             db.getKvBlocking(KV_COSMETICS_ME_CATALOG)
                 ?.takeIf { it.isNotBlank() }
@@ -285,6 +295,7 @@ class ForHappyApiClient(
     suspend fun scanDynamicTopbarModules(): List<DynamicModule> {
         val html = runCatching { executeText("/") }.getOrNull()
         if (!html.isNullOrBlank()) {
+            runCatching { syncWebCosmeticCatalog(htmlHint = html) }
             val parsed = TopbarModuleScanner.parseTopbarHtml(html)
             if (parsed.isNotEmpty()) {
                 val merged = TopbarModuleScanner.mergeWithDefaults(parsed)
@@ -299,6 +310,88 @@ class ForHappyApiClient(
                 ?.let { return TopbarModuleScanner.mergeWithDefaults(it) }
         }
         return TopbarModuleScanner.DEFAULT_BUILT_IN_MODULES
+    }
+
+    /**
+     * Fetches the authenticated user's unlocked/owned community skins via `GET /api/community-bubbles/owned`.
+     */
+    suspend fun fetchOwnedCommunityBubbles(): Set<String> {
+        val res = executeRawJson("GET", "/api/community-bubbles/owned")
+        if (res.code in 200..299 && res.body.isNotBlank()) {
+            val parsed = parseOwnedCommunitySet(res.body)
+            runCatching { db.putKv(KV_COSMETICS_COMMUNITY_OWNED, res.body) }
+            return parsed
+        }
+        val cached = db.getKv(KV_COSMETICS_COMMUNITY_OWNED)?.takeIf { it.isNotBlank() }
+        return if (cached != null) parseOwnedCommunitySet(cached) else emptySet()
+    }
+
+    private fun parseOwnedCommunitySet(raw: String): Set<String> {
+        val el = runCatching { ForHappyJson.parseToJsonElement(raw) }.getOrNull() ?: return emptySet()
+        val arr = when (el) {
+            is JsonObject -> (el["owned"] ?: el["ids"] ?: el["items"] ?: el["skins"])?.let {
+                runCatching { it.jsonArray }.getOrNull()
+            }
+            is JsonArray -> el
+            else -> null
+        } ?: return emptySet()
+        return arr.mapNotNull { item ->
+            when (item) {
+                is JsonPrimitive -> item.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
+                is JsonObject -> (item["id"] ?: item["skin"] ?: item["name"])?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
+                else -> null
+            }
+        }.toSet()
+    }
+
+    /**
+     * Checks main-site `?v=<hash>` and downloads updated ES/CSS cosmetic catalogs when stale.
+     */
+    suspend fun syncWebCosmeticCatalog(
+        htmlHint: String? = null,
+        force: Boolean = false,
+    ): Boolean {
+        val html = htmlHint ?: runCatching { executeText("/") }.getOrNull().orEmpty()
+        val ver = Regex("""[?&]v=([a-zA-Z0-9_-]{4,})""").find(html)?.groupValues?.get(1)
+        val cachedVer = db.getKv(KV_COSMETICS_WEB_VER)
+        val hasSnapshot = !db.getKv(KV_COSMETICS_WEB_CATALOG).isNullOrBlank()
+        if (!force && !ver.isNullOrBlank() && ver == cachedVer && hasSnapshot) {
+            return false
+        }
+        val q = ver?.let { "?v=$it" }.orEmpty()
+        val fetched = coroutineScope {
+            val dTitleCol = async { runCatching { executeText("/js/modules/title-collection.js$q") }.getOrNull() }
+            val dPersonalV1 = async { runCatching { executeText("/js/modules/personal-catalog.js$q") }.getOrNull() }
+            val dPersonalV2 = async { runCatching { executeText("/js/modules/personal-v2-catalog.js$q") }.getOrNull() }
+            val dGrowthV5 = async { runCatching { executeText("/js/sub/growth-v5.js$q") }.getOrNull() }
+            val dSymbols = async { runCatching { executeText("/js/modules/title-symbols.js$q") }.getOrNull() }
+            val dPv2Css = async { runCatching { executeText("/css/personal-v2-art.css$q") }.getOrNull() }
+            val dPalCss = async { runCatching { executeText("/css/personal-palettes.css$q") }.getOrNull() }
+            listOf(
+                dTitleCol.await(),
+                dPersonalV1.await(),
+                dPersonalV2.await(),
+                dGrowthV5.await(),
+                dSymbols.await(),
+                dPv2Css.await(),
+                dPalCss.await(),
+            )
+        }
+        if (fetched.all { it.isNullOrBlank() }) return false
+        val snapJson = BadgeAndCosmeticRegistry.parseAndApplyWebModules(
+            titleCollectionJs = fetched[0],
+            personalCatalogJs = fetched[1],
+            personalV2CatalogJs = fetched[2],
+            growthV5Js = fetched[3],
+            titleSymbolsJs = fetched[4],
+            personalV2ArtCss = fetched[5],
+            personalPalettesCss = fetched[6],
+        )
+        runCatching {
+            db.putKv(KV_COSMETICS_WEB_CATALOG, snapJson)
+            if (!ver.isNullOrBlank()) db.putKv(KV_COSMETICS_WEB_VER, ver)
+        }
+        return true
     }
 
     suspend fun fetchAuthConfig(): AuthConfigResponse? {

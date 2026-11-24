@@ -99,6 +99,7 @@ import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
 import com.jinhuan.forhappy.core.cosmetics.BadgeAndCosmeticRegistry
 import com.jinhuan.forhappy.core.update.AppUpdateController
 import com.jinhuan.forhappy.core.update.UpdateStatus
+import com.jinhuan.forhappy.ui.components.BadgeArtIcon
 import com.jinhuan.forhappy.ui.components.BadgeChipView
 import com.jinhuan.forhappy.ui.components.BadgePill
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
@@ -499,7 +500,7 @@ fun MeScreen(
                                                 BadgeChipView(
                                                     badge = badgeChip,
                                                     imageLoader = api.imageLoader,
-                                                    mini = true,
+                                                    mini = false,
                                                     onClick = { showDecoDialog = true },
                                                     modifier = Modifier.align(Alignment.CenterVertically),
                                                 )
@@ -532,6 +533,38 @@ fun MeScreen(
                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                                     ) {
                                         Text("去登录", fontSize = 12.sp)
+                                    }
+                                }
+                            }
+
+                            if (me != null) {
+                                val showcaseItems = remember(me.badges, me.officialTitles, decoConfig.showcaseKeys, cosmeticCatalogRev) {
+                                    BadgeAndCosmeticRegistry.resolveShowcaseItems(
+                                        badgesJson = me.badges,
+                                        officialTitles = me.officialTitles,
+                                        showcaseKeys = decoConfig.showcaseKeys,
+                                    ).first
+                                }
+                                if (showcaseItems.isNotEmpty()) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(palette.surface2.copy(alpha = 0.65f))
+                                            .clickable { showDecoDialog = true }
+                                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        Text("展柜", color = palette.muted, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                        showcaseItems.forEach { sc ->
+                                            BadgeArtIcon(
+                                                art = sc.chip.art,
+                                                level = sc.chip.level,
+                                                imageLoader = api.imageLoader,
+                                                size = 20.dp,
+                                            )
+                                        }
                                     }
                                 }
                             }

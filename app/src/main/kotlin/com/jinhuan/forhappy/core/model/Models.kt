@@ -2480,11 +2480,13 @@ data class MoyuConfig(
 @Serializable
 data class DecoConfig(
     val customTitle: String = "",
-    val titleStyle: String = "pill", // "pill" | "tag" | "ribbon"
-    val fillMode: String = "solid", // "solid" | "gradient" | "glow"
+    val titleStyle: String = "pill", // "pill" | "oval" | "rect" | "tag" | "blob" | "ribbon" | "seal" | "none"
+    val fillMode: String = "solid", // "solid" | "soft" | "grad" | "outline" | "glass" | "none"
     val primaryHex: String = "#1B7F4B",
     val secondaryHex: String = "#34A853",
     val textHex: String = "#FFFFFF",
+    val titleFont: String = "", // "" | "kai" | "song" | "hei" | "round" | "xing" | "mono"
+    val titleEffect: String = "none", // "none" | "flow" | "shine" | "pulse"
     val nickGradient: String = "", // "" | "pine" | "sunset" | "aurora" | "gold" | "sakura" | "salt" | "cyber" | "blackgold"
     val customGradientStops: List<String> = emptyList(),
     val bubbleSkin: String = "default",
@@ -2495,12 +2497,21 @@ data class DecoConfig(
     val equippedPersonalId: String = "",
     val equippedRaffleId: String = "",
     val equippedRaffleLevel: Int = 1,
+    val equippedRaffleDisplayLevel: Int = 0, // 0 = follow equippedRaffleLevel (`fl`)
+    val equippedRafflePermLevel: Int = 0, // (`fp`)
+    val equippedRaffleExpiresAt: Long = 0L, // (`fxp`)
+    val cgSize: Int = 0, // `cg_size` (0 = follow level)
+    val cgRandom: Boolean = false, // `cg_random`
+    val cgMotion: Boolean = true, // `cg_motion`
+    val cgFire: Boolean = true, // `cg_fire`
     val equippedOfficialId: String = "",
     val equippedGrowthId: String = "",
     val equippedInviteTitle: Boolean = false,
     val communityTitleId: String = "",
     val communityBadgeId: String = "",
     val communityBubbleId: String = "",
+    val communityReplyId: String = "",
+    val showcaseKeys: List<String>? = null, // null = default auto up to 6, emptyList = hidden
     val cleanHideOthersNick: Boolean = false,
     val cleanHideOthersBadges: Boolean = false,
     val cleanHideOthersStyles: Boolean = false,

@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas as AndroidCanvas
 import android.graphics.Color as AndroidColor
+import android.graphics.DashPathEffect
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.RadialGradient
@@ -28,18 +29,24 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.CutCornerShape
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -49,11 +56,16 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.toArgb
@@ -63,6 +75,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
@@ -70,6 +83,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -78,8 +92,10 @@ import androidx.compose.ui.unit.sp
 import androidx.core.graphics.PathParser
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
+import com.jinhuan.forhappy.core.cosmetics.BadgeAndCosmeticRegistry
 import com.jinhuan.forhappy.core.cosmetics.BadgeArtKind
 import com.jinhuan.forhappy.core.cosmetics.ChatBubbleCosmetics
+import com.jinhuan.forhappy.core.cosmetics.CommunityTitleRenderSpec
 import com.jinhuan.forhappy.core.cosmetics.ResolvedBadgeChip
 import com.jinhuan.forhappy.core.cosmetics.ResolvedTitleChip
 import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
@@ -93,6 +109,9 @@ import java.io.File
 import java.io.StringReader
 import java.net.URL
 import java.net.URLDecoder
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
@@ -268,8 +287,12 @@ object BadgeArtworkCache {
         ChatBubbleCosmetics.registerParsedCommunityCss(kind, sha, cssText)
         val imageUrls = ChatBubbleCosmetics.extractCssImageUrls(cssText, preferDark = isDark)
         val pickedUrl = when {
+            explicitIdx != null -> {
+                (imageUrls.getOrNull(explicitIdx)
+                    ?: if (isDark) ChatBubbleCosmetics.extractCssImageUrls(cssText, preferDark = false).getOrNull(explicitIdx) else null)
+                    ?: return null
+            }
             imageUrls.isEmpty() -> return null
-            explicitIdx != null -> imageUrls.getOrNull(explicitIdx) ?: return null
             isDark -> imageUrls.last()
             else -> imageUrls.first()
         }
@@ -376,6 +399,7 @@ internal object MiniBadgeSvgRasterizer {
         val strokeWidth: Float,
         val strokeCap: Paint.Cap,
         val strokeJoin: Paint.Join,
+        val strokeDashArray: FloatArray? = null,
         val opacity: Float,
         val fillOpacity: Float,
         val strokeOpacity: Float,
@@ -659,6 +683,15 @@ internal object MiniBadgeSvgRasterizer {
             "miter" -> Paint.Join.MITER
             else -> parent.strokeJoin
         }
+        val rawDash = parser.getAttributeValue(null, "stroke-dasharray")?.trim()
+        val dash = when {
+            rawDash == null -> parent.strokeDashArray
+            rawDash.equals("none", ignoreCase = true) || rawDash.isEmpty() -> null
+            else -> rawDash.split(Regex("""[\s,]+""")).mapNotNull { it.toFloatOrNull() }
+                .takeIf { it.isNotEmpty() }
+                ?.toFloatArray()
+                ?: parent.strokeDashArray
+        }
         val op = parser.getAttributeValue(null, "opacity")?.toFloatOrNull() ?: 1f
         val fillOp = parser.getAttributeValue(null, "fill-opacity")?.toFloatOrNull() ?: parent.fillOpacity
         val strokeOp = parser.getAttributeValue(null, "stroke-opacity")?.toFloatOrNull() ?: parent.strokeOpacity
@@ -668,6 +701,7 @@ internal object MiniBadgeSvgRasterizer {
             strokeWidth = sw,
             strokeCap = cap,
             strokeJoin = join,
+            strokeDashArray = dash,
             opacity = (parent.opacity * op).coerceIn(0f, 1f),
             fillOpacity = fillOp.coerceIn(0f, 1f),
             strokeOpacity = strokeOp.coerceIn(0f, 1f),
@@ -722,6 +756,10 @@ internal object MiniBadgeSvgRasterizer {
                 strokeWidth = st.strokeWidth
                 strokeCap = st.strokeCap
                 strokeJoin = st.strokeJoin
+                st.strokeDashArray?.takeIf { it.isNotEmpty() }?.let { rawArr ->
+                    val arr = if (rawArr.size == 1) floatArrayOf(rawArr[0], rawArr[0]) else rawArr
+                    pathEffect = DashPathEffect(arr, 0f)
+                }
             }
             if (applyPaintColorOrShader(strokePaint, st.stroke, bounds, grads, strokeAlphaInt)) {
                 canvas.drawPath(path, strokePaint)
@@ -824,17 +862,22 @@ fun BadgeArtIcon(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val httpClient = LocalCosmeticHttpClient.current
     val ringBrush = remember(level) { Brush.linearGradient(levelRingColors(level)) }
 
     when (art) {
         is BadgeArtKind.BundledSvg -> {
+            val isV5 = art.assetPath.startsWith("badges/v5/")
             var bmp by remember(art.assetPath) { mutableStateOf<ImageBitmap?>(null) }
             LaunchedEffect(art.assetPath) {
                 bmp = withContext(Dispatchers.IO) {
                     BadgeArtworkCache.getOrRenderAssetSvg(context, art.assetPath, 128)
                 }
             }
-            Box(modifier = modifier.size(size), contentAlignment = Alignment.Center) {
+            Box(
+                modifier = if (isV5) modifier.width(size * 0.912f).height(size) else modifier.size(size),
+                contentAlignment = Alignment.Center,
+            ) {
                 bmp?.let {
                     Image(
                         bitmap = it,
@@ -843,23 +886,30 @@ fun BadgeArtIcon(
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
+                if (isV5 && level >= 4) {
+                    V5LevelStarOverlay(level = level, modifier = Modifier.matchParentSize())
+                }
             }
         }
 
         is BadgeArtKind.InlineOfficialSvg -> {
-            var bmp by remember(art.innerSvg) { mutableStateOf<ImageBitmap?>(null) }
-            LaunchedEffect(art.innerSvg) {
+            val pal = ChatBubbleCosmetics.OFFICIAL_PALETTES[art.styleId]
+            val bgCol = pal?.let { parseSafeHex(it.softHex, Color(0xFFEEFBF4)) } ?: Color(0xFFEEFBF4)
+            val borderCol = pal?.let { parseSafeHex(it.edgeHex, Color(0xFF91CBB7)) } ?: Color(0xFF91CBB7)
+            val strokeHex = pal?.inkHex ?: "#28786f"
+            var bmp by remember(art.innerSvg, strokeHex) { mutableStateOf<ImageBitmap?>(null) }
+            LaunchedEffect(art.innerSvg, strokeHex) {
                 bmp = withContext(Dispatchers.IO) {
-                    BadgeArtworkCache.getOrRenderOfficialSvg(art.innerSvg, "#FDE68A", 96)
+                    BadgeArtworkCache.getOrRenderOfficialSvg(art.innerSvg, strokeHex, 96)
                 }
             }
             Box(
                 modifier = modifier
                     .size(size)
                     .clip(CircleShape)
-                    .background(Color(0xFF1E3A8A))
-                    .border(1.dp, Color(0xFF60A5FA), CircleShape)
-                    .padding(2.dp),
+                    .background(bgCol)
+                    .border(1.2.dp, borderCol, CircleShape)
+                    .padding(3.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 bmp?.let {
@@ -875,14 +925,10 @@ fun BadgeArtIcon(
                     BadgeArtworkCache.getOrLoadAtlas(context)
                 }
             }
+            val pipColors = remember(level) { levelRingColors(level) }
+            val pipCount = level.coerceIn(0, 5)
             Box(
-                modifier = modifier
-                    .size(size)
-                    .clip(CircleShape)
-                    .background(Color(0xFFFFFBEB))
-                    .border(1.5.dp, ringBrush, CircleShape)
-                    .padding(1.5.dp)
-                    .clip(CircleShape),
+                modifier = modifier.size(size),
                 contentAlignment = Alignment.Center,
             ) {
                 val sheet = atlas
@@ -898,6 +944,101 @@ fun BadgeArtIcon(
                             srcSize = IntSize(tileW, tileH),
                             dstSize = IntSize(this.size.width.roundToInt(), this.size.height.roundToInt()),
                         )
+                        if (pipCount > 0) {
+                            val r = 1.25.dp.toPx()
+                            val gap = 3.2.dp.toPx()
+                            val totalW = (pipCount - 1) * gap
+                            val startX = (this.size.width - totalW) * 0.5f
+                            val cy = this.size.height - 1.8.dp.toPx()
+                            for (i in 0 until pipCount) {
+                                val cx = startX + i * gap
+                                val colPip = pipColors[i % pipColors.size]
+                                drawCircle(color = Color.White.copy(alpha = 0.85f), radius = r + 0.6.dp.toPx(), center = Offset(cx, cy))
+                                drawCircle(color = colPip, radius = r, center = Offset(cx, cy))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        is BadgeArtKind.CommunityCssBadge -> {
+            val catalogRev by BadgeAndCosmeticRegistry.catalogRevision.collectAsState()
+            val badgeSpec = remember(art.id, art.imgSha, art.cssSha, art.isDarkTheme, catalogRev) {
+                ChatBubbleCosmetics.resolveCommunityBadgeSpec(art.id, art.imgSha, art.cssSha, art.isDarkTheme)
+            }
+            if (badgeSpec == null && !art.cssSha.isNullOrBlank()) {
+                LaunchedEffect(art.id, art.cssSha) {
+                    BadgeArtworkCache.ensureCommunityCssLoaded(context, httpClient, "${art.id}:badge:${art.cssSha}")
+                }
+            }
+            val isDarkVariant = art.isDarkTheme &&
+                (art.id == "shadow-dao" || art.id == "shadow-path" || badgeSpec?.hasDarkImageVariant == true)
+            val srcUrl = remember(art.id, art.imgSha, art.cssSha, isDarkVariant, badgeSpec) {
+                when {
+                    badgeSpec != null && !badgeSpec.hasImage && art.imgSha == null -> null
+                    isDarkVariant && !art.cssSha.isNullOrBlank() ->
+                        "community-css-dark:${art.id}:badge:${art.cssSha}:${badgeSpec?.baseUrlIdx ?: 0}"
+                    badgeSpec != null && badgeSpec.hasImage && art.imgSha == null && !art.cssSha.isNullOrBlank() ->
+                        "community-css:${art.id}:badge:${art.cssSha}:${badgeSpec.baseUrlIdx}"
+                    art.imgSha != null -> "https://52dmeme.com/api/community-skins/image/${art.imgSha}"
+                    !art.cssSha.isNullOrBlank() ->
+                        "community-css:${art.id}:badge:${art.cssSha}:${badgeSpec?.baseUrlIdx ?: 0}"
+                    else -> null
+                }
+            }
+            val bmp by produceState<ImageBitmap?>(
+                initialValue = null,
+                srcUrl,
+                badgeSpec?.spriteCols,
+                badgeSpec?.spriteRows,
+                badgeSpec?.spriteCol,
+                badgeSpec?.spriteRow,
+            ) {
+                value = when {
+                    srcUrl == null -> null
+                    badgeSpec != null && (badgeSpec.spriteCols > 1 || badgeSpec.spriteRows > 1) ->
+                        BadgeArtworkCache.getOrCropSpriteCell(
+                            context = context,
+                            okHttpClient = httpClient,
+                            source = srcUrl,
+                            cols = badgeSpec.spriteCols,
+                            rows = badgeSpec.spriteRows,
+                            col = badgeSpec.spriteCol,
+                            row = badgeSpec.spriteRow,
+                            reqSizePx = 1024,
+                        )
+                    else -> BadgeArtworkCache.getOrFetchBitmap(context, httpClient, srcUrl, 256)
+                }
+            }
+            val scaleFactor = if (badgeSpec != null && badgeSpec.heightDp > 0f) {
+                size.value / badgeSpec.heightDp
+            } else {
+                1f
+            }
+            val targetW = if (badgeSpec != null) (badgeSpec.widthDp * scaleFactor).dp else size
+            val topRes = ((badgeSpec?.topReserveDp ?: 0f) * scaleFactor).dp
+            val rightRes = ((badgeSpec?.rightReserveDp ?: 0f) * scaleFactor).dp
+            val bottomRes = ((badgeSpec?.bottomReserveDp ?: 0f) * scaleFactor).dp
+            val leftRes = ((badgeSpec?.leftReserveDp ?: 0f) * scaleFactor).dp
+            Box(
+                modifier = modifier.padding(start = leftRes, top = topRes, end = rightRes, bottom = bottomRes),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    modifier = Modifier.width(targetW).height(size),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    bmp?.let {
+                        Image(
+                            bitmap = it,
+                            contentDescription = null,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                    badgeSpec?.pseudoLayers?.forEach { layer ->
+                        BubblePseudoLayerCanvas(layer = layer, modifier = Modifier.matchParentSize())
                     }
                 }
             }
@@ -905,7 +1046,6 @@ fun BadgeArtIcon(
 
         is BadgeArtKind.RemoteImage -> {
             if (art.url.startsWith("community-css")) {
-                val httpClient = LocalCosmeticHttpClient.current
                 val bmp by produceState<ImageBitmap?>(initialValue = null, art.url) {
                     value = BadgeArtworkCache.getOrFetchBitmap(context, httpClient, art.url, 128)
                 }
@@ -935,12 +1075,12 @@ fun BadgeArtIcon(
         }
 
         is BadgeArtKind.RemoteSvg -> {
-            val httpClient = LocalCosmeticHttpClient.current
+            val isV5 = art.url.contains("/badges/v5/")
             val bmp by produceState<ImageBitmap?>(initialValue = null, art.url) {
                 value = BadgeArtworkCache.getOrFetchBitmap(context, httpClient, art.url, 128)
             }
             Box(
-                modifier = modifier.size(size),
+                modifier = if (isV5) modifier.width(size * 0.912f).height(size) else modifier.size(size),
                 contentAlignment = Alignment.Center,
             ) {
                 val loaded = bmp
@@ -953,6 +1093,9 @@ fun BadgeArtIcon(
                     )
                 } else {
                     Text(art.fallbackGlyph, fontSize = (size.value * 0.55f).sp)
+                }
+                if (isV5 && level >= 4) {
+                    V5LevelStarOverlay(level = level, modifier = Modifier.matchParentSize())
                 }
             }
         }
@@ -979,7 +1122,6 @@ fun BadgeArtIcon(
         }
 
         is BadgeArtKind.SpriteSheetCell -> {
-            val httpClient = LocalCosmeticHttpClient.current
             val bmp by produceState<ImageBitmap?>(
                 initialValue = null,
                 art.url,
@@ -1028,10 +1170,25 @@ fun BadgeArtIcon(
     }
 }
 
+@Composable
+private fun V5LevelStarOverlay(
+    level: Int,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier) {
+        val r = 1.6.dp.toPx()
+        val starCol = if (level >= 5) Color(0xFFFFD54F) else Color(0xFFFDE047)
+        val cx = size.width - r - 1.dp.toPx()
+        val cy = r + 1.dp.toPx()
+        drawCircle(Color.White.copy(alpha = 0.8f), radius = r + 0.6.dp.toPx(), center = Offset(cx, cy))
+        drawCircle(starCol, radius = r, center = Offset(cx, cy))
+    }
+}
+
 /**
  * Renders the single equipped badge matching `app.js` `badgeChip(id, mini, n, lv)`.
- * - `mini = true` (group chat header): compact sticker icon only.
- * - `mini = false` (profile header & preview): sticker icon + Chinese name + level badge (`LvX` / `★`).
+ * - Icon-only badges (`mini`, `community:*`, `pt:*`, `ot:*`, `ft:claude`, `gr:*`) render only the artwork.
+ * - Card non-icon badges (`ft:*` except claude, `bd:*`) render a borderless row (no fake outer pill).
  */
 @Composable
 fun BadgeChipView(
@@ -1041,11 +1198,23 @@ fun BadgeChipView(
     onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    if (mini || badge.id.startsWith("pt:owner-52")) {
+    val context = LocalContext.current
+    val palette = LocalForHappyPalette.current
+    val httpClient = LocalCosmeticHttpClient.current
+
+    badge.dynamicCssSpec?.let { spec ->
+        LaunchedEffect(spec) {
+            BadgeArtworkCache.ensureCommunityCssLoaded(context, httpClient, spec)
+        }
+    }
+
+    if (mini || badge.alwaysIconOnly) {
         val iconSize = when {
-            mini && (badge.id.startsWith("pt:owner-52") || badge.id.startsWith("ft:")) -> 24.dp
-            mini -> 21.dp
-            else -> 25.dp
+            badge.id.startsWith("pt:owner-52") -> if (mini) 23.dp else 26.dp
+            badge.id.startsWith("ft:") -> if (mini) 22.dp else 24.dp
+            badge.id.startsWith("community:") -> if (mini) 20.dp else 23.dp
+            mini -> 20.dp
+            else -> 23.dp
         }
         BadgeArtIcon(
             art = badge.art,
@@ -1057,41 +1226,51 @@ fun BadgeChipView(
         return
     }
 
-    val (accent, softBg) = tierThemeColors(badge.tier)
-    Surface(
-        color = softBg.copy(alpha = 0.88f),
-        shape = RoundedCornerShape(999.dp),
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.40f)),
+    val (tierAccent, _) = tierThemeColors(badge.tier)
+    val rawLabelColor = if (badge.id.startsWith("ft:")) {
+        parseSafeHex(badge.textHex, tierAccent)
+    } else {
+        tierAccent
+    }
+    val readableLabelColor = ChatBubbleCosmetics.ensureReadableForeground(rawLabelColor, palette.surface, minContrast = 3.2f)
+    val lvBg = badge.levelBgHex?.let { parseSafeHex(it, tierAccent) } ?: tierAccent
+
+    Row(
         modifier = modifier.then(if (onClick != null) Modifier.clickable { onClick() } else Modifier),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Row(
-            modifier = Modifier.padding(start = 3.dp, end = 7.dp, top = 2.dp, bottom = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            BadgeArtIcon(
-                art = badge.art,
-                level = badge.level,
-                imageLoader = imageLoader,
-                size = 18.dp,
-            )
-            Text(
-                text = badge.name,
-                color = accent,
-                fontSize = 11.sp,
-                lineHeight = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
-            )
-            if (badge.levelText.isNotBlank()) {
+        BadgeArtIcon(
+            art = badge.art,
+            level = badge.level,
+            imageLoader = imageLoader,
+            size = 20.dp,
+        )
+        Text(
+            text = badge.name,
+            color = readableLabelColor,
+            fontSize = 11.5.sp,
+            lineHeight = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
+        )
+        if (badge.levelText.isNotBlank()) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(lvBg)
+                    .padding(horizontal = 4.dp, vertical = 1.dp),
+                contentAlignment = Alignment.Center,
+            ) {
                 Text(
                     text = badge.levelText,
-                    color = accent.copy(alpha = 0.78f),
-                    fontSize = 9.sp,
-                    lineHeight = 11.sp,
+                    color = Color.White,
+                    fontSize = 8.5.sp,
+                    lineHeight = 10.sp,
                     fontWeight = FontWeight.Bold,
+                    maxLines = 1,
                     style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
                 )
             }
@@ -1100,8 +1279,7 @@ fun BadgeChipView(
 }
 
 /**
- * Renders the user's equipped title (`titleEl`) with authentic shape, fill, font, effect,
- * artwork banner, vector emblem, safe CSS override & `Lv` badge.
+ * Renders the user's equipped title (`titleEl`) 1:1 matching `52dmeme.com` web styles.
  */
 @Composable
 fun TitleChipView(
@@ -1111,6 +1289,12 @@ fun TitleChipView(
     val context = LocalContext.current
     val palette = LocalForHappyPalette.current
     val httpClient = LocalCosmeticHttpClient.current
+
+    title.dynamicCssSpec?.let { cssSpec ->
+        LaunchedEffect(cssSpec) {
+            BadgeArtworkCache.ensureCommunityCssLoaded(context, httpClient, cssSpec)
+        }
+    }
 
     if (title.specialKind == "owner52" && title.bgImageUrl != null) {
         val ownerArt by produceState<ImageBitmap?>(initialValue = null, title.bgImageUrl) {
@@ -1128,6 +1312,26 @@ fun TitleChipView(
             )
             return
         }
+    }
+
+    if (title.specialKind == "community" && title.communitySpec != null) {
+        CommunityTitleChipBox(title = title, spec = title.communitySpec, modifier = modifier)
+        return
+    }
+
+    if (title.specialKind == "personal_v2" && title.bgImageUrl != null) {
+        PersonalV2TitleChipBox(title = title, modifier = modifier)
+        return
+    }
+
+    if (title.specialKind == "shiguang") {
+        ShiguangTitleChipBox(title = title, modifier = modifier)
+        return
+    }
+
+    if (title.specialKind == "raffle_nameplate" || title.specialKind == "raffle_oldfarmer") {
+        RaffleNameplateTitleChipBox(title = title, isDarkTheme = palette.isDark, modifier = modifier)
+        return
     }
 
     val css = title.customCss
@@ -1187,7 +1391,6 @@ fun TitleChipView(
             bottomStart = css.cornerRadiiDp[3].dp,
         )
         css?.cornerRadiusDp != null -> RoundedCornerShape(css.cornerRadiusDp.dp)
-        title.specialKind == "raffle_nameplate" -> RoundedCornerShape(topStart = 7.dp, topEnd = 3.dp, bottomEnd = 9.dp, bottomStart = 3.dp)
         title.shape == "rect" -> RoundedCornerShape(4.dp)
         title.shape == "oval" -> RoundedCornerShape(50)
         title.shape == "tag" -> RoundedCornerShape(topStart = 4.dp, bottomStart = 4.dp, topEnd = 10.dp, bottomEnd = 10.dp)
@@ -1198,11 +1401,16 @@ fun TitleChipView(
     }
 
     val hasBorder = title.shape != "none" && fillMode != "none"
-    val borderWidth = (css?.borderWidthDp ?: if (title.shape == "seal") 1.5f else 1f).dp
-    val borderColorEffective = when (fillMode) {
-        "soft" -> bdColor.copy(alpha = 0.48f)
-        "glass" -> Color.White.copy(alpha = 0.45f)
-        "outline" -> bdColor.copy(alpha = 0.85f)
+    val borderWidth = (css?.borderWidthDp ?: when {
+        title.specialKind == "personal_v1" -> 1.4f
+        title.shape == "seal" -> 1.5f
+        else -> 1f
+    }).dp
+    val borderColorEffective = when {
+        title.specialKind == "personal_v1" || title.specialKind == "official" || title.specialKind == "guangjie" -> bdColor
+        fillMode == "soft" -> bdColor.copy(alpha = 0.48f)
+        fillMode == "glass" -> Color.White.copy(alpha = 0.45f)
+        fillMode == "outline" -> bdColor.copy(alpha = 0.85f)
         else -> bdColor.copy(alpha = 0.65f)
     }
 
@@ -1225,26 +1433,16 @@ fun TitleChipView(
             null
         }
     }
-
-    title.dynamicCssSpec?.let { cssSpec ->
-        LaunchedEffect(cssSpec) {
-            BadgeArtworkCache.ensureCommunityCssLoaded(context, httpClient, cssSpec)
-        }
-    }
-
-    val leadingIconUrl = title.leadingIconUrl
-    val leadingIconBmp by produceState<ImageBitmap?>(initialValue = null, leadingIconUrl) {
-        value = if (!leadingIconUrl.isNullOrBlank()) {
-            BadgeArtworkCache.getOrFetchBitmap(context, httpClient, leadingIconUrl, 96)
+    val leadingIconBmp by produceState<ImageBitmap?>(initialValue = null, title.leadingIconUrl) {
+        value = if (!title.leadingIconUrl.isNullOrBlank()) {
+            BadgeArtworkCache.getOrFetchBitmap(context, httpClient, title.leadingIconUrl, 96)
         } else {
             null
         }
     }
-
-    val trailingIconUrl = title.trailingIconUrl
-    val trailingIconBmp by produceState<ImageBitmap?>(initialValue = null, trailingIconUrl) {
-        value = if (!trailingIconUrl.isNullOrBlank()) {
-            BadgeArtworkCache.getOrFetchBitmap(context, httpClient, trailingIconUrl, 96)
+    val trailingIconBmp by produceState<ImageBitmap?>(initialValue = null, title.trailingIconUrl) {
+        value = if (!title.trailingIconUrl.isNullOrBlank()) {
+            BadgeArtworkCache.getOrFetchBitmap(context, httpClient, title.trailingIconUrl, 96)
         } else {
             null
         }
@@ -1273,178 +1471,515 @@ fun TitleChipView(
         }
     }
 
+    val hardShadowColor = title.hardShadowHex?.let { parseSafeHex(it, Color.Transparent) }?.takeIf { it != Color.Transparent }
+    val hardShadowOff = title.hardShadowOffsetDp
     val loadedBanner = bannerBmp
-    val isPv2Banner = title.specialKind == "personal_v2" && loadedBanner != null
 
     Box(
-        modifier = modifier
-            .then(
-                if (isPv2Banner) {
-                    Modifier
-                } else {
-                    Modifier
-                        .clip(shape)
-                        .then(
-                            if (chipBgBrush != null) {
-                                Modifier.background(chipBgBrush)
-                            } else if (chipBgColor != Color.Transparent) {
-                                Modifier.background(chipBgColor)
-                            } else {
-                                Modifier
-                            },
-                        )
-                        .then(
-                            if (hasBorder) {
-                                Modifier.border(borderWidth, borderColorEffective, shape)
-                            } else {
-                                Modifier
-                            },
-                        )
-                },
-            ),
-    ) {
-        if (loadedBanner != null) {
-            Image(
-                bitmap = loadedBanner,
-                contentDescription = null,
-                contentScale = if (isPv2Banner) ContentScale.FillBounds else ContentScale.Crop,
-                modifier = Modifier.matchParentSize(),
-            )
-            if (!isPv2Banner) {
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .background(Color.Black.copy(alpha = 0.10f)),
+        modifier = modifier.then(
+            if (hardShadowColor != null && hardShadowOff != null) {
+                Modifier.padding(
+                    end = hardShadowOff.first.coerceAtLeast(0f).dp,
+                    bottom = hardShadowOff.second.coerceAtLeast(0f).dp,
                 )
-            }
-        }
-
-        if (title.shape == "seal" && hasBorder && !isPv2Banner) {
+            } else {
+                Modifier
+            },
+        ),
+    ) {
+        if (hardShadowColor != null && hardShadowOff != null) {
             Box(
                 modifier = Modifier
                     .matchParentSize()
-                    .padding(2.dp)
-                    .border(0.6.dp, fgColor.copy(alpha = 0.45f), RoundedCornerShape(1.5.dp)),
+                    .offset(x = hardShadowOff.first.dp, y = hardShadowOff.second.dp)
+                    .clip(shape)
+                    .background(hardShadowColor),
             )
         }
+        Box(
+            modifier = Modifier
+                .clip(shape)
+                .then(
+                    if (chipBgBrush != null) {
+                        Modifier.background(chipBgBrush)
+                    } else if (chipBgColor != Color.Transparent) {
+                        Modifier.background(chipBgColor)
+                    } else {
+                        Modifier
+                    },
+                )
+                .then(
+                    if (hasBorder) {
+                        Modifier.border(borderWidth, borderColorEffective, shape)
+                    } else {
+                        Modifier
+                    },
+                ),
+        ) {
+            if (loadedBanner != null) {
+                Image(
+                    bitmap = loadedBanner,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.matchParentSize(),
+                )
+                Box(modifier = Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.10f)))
+            }
 
-        if (shimmerFraction >= 0f && !isPv2Banner) {
-            Canvas(modifier = Modifier.matchParentSize()) {
-                val band = size.width * 0.28f
-                val cx = shimmerFraction * (size.width + band * 2f) - band
-                drawRect(
-                    brush = Brush.linearGradient(
-                        colors = listOf(Color.Transparent, Color.White.copy(alpha = 0.24f), Color.Transparent),
-                        start = Offset(cx - band, 0f),
-                        end = Offset(cx + band, size.height),
+            if (title.shape == "seal" && hasBorder) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .padding(2.dp)
+                        .border(0.6.dp, fgColor.copy(alpha = 0.45f), RoundedCornerShape(1.5.dp)),
+                )
+            }
+
+            if (shimmerFraction >= 0f) {
+                Canvas(modifier = Modifier.matchParentSize()) {
+                    val band = size.width * 0.28f
+                    val cx = shimmerFraction * (size.width + band * 2f) - band
+                    drawRect(
+                        brush = Brush.linearGradient(
+                            colors = listOf(Color.Transparent, Color.White.copy(alpha = 0.24f), Color.Transparent),
+                            start = Offset(cx - band, 0f),
+                            end = Offset(cx + band, size.height),
+                        ),
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.padding(
+                    horizontal = if (fillMode == "none") 3.dp else 8.dp,
+                    vertical = 2.5.dp,
+                ),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                leadingIconBmp?.let {
+                    Image(bitmap = it, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.size(14.dp))
+                }
+                if (symbolPath != null) {
+                    Canvas(modifier = Modifier.size(12.dp)) {
+                        scale(size.width / 24f, size.height / 24f, pivot = Offset.Zero) {
+                            drawPath(
+                                path = symbolPath,
+                                color = fgColor,
+                                style = Stroke(width = 1.7.dp.toPx() / (size.width / 24f).coerceAtLeast(0.1f), cap = StrokeCap.Round, join = StrokeJoin.Round),
+                            )
+                        }
+                    }
+                }
+                Text(
+                    text = title.label,
+                    color = fgColor,
+                    fontSize = 11.sp,
+                    lineHeight = 13.sp,
+                    fontFamily = fontFamily,
+                    fontWeight = fontWeight,
+                    fontStyle = fontStyle,
+                    letterSpacing = letterSpacing,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = if (loadedBanner != null) {
+                        TextStyle(
+                            shadow = Shadow(color = Color.Black.copy(alpha = 0.72f), offset = Offset(0f, 1f), blurRadius = 2.5f),
+                            platformStyle = PlatformTextStyle(includeFontPadding = false),
+                        )
+                    } else {
+                        TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
+                    },
+                )
+                trailingIconBmp?.let {
+                    Image(bitmap = it, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.size(14.dp))
+                }
+                if (!title.levelText.isNullOrBlank()) {
+                    Text(
+                        text = title.levelText,
+                        color = fgColor.copy(alpha = 0.88f),
+                        fontSize = 9.sp,
+                        lineHeight = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CommunityTitleChipBox(
+    title: ResolvedTitleChip,
+    spec: CommunityTitleRenderSpec,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val httpClient = LocalCosmeticHttpClient.current
+    val leadingIconBmp by produceState<ImageBitmap?>(initialValue = null, title.leadingIconUrl) {
+        value = title.leadingIconUrl?.takeIf { it.isNotBlank() }?.let {
+            BadgeArtworkCache.getOrFetchBitmap(context, httpClient, it, 96)
+        }
+    }
+    val trailingIconBmp by produceState<ImageBitmap?>(initialValue = null, title.trailingIconUrl) {
+        value = title.trailingIconUrl?.takeIf { it.isNotBlank() }?.let {
+            BadgeArtworkCache.getOrFetchBitmap(context, httpClient, it, 96)
+        }
+    }
+
+    val startRes = max(spec.startOverflowReserveDp, (spec.nineSliceSpec?.outsetLeftDp ?: 0f).coerceAtLeast(0f)).dp
+    val topRes = max(spec.topOverflowReserveDp, (spec.nineSliceSpec?.outsetTopDp ?: 0f).coerceAtLeast(0f)).dp
+    val endRes = max(spec.endOverflowReserveDp, (spec.nineSliceSpec?.outsetRightDp ?: 0f).coerceAtLeast(0f)).dp
+    val bottomRes = max(spec.bottomOverflowReserveDp, (spec.nineSliceSpec?.outsetBottomDp ?: 0f).coerceAtLeast(0f)).dp
+
+    val r = spec.cornerRadiiDp
+    val shape = RoundedCornerShape(
+        topStart = r.getOrElse(0) { 999f }.dp,
+        topEnd = r.getOrElse(1) { 999f }.dp,
+        bottomEnd = r.getOrElse(2) { 999f }.dp,
+        bottomStart = r.getOrElse(3) { 999f }.dp,
+    )
+    val hasNineSlice = spec.nineSliceSpec != null
+    val bgModifier = when {
+        hasNineSlice -> Modifier
+        spec.bgColors.size >= 2 -> Modifier.drawBehind {
+            val angleRad = ((spec.bgAngleDeg ?: 135f) - 90f) * PI / 180.0
+            val dx = cos(angleRad).toFloat()
+            val dy = sin(angleRad).toFloat()
+            val cx = size.width * 0.5f
+            val cy = size.height * 0.5f
+            val halfSpan = max(size.width, size.height) * 0.5f
+            drawRect(
+                brush = Brush.linearGradient(
+                    colors = spec.bgColors,
+                    start = Offset(cx - dx * halfSpan, cy - dy * halfSpan),
+                    end = Offset(cx + dx * halfSpan, cy + dy * halfSpan),
+                ),
+            )
+        }
+        spec.bgColors.size == 1 -> Modifier.background(spec.bgColors[0])
+        else -> Modifier
+    }
+
+    Box(modifier = modifier.padding(start = startRes, top = topRes, end = endRes, bottom = bottomRes)) {
+        Box(
+            modifier = Modifier
+                .then(
+                    spec.fixedHeightDp?.let { Modifier.height(it.dp) }
+                        ?: Modifier.defaultMinSize(minHeight = spec.minHeightDp.dp),
+                )
+                .then(if (hasNineSlice) Modifier else Modifier.clip(shape))
+                .then(bgModifier)
+                .then(
+                    if (!hasNineSlice && spec.borderWidthDp > 0f && spec.borderColor != Color.Transparent) {
+                        Modifier.border(spec.borderWidthDp.dp, spec.borderColor, shape)
+                    } else {
+                        Modifier
+                    },
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            spec.nineSliceSpec?.let { ns ->
+                NineSliceFrameCanvas(spec = ns, modifier = Modifier.matchParentSize())
+            }
+            spec.pseudoLayers.forEach { layer ->
+                BubblePseudoLayerCanvas(layer = layer, modifier = Modifier.matchParentSize())
+            }
+            Row(
+                modifier = Modifier.padding(
+                    start = spec.padLeftDp.dp,
+                    top = spec.padTopDp.dp,
+                    end = spec.padRightDp.dp,
+                    bottom = spec.padBottomDp.dp,
+                ),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                leadingIconBmp?.let {
+                    Image(bitmap = it, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.size(14.dp))
+                }
+                Text(
+                    text = title.label,
+                    color = spec.textColor,
+                    fontSize = 11.sp,
+                    lineHeight = 13.sp,
+                    fontWeight = spec.fontWeight,
+                    letterSpacing = spec.letterSpacingSp?.sp ?: TextStyle.Default.letterSpacing,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = TextStyle(
+                        shadow = spec.textShadowColor?.let { Shadow(color = it, offset = Offset(0f, 1f), blurRadius = 2.2f) },
+                        platformStyle = PlatformTextStyle(includeFontPadding = false),
                     ),
+                )
+                trailingIconBmp?.let {
+                    Image(bitmap = it, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.size(14.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PersonalV2TitleChipBox(
+    title: ResolvedTitleChip,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val httpClient = LocalCosmeticHttpClient.current
+    val artUrl = title.bgImageUrl ?: return
+    val bannerBmp by produceState<ImageBitmap?>(initialValue = null, artUrl) {
+        value = BadgeArtworkCache.getOrFetchBitmap(context, httpClient, artUrl, 256)
+    }
+    val spec = title.personalV2Art ?: ChatBubbleCosmetics.resolvePersonalV2Art(title.key.removePrefix("personal:"))
+    val loaded = bannerBmp
+
+    if (loaded == null) {
+        Box(
+            modifier = modifier
+                .height(25.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(Color(0xFFF3F6FA))
+                .border(1.dp, Color(0xFFB7C4D4), RoundedCornerShape(999.dp))
+                .padding(horizontal = spec.titlePadDp.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = title.label,
+                color = Color(0xFF304052),
+                fontSize = 11.sp,
+                lineHeight = 13.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
+            )
+        }
+        return
+    }
+
+    Layout(
+        modifier = modifier,
+        content = {
+            Image(
+                bitmap = loaded,
+                contentDescription = null,
+                contentScale = ContentScale.FillBounds,
+            )
+            Text(
+                text = title.label,
+                color = Color(0xFF304052),
+                fontSize = 11.sp,
+                lineHeight = 13.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
+            )
+        },
+    ) { measurables, constraints ->
+        val chipH = 25.dp.roundToPx().coerceIn(constraints.minHeight, constraints.maxHeight)
+        val padPx = spec.titlePadDp.dp.roundToPx()
+        val textPlaceable = measurables[1].measure(
+            constraints.copy(
+                minWidth = 0,
+                minHeight = 0,
+                maxHeight = chipH,
+            ),
+        )
+        val minBannerW = (loaded.width.toFloat() / loaded.height.coerceAtLeast(1).toFloat() * chipH).roundToInt()
+        val targetW = max(textPlaceable.width + padPx * 2, minBannerW)
+            .coerceIn(constraints.minWidth, constraints.maxWidth)
+        val imgPlaceable = measurables[0].measure(Constraints.fixed(targetW, chipH))
+        layout(targetW, chipH) {
+            imgPlaceable.placeRelative(0, 0)
+            val safePad = (padPx / 2).coerceAtMost((targetW - textPlaceable.width).coerceAtLeast(0) / 2)
+            val tx = (targetW * spec.titleX - textPlaceable.width * 0.5f)
+                .roundToInt()
+                .coerceIn(safePad, (targetW - textPlaceable.width - safePad).coerceAtLeast(safePad))
+            val ty = (chipH * spec.titleY - textPlaceable.height * 0.5f)
+                .roundToInt()
+                .coerceIn(0, (chipH - textPlaceable.height).coerceAtLeast(0))
+            textPlaceable.placeRelative(tx, ty)
+        }
+    }
+}
+
+@Composable
+private fun ShiguangTitleChipBox(
+    title: ResolvedTitleChip,
+    modifier: Modifier = Modifier,
+) {
+    val bodyShape = remember {
+        GenericShape { size, _ ->
+            val cut = size.height * 0.22f
+            moveTo(cut, 0f)
+            lineTo(size.width, 0f)
+            lineTo(size.width - cut, size.height)
+            lineTo(0f, size.height)
+            lineTo(cut * 0.65f, size.height * 0.5f)
+            close()
+        }
+    }
+    val lvShape = remember {
+        GenericShape { size, _ ->
+            val cut = size.height * 0.22f
+            moveTo(cut, 0f)
+            lineTo(size.width, 0f)
+            lineTo(size.width - cut, size.height)
+            lineTo(0f, size.height)
+            close()
+        }
+    }
+    Row(
+        modifier = modifier.height(23.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .clip(bodyShape)
+                .background(Brush.verticalGradient(listOf(Color(0xFFFAF0DC), Color(0xFFEAD3AE))))
+                .border(1.dp, Color(0xFFB8894A), bodyShape)
+                .padding(start = 10.dp, end = 9.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = title.label,
+                color = Color(0xFF542710),
+                fontSize = 11.sp,
+                lineHeight = 13.sp,
+                fontFamily = FontFamily.Serif,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
+            )
+        }
+        if (!title.levelText.isNullOrBlank()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .offset(x = (-3).dp)
+                    .clip(lvShape)
+                    .background(Brush.verticalGradient(listOf(Color(0xFF7A3E1D), Color(0xFF542710))))
+                    .border(0.8.dp, Color(0xFFB8894A), lvShape)
+                    .padding(start = 7.dp, end = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = title.levelText,
+                    color = Color(0xFFFFE6B3),
+                    fontSize = 9.sp,
+                    lineHeight = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
                 )
             }
         }
+    }
+}
 
-        val effectiveTextColor = if (isPv2Banner) Color(0xFF304052) else fgColor
+@Composable
+private fun RaffleNameplateTitleChipBox(
+    title: ResolvedTitleChip,
+    isDarkTheme: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val isOldFarmer = title.specialKind == "raffle_oldfarmer"
+    val rtColor = parseSafeHex(title.raffleColorHex ?: title.borderHex, Color(0xFF488CAF))
+    val rtAccent = parseSafeHex(title.raffleAccentHex ?: title.secondaryBgHex ?: title.borderHex, Color(0xFFB6DCEC))
+    val shape = RoundedCornerShape(topStart = 7.dp, topEnd = 3.dp, bottomEnd = 9.dp, bottomStart = 3.dp)
 
+    val bgStops = when {
+        isDarkTheme -> listOf(
+            ChatBubbleCosmetics.blendColors(rtColor, Color(0xFF18222D), 0.30f),
+            ChatBubbleCosmetics.blendColors(rtAccent, Color(0xFF18222D), 0.20f),
+            ChatBubbleCosmetics.blendColors(rtColor, Color(0xFF111922), 0.36f),
+        )
+        isOldFarmer -> listOf(
+            Color(0xFFFFFBF2),
+            Color(0xFFFFF0D4),
+            Color(0xFFF6DEB0),
+        )
+        else -> listOf(
+            Color.White,
+            ChatBubbleCosmetics.blendColors(rtAccent, Color.White, 0.34f),
+            ChatBubbleCosmetics.blendColors(rtAccent, rtColor, 0.72f),
+        )
+    }
+    val fgColor = if (isDarkTheme) {
+        Color(0xFFF8FAFC)
+    } else {
+        ChatBubbleCosmetics.blendColors(rtColor, Color(0xFF212E40), 0.65f)
+    }
+
+    val symbolPath = remember(title.symbolSvgPath) {
+        title.symbolSvgPath?.let { rawPath ->
+            runCatching { PathParser.createPathFromPathData(rawPath).asComposePath() }.getOrNull()
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .height(25.dp)
+            .clip(shape)
+            .background(Brush.linearGradient(bgStops))
+            .border(1.2.dp, rtColor, shape),
+        contentAlignment = Alignment.Center,
+    ) {
+        // 2.dp inset crisp white inner ring (`title-growth.css`)
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .padding(2.dp)
+                .border(0.8.dp, Color.White.copy(alpha = if (isDarkTheme) 0.25f else 0.78f), RoundedCornerShape(5.dp, 2.dp, 7.dp, 2.dp)),
+        )
         Row(
-            modifier = Modifier.padding(
-                horizontal = when {
-                    isPv2Banner -> 14.dp
-                    title.specialKind == "raffle_nameplate" -> 8.dp
-                    fillMode == "none" -> 3.dp
-                    else -> 7.dp
-                },
-                vertical = when {
-                    isPv2Banner -> 4.dp
-                    title.specialKind == "raffle_nameplate" -> 3.dp
-                    else -> 2.dp
-                },
-            ),
+            modifier = Modifier.padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(if (title.specialKind == "raffle_nameplate") 4.dp else 3.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            val loadedLeading = leadingIconBmp
-            if (loadedLeading != null && !isPv2Banner) {
-                Image(
-                    bitmap = loadedLeading,
-                    contentDescription = null,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.size(14.dp),
-                )
-            } else if (title.shape == "tag" && !isPv2Banner && symbolPath == null) {
-                Box(
-                    modifier = Modifier
-                        .size(4.dp)
-                        .clip(CircleShape)
-                        .background(effectiveTextColor.copy(alpha = 0.72f)),
-                )
-            }
             if (symbolPath != null) {
-                Canvas(modifier = Modifier.size(12.dp)) {
-                    scale(size.width / 24f, size.height / 24f, pivot = Offset.Zero) {
+                Canvas(modifier = Modifier.size(14.dp)) {
+                    val sx = (size.width / 24f).coerceAtLeast(0.1f)
+                    scale(sx, (size.height / 24f).coerceAtLeast(0.1f), pivot = Offset.Zero) {
                         drawPath(
                             path = symbolPath,
-                            color = effectiveTextColor,
-                            style = Stroke(width = 2.0f, cap = StrokeCap.Round, join = StrokeJoin.Round),
+                            color = fgColor,
+                            style = Stroke(
+                                width = 1.7.dp.toPx() / sx,
+                                cap = StrokeCap.Round,
+                                join = StrokeJoin.Round,
+                            ),
                         )
                     }
                 }
             }
             Text(
                 text = title.label,
-                color = effectiveTextColor,
+                color = fgColor,
                 fontSize = 11.sp,
                 lineHeight = 13.sp,
-                fontFamily = fontFamily,
-                fontWeight = fontWeight,
-                fontStyle = fontStyle,
-                letterSpacing = letterSpacing,
+                fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                style = if (loadedBanner != null && !isPv2Banner) {
-                    TextStyle(
-                        shadow = Shadow(color = Color.Black.copy(alpha = 0.72f), offset = Offset(0f, 1f), blurRadius = 2.5f),
-                        platformStyle = PlatformTextStyle(includeFontPadding = false),
-                    )
-                } else {
-                    TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
-                },
+                style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
             )
-            val loadedTrailing = trailingIconBmp
-            if (loadedTrailing != null && !isPv2Banner) {
-                Image(
-                    bitmap = loadedTrailing,
-                    contentDescription = null,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.size(14.dp),
-                )
-            }
             if (!title.levelText.isNullOrBlank()) {
-                if (title.specialKind == "raffle_nameplate") {
-                    val lvBg = parseSafeHex(title.borderHex, effectiveTextColor).copy(
-                        alpha = if (palette.isDark) 0.45f else 0.88f,
-                    )
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(lvBg)
-                            .padding(horizontal = 3.5.dp, vertical = 1.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = title.levelText,
-                            color = Color.White,
-                            fontSize = 8.5.sp,
-                            lineHeight = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
-                        )
-                    }
-                } else {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(3.5.dp))
+                        .background(rtColor)
+                        .padding(horizontal = 4.dp, vertical = 1.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
                     Text(
                         text = title.levelText,
-                        color = effectiveTextColor.copy(alpha = 0.88f),
-                        fontSize = 9.sp,
-                        lineHeight = 11.sp,
+                        color = Color.White,
+                        fontSize = 8.5.sp,
+                        lineHeight = 10.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),

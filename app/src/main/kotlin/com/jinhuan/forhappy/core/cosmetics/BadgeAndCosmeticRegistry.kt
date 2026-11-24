@@ -10,6 +10,8 @@ import com.jinhuan.forhappy.core.model.OfficialTitleMeta
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -24,6 +26,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArraySet
 
 sealed interface BadgeArtKind {
     data class BundledSvg(val assetPath: String) : BadgeArtKind
@@ -33,7 +36,7 @@ sealed interface BadgeArtKind {
         val isHonor: Boolean = false,
         val isDay: Boolean = false,
     ) : BadgeArtKind
-    data class InlineOfficialSvg(val innerSvg: String) : BadgeArtKind
+    data class InlineOfficialSvg(val innerSvg: String, val styleId: String = "serene") : BadgeArtKind
     data class RemoteImage(val url: String) : BadgeArtKind
     data class RemoteSvg(val url: String, val fallbackGlyph: String = "✦") : BadgeArtKind
     data class InlineXmlSvg(val xml: String) : BadgeArtKind
@@ -43,6 +46,12 @@ sealed interface BadgeArtKind {
         val rows: Int,
         val col: Int,
         val row: Int,
+    ) : BadgeArtKind
+    data class CommunityCssBadge(
+        val id: String,
+        val imgSha: String? = null,
+        val cssSha: String? = null,
+        val isDarkTheme: Boolean = false,
     ) : BadgeArtKind
     data class EmojiGlyph(val glyph: String) : BadgeArtKind
 }
@@ -57,6 +66,7 @@ data class BadgeCatalogEntry(
     val levels: List<Int> = BadgeAndCosmeticRegistry.DEFAULT_BADGE_LEVELS,
 )
 
+@Serializable
 data class RaffleTitleCatalogItem(
     val id: String,
     val name: String,
@@ -64,14 +74,26 @@ data class RaffleTitleCatalogItem(
     val colorHex: String,
     val accentHex: String,
     val rarity: String,
+    val symbolKey: String = "",
 )
 
+@Serializable
 data class PersonalTitleCatalogItem(
     val id: String,
     val name: String,
     val mood: String,
     val rarity: String,
     val art: String,
+)
+
+@Serializable
+data class WebCosmeticCatalogSnapshot(
+    val raffleTitles: List<RaffleTitleCatalogItem> = emptyList(),
+    val personalTitles: List<PersonalTitleCatalogItem> = emptyList(),
+    val growthV5Ids: List<String> = emptyList(),
+    val v2ArtSpecs: Map<String, List<Float>> = emptyMap(),
+    val v1Palettes: Map<String, List<String>> = emptyMap(),
+    val titleSymbols: Map<String, String> = emptyMap(),
 )
 
 data class CommunitySkinCatalogItem(
@@ -128,6 +150,14 @@ data class ResolvedTitleChip(
     val leadingIconUrl: String? = null,
     val trailingIconUrl: String? = null,
     val dynamicCssSpec: String? = null,
+    val personalV2Art: PersonalV2ArtSpec? = null,
+    val communitySpec: CommunityTitleRenderSpec? = null,
+    val officialPalette: OfficialPaletteSpec? = null,
+    val raffleColorHex: String? = null,
+    val raffleAccentHex: String? = null,
+    val raffleStage: Int = 1,
+    val hardShadowHex: String? = null,
+    val hardShadowOffsetDp: Pair<Float, Float>? = null,
 ) {
     val displayLabel: String
         get() = if (levelText.isNullOrBlank()) label else "$label $levelText"
@@ -141,6 +171,18 @@ data class ResolvedBadgeChip(
     val tier: String,
     val desc: String,
     val art: BadgeArtKind,
+    val alwaysIconOnly: Boolean = false,
+    val textHex: String = "#334155",
+    val levelBgHex: String? = null,
+    val iconWidthDp: Float = 24f,
+    val iconHeightDp: Float = 24f,
+    val dynamicCssSpec: String? = null,
+)
+
+data class ShowcaseItem(
+    val key: String,
+    val label: String,
+    val chip: ResolvedBadgeChip,
 )
 
 data class ResolvedUserIdentity(
@@ -313,7 +355,7 @@ object BadgeAndCosmeticRegistry {
         "nightdevil" to RaffleTitleCatalogItem("nightdevil", "夜宴小恶魔", "玫瑰与夜色里的俏皮心动", "#9a547e", "#e8b0b3", "SSR"),
         "whalebuddy" to RaffleTitleCatalogItem("whalebuddy", "鲸伴", "小鲸一路同行，终有星海巡游", "#368bad", "#b1daef", "normal"),
         "gpt" to RaffleTitleCatalogItem("gpt", "GPT龙姬", "紫星白龙的灵感相伴", "#8864b3", "#c7dcb7", "SSR"),
-        "claude" to RaffleTitleCatalogItem("claude", "Claude花姬", "橘花盛开的温暖时刻", "#b9824e", "#efcfa1", "SSR"),
+        "claude" to RaffleTitleCatalogItem("claude", "拾光司书", "每次相遇，都留有光芒", "#b9824e", "#efcfa1", "SSR"),
         "gemini" to RaffleTitleCatalogItem("gemini", "Gemini星喵", "双星闪烁的小宇宙", "#8571bd", "#99c9da", "SSR"),
         "whitedragon" to RaffleTitleCatalogItem("whitedragon", "白龙绮姬", "银发与绮花的优雅相逢", "#698aa0", "#d8cbe9", "SSR"),
         "rascal" to RaffleTitleCatalogItem("rascal", "纯坏蛋", "偷走饼干的小恶魔，坏得很可爱", "#8461b1", "#f0b278", "normal"),
@@ -750,6 +792,9 @@ object BadgeAndCosmeticRegistry {
     private val dynamicGrowthBySeries = ConcurrentHashMap<String, List<GrowthRewardMeta>>()
     private val dynamicOfficialTitles = ConcurrentHashMap<String, OfficialTitleMeta>()
     private val dynamicCommunitySkins = ConcurrentHashMap<String, CommunitySkinCatalogItem>()
+    private val dynamicRaffleTitles = ConcurrentHashMap<String, RaffleTitleCatalogItem>()
+    private val dynamicPersonalTitles = ConcurrentHashMap<String, PersonalTitleCatalogItem>()
+    private val dynamicGrowthV5Ids = CopyOnWriteArraySet<String>()
 
     fun notifyDynamicCosmeticParsed() {
         _catalogRevision.value += 1
@@ -757,6 +802,244 @@ object BadgeAndCosmeticRegistry {
 
     fun resolveCommunitySkinMeta(id: String): CommunitySkinCatalogItem? =
         dynamicCommunitySkins[id] ?: COMMUNITY_SKINS[id]
+
+    fun allCommunitySkins(): Map<String, CommunitySkinCatalogItem> {
+        val merged = LinkedHashMap<String, CommunitySkinCatalogItem>(COMMUNITY_SKINS.size + dynamicCommunitySkins.size)
+        COMMUNITY_SKINS.forEach { (id, item) -> merged[id] = dynamicCommunitySkins[id] ?: item }
+        dynamicCommunitySkins.forEach { (id, item) -> if (!merged.containsKey(id)) merged[id] = item }
+        return merged
+    }
+
+    fun resolveRaffleTitle(id: String?): RaffleTitleCatalogItem? {
+        val clean = id?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        return dynamicRaffleTitles[clean] ?: RAFFLE_TITLES[clean]
+    }
+
+    fun allRaffleTitles(): Map<String, RaffleTitleCatalogItem> {
+        val merged = LinkedHashMap<String, RaffleTitleCatalogItem>(RAFFLE_TITLES.size + dynamicRaffleTitles.size)
+        RAFFLE_TITLES.forEach { (id, item) -> merged[id] = dynamicRaffleTitles[id] ?: item }
+        dynamicRaffleTitles.forEach { (id, item) -> if (!merged.containsKey(id)) merged[id] = item }
+        return merged
+    }
+
+    fun resolvePersonalTitle(id: String?): PersonalTitleCatalogItem? {
+        val clean = id?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        return dynamicPersonalTitles[clean] ?: PERSONAL_TITLES[clean]
+    }
+
+    fun allPersonalTitles(): Map<String, PersonalTitleCatalogItem> {
+        val merged = LinkedHashMap<String, PersonalTitleCatalogItem>(PERSONAL_TITLES.size + dynamicPersonalTitles.size)
+        PERSONAL_TITLES.forEach { (id, item) -> merged[id] = dynamicPersonalTitles[id] ?: item }
+        dynamicPersonalTitles.forEach { (id, item) -> if (!merged.containsKey(id)) merged[id] = item }
+        return merged
+    }
+
+    fun parseUnlockKeys(unlocksJson: JsonElement?): Set<String> {
+        if (unlocksJson == null) return emptySet()
+        val out = LinkedHashSet<String>()
+        when (unlocksJson) {
+            is JsonArray -> unlocksJson.forEach { el ->
+                val v = (el as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
+                if (v.isNotEmpty()) out.add(v)
+            }
+            is JsonObject -> unlocksJson.forEach { (k, v) ->
+                val truthy = (v as? JsonPrimitive)?.booleanOrNull == true ||
+                    ((v as? JsonPrimitive)?.intOrNull ?: 0) > 0
+                val clean = k.trim()
+                if (truthy && clean.isNotEmpty()) out.add(clean)
+            }
+            else -> Unit
+        }
+        return out
+    }
+
+    fun allUnlockedGrowthRewards(
+        meResponse: MeResponse? = null,
+        rawGrowthRewards: JsonElement? = null,
+        unlocksJson: JsonElement? = null,
+        allCosmetics: Boolean = false,
+    ): List<GrowthRewardMeta> {
+        val effectiveAll = allCosmetics || meResponse?.user?.cosmeticAccess == "all"
+        val unlocksSet = parseUnlockKeys(unlocksJson ?: meResponse?.user?.unlocks)
+        fun isUnlocked(meta: GrowthRewardMeta): Boolean {
+            if (effectiveAll) return true
+            val series = meta.series?.takeIf { it.isNotBlank() } ?: "guess"
+            return "$series:${meta.level}" in unlocksSet || meta.id in unlocksSet
+        }
+
+        val byId = LinkedHashMap<String, GrowthRewardMeta>()
+        fun addMeta(meta: GrowthRewardMeta?) {
+            if (meta != null && meta.id.isNotBlank()) byId[meta.id] = meta
+        }
+        meResponse?.let { r ->
+            (r.guessRewards + r.luckRewards + r.rankRewards + r.activityRewards).forEach { meta ->
+                if (isUnlocked(meta)) addMeta(meta)
+            }
+        }
+        if (rawGrowthRewards != null) {
+            when (rawGrowthRewards) {
+                is JsonArray -> rawGrowthRewards.forEach { el ->
+                    when (el) {
+                        is JsonPrimitive -> resolveGrowthRewardMeta(el.contentOrNull.orEmpty())?.let(::addMeta)
+                        is JsonObject -> el["id"]?.jsonPrimitive?.contentOrNull?.let { id ->
+                            resolveGrowthRewardMeta(id)?.let(::addMeta)
+                        }
+                        else -> Unit
+                    }
+                }
+                is JsonObject -> rawGrowthRewards.forEach { (k, v) ->
+                    val truthy = (v as? JsonPrimitive)?.booleanOrNull == true ||
+                        ((v as? JsonPrimitive)?.intOrNull ?: 0) > 0
+                    if (truthy) resolveGrowthRewardMeta(k)?.let(::addMeta)
+                }
+                else -> Unit
+            }
+        }
+        if (byId.isEmpty() && meResponse == null && rawGrowthRewards == null) {
+            dynamicGrowthById.values.forEach { meta ->
+                if (isUnlocked(meta)) addMeta(meta)
+            }
+            if (dynamicGrowthById.isEmpty() && unlocksSet.isNotEmpty()) {
+                unlocksSet.forEach { key ->
+                    resolveGrowthRewardMeta(key)?.let(::addMeta)
+                }
+            }
+        }
+        return byId.values.toList()
+    }
+
+    private fun unescapeJsUnicode(raw: String): String {
+        if (!raw.contains("\\u")) return raw
+        return Regex("""\\u([0-9a-fA-F]{4})""").replace(raw) { m ->
+            val cp = m.groupValues[1].toIntOrNull(16) ?: return@replace m.value
+            cp.toChar().toString()
+        }
+    }
+
+    /**
+     * Parses main-site ES/CSS catalog modules fetched dynamically from `52dmeme.com`, applies them
+     * live to [BadgeAndCosmeticRegistry] & [ChatBubbleCosmetics], and returns a serialized snapshot JSON.
+     */
+    fun parseAndApplyWebModules(
+        titleCollectionJs: String? = null,
+        personalCatalogJs: String? = null,
+        personalV2CatalogJs: String? = null,
+        growthV5Js: String? = null,
+        personalV2ArtCss: String? = null,
+        personalPalettesCss: String? = null,
+        titleSymbolsJs: String? = null,
+    ): String {
+        val parsedRaffle = ArrayList<RaffleTitleCatalogItem>()
+        if (!titleCollectionJs.isNullOrBlank()) {
+            val rowRe = Regex(
+                """\[\s*"([^"]+)"\s*,\s*"([^"]*)"\s*,\s*"([^"]*)"\s*,\s*"([^"]*)"\s*,\s*"(#[0-9a-fA-F]{3,8})"\s*,\s*"(#[0-9a-fA-F]{3,8})"\s*,\s*"([^"]*)"\s*]""",
+            )
+            for (m in rowRe.findAll(titleCollectionJs)) {
+                val id = unescapeJsUnicode(m.groupValues[1]).trim()
+                val name = unescapeJsUnicode(m.groupValues[2]).trim()
+                val mood = unescapeJsUnicode(m.groupValues[3]).trim()
+                val sym = unescapeJsUnicode(m.groupValues[4]).trim()
+                val color = m.groupValues[5].trim()
+                val accent = m.groupValues[6].trim()
+                val rarity = unescapeJsUnicode(m.groupValues[7]).trim().ifBlank { "normal" }
+                if (id.isNotEmpty() && name.isNotEmpty()) {
+                    val item = RaffleTitleCatalogItem(id, name, mood, color, accent, rarity, sym)
+                    parsedRaffle.add(item)
+                    dynamicRaffleTitles[id] = item
+                }
+            }
+        }
+
+        val parsedPersonal = ArrayList<PersonalTitleCatalogItem>()
+        fun extractJsonObjectAfterEquals(js: String, varName: String): JsonObject? {
+            val markerIdx = js.indexOf(varName)
+            if (markerIdx < 0) return null
+            val braceStart = js.indexOf('{', markerIdx)
+            val braceEnd = js.lastIndexOf('}')
+            if (braceStart < 0 || braceEnd <= braceStart) return null
+            val rawObj = js.substring(braceStart, braceEnd + 1)
+            return runCatching { ForHappyJson.parseToJsonElement(rawObj).jsonObject }.getOrNull()
+        }
+        if (!personalCatalogJs.isNullOrBlank()) {
+            extractJsonObjectAfterEquals(personalCatalogJs, "PERSONAL_TITLES")?.forEach { (id, el) ->
+                val obj = runCatching { el.jsonObject }.getOrNull() ?: return@forEach
+                val name = obj["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                val mood = obj["mood"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                if (id.isNotBlank() && name.isNotBlank()) {
+                    val item = PersonalTitleCatalogItem(id, name, mood, "normal", "v1")
+                    parsedPersonal.add(item)
+                    dynamicPersonalTitles[id] = item
+                }
+            }
+        }
+        if (!personalV2CatalogJs.isNullOrBlank()) {
+            extractJsonObjectAfterEquals(personalV2CatalogJs, "PERSONAL_V2_TITLES")?.forEach { (id, el) ->
+                val obj = runCatching { el.jsonObject }.getOrNull() ?: return@forEach
+                val name = obj["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                val mood = obj["mood"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                val rarity = obj["rarity"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifBlank { "normal" }
+                val art = obj["art"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifBlank { "v2" }
+                if (id.isNotBlank() && name.isNotBlank()) {
+                    val item = PersonalTitleCatalogItem(id, name, mood, rarity, art)
+                    parsedPersonal.add(item)
+                    dynamicPersonalTitles[id] = item
+                }
+            }
+        }
+
+        val parsedGrowthV5 = ArrayList<String>()
+        if (!growthV5Js.isNullOrBlank()) {
+            val arrStart = growthV5Js.indexOf('[')
+            val arrEnd = growthV5Js.lastIndexOf(']')
+            if (arrStart >= 0 && arrEnd > arrStart) {
+                runCatching {
+                    ForHappyJson.parseToJsonElement(growthV5Js.substring(arrStart, arrEnd + 1)).jsonArray
+                }.getOrNull()?.forEach { el ->
+                    val id = el.jsonPrimitive.contentOrNull?.trim().orEmpty()
+                    if (id.isNotEmpty()) {
+                        parsedGrowthV5.add(id)
+                        dynamicGrowthV5Ids.add(id)
+                    }
+                }
+            }
+        }
+
+        val v2ArtMap = personalV2ArtCss?.let { ChatBubbleCosmetics.parsePersonalV2ArtCss(it) }.orEmpty()
+        val v1PalMap = personalPalettesCss?.let { ChatBubbleCosmetics.parsePersonalPalettesCss(it) }.orEmpty()
+        val symbolMap = titleSymbolsJs?.let { ChatBubbleCosmetics.parseTitleSymbolsJs(it) }.orEmpty()
+
+        val snapshot = WebCosmeticCatalogSnapshot(
+            raffleTitles = parsedRaffle,
+            personalTitles = parsedPersonal,
+            growthV5Ids = parsedGrowthV5,
+            v2ArtSpecs = v2ArtMap.mapValues { (_, v) -> listOf(v.titleX, v.titleY, v.titlePadDp) },
+            v1Palettes = v1PalMap.mapValues { (_, v) -> listOf(v.inkHex, v.paperHex, v.accentHex) },
+            titleSymbols = symbolMap,
+        )
+        _catalogRevision.value += 1
+        return ForHappyJson.encodeToString(snapshot)
+    }
+
+    fun applyWebCatalogSnapshotJson(rawJson: String): Boolean {
+        val snap = runCatching { ForHappyJson.decodeFromString<WebCosmeticCatalogSnapshot>(rawJson) }.getOrNull()
+            ?: return false
+        snap.raffleTitles.forEach { if (it.id.isNotBlank()) dynamicRaffleTitles[it.id] = it }
+        snap.personalTitles.forEach { if (it.id.isNotBlank()) dynamicPersonalTitles[it.id] = it }
+        snap.growthV5Ids.forEach { if (it.isNotBlank()) dynamicGrowthV5Ids.add(it) }
+        val v2Art = snap.v2ArtSpecs.mapNotNull { (k, vals) ->
+            if (vals.size >= 3) k to PersonalV2ArtSpec(vals[0], vals[1], vals[2]) else null
+        }.toMap()
+        val v1Pal = snap.v1Palettes.mapNotNull { (k, vals) ->
+            if (vals.size >= 3) k to PersonalV1PaletteSpec(vals[0], vals[1], vals[2]) else null
+        }.toMap()
+        ChatBubbleCosmetics.applyWebDynamicAssets(
+            v2ArtSpecs = v2Art,
+            v1Palettes = v1Pal,
+            symbolPaths = snap.titleSymbols,
+        )
+        _catalogRevision.value += 1
+        return true
+    }
 
     fun resolveOfficialTitleName(
         id: String,
@@ -806,7 +1089,7 @@ object BadgeAndCosmeticRegistry {
         val ftId = decoObj["ft"]?.jsonPrimitive?.contentOrNull
             ?: decoObj["equippedRaffleId"]?.jsonPrimitive?.contentOrNull
             ?: return null
-        val cat = RAFFLE_TITLES[ftId] ?: return null
+        val cat = resolveRaffleTitle(ftId) ?: return null
         val owner = cosmeticAccess == "all"
         val fxp = decoObj["fxp"]?.jsonPrimitive?.longOrNull ?: 0L
         val fp = decoObj["fp"]?.jsonPrimitive?.intOrNull ?: 0
@@ -993,6 +1276,13 @@ object BadgeAndCosmeticRegistry {
         }
         if (clean in GROWTH_V5_IDS) {
             return BadgeArtKind.BundledSvg("badges/v5/$clean.svg")
+        }
+        if (clean in dynamicGrowthV5Ids) {
+            val meta = resolveBadgeMeta(clean)
+            return BadgeArtKind.RemoteSvg(
+                url = "https://52dmeme.com/assets/badges/v5/$clean.svg",
+                fallbackGlyph = meta?.glyph ?: "✿",
+            )
         }
         val rankMatch = RANK_REGEX.matchEntire(clean)
         val tile = if (rankMatch != null) {
@@ -1181,8 +1471,10 @@ object BadgeAndCosmeticRegistry {
             return ResolvedUserIdentity(nickGradientHexes = nickHexes)
         }
 
-        val sc = obj["sc"]?.jsonPrimitive?.contentOrNull ?: obj["decoScope"]?.jsonPrimitive?.contentOrNull ?: "all"
-        if (where != "card" && sc != "all" && sc != where) {
+        val rawSc = obj["sc"]?.jsonPrimitive?.contentOrNull ?: obj["decoScope"]?.jsonPrimitive?.contentOrNull ?: "all"
+        val sc = if (rawSc == "wall") "post" else rawSc
+        val effWhere = if (where == "wall") "post" else where
+        if (effWhere != "card" && sc != "all" && sc != effWhere) {
             return ResolvedUserIdentity(nickGradientHexes = nickHexes)
         }
 
@@ -1213,7 +1505,7 @@ object BadgeAndCosmeticRegistry {
         val resolvedTitle: ResolvedTitleChip? = when {
             isOwner52Suit(ptId) -> {
                 val suitId = ptId!!
-                val p = PERSONAL_TITLES[suitId] ?: PersonalTitleCatalogItem(suitId, "52帝", "站长专属", "SSR", "owner")
+                val p = resolvePersonalTitle(suitId) ?: PersonalTitleCatalogItem(suitId, "52帝", "站长专属", "SSR", "owner")
                 val isB = suitId == "owner-52b" || suitId == "owner52b"
                 val artUrl = if (isB) {
                     "https://52dmeme.com/assets/owner52-v032/title-tiger-integrated-v1.webp"
@@ -1277,38 +1569,41 @@ object BadgeAndCosmeticRegistry {
                     specialKind = "growth",
                 )
             }
-            !ptId.isNullOrBlank() && PERSONAL_TITLES[ptId] != null -> {
-                val p = PERSONAL_TITLES[ptId]!!
+            !ptId.isNullOrBlank() && resolvePersonalTitle(ptId) != null -> {
+                val p = resolvePersonalTitle(ptId)!!
                 if (p.art == "v2") {
                     val isSsr = p.rarity.equals("SSR", ignoreCase = true)
+                    val artSpec = ChatBubbleCosmetics.resolvePersonalV2Art(ptId)
                     ResolvedTitleChip(
                         key = "personal:$ptId",
                         label = p.name,
                         levelText = null,
                         rarity = p.rarity,
                         bgHex = if (isSsr) "#7C2D12" else "#334155",
-                        textHex = if (isSsr) "#FEF3C7" else "#FFFFFF",
+                        textHex = "#304052",
                         borderHex = if (isSsr) "#F59E0B" else "#94A3B8",
                         fillMode = "grad",
                         shape = "pill",
                         secondaryBgHex = if (isSsr) "#431407" else "#1E293B",
                         bgImageUrl = "https://52dmeme.com/assets/personal-v2/$ptId-title.webp",
                         specialKind = "personal_v2",
+                        personalV2Art = artSpec,
                     )
                 } else {
-                    val pal = ChatBubbleCosmetics.PERSONAL_V1_PALETTES[ptId]
-                        ?: PersonalV1PaletteSpec("#367a78", "#e0f2e9", "#f2bc72")
+                    val pal = ChatBubbleCosmetics.resolvePersonalV1Palette(ptId)
                     ResolvedTitleChip(
                         key = "personal:$ptId",
                         label = p.name,
                         levelText = null,
                         rarity = p.rarity,
-                        bgHex = if (isDarkTheme) "#1E293B" else pal.paperHex,
-                        textHex = if (isDarkTheme) "#F1F5F9" else pal.inkHex,
-                        borderHex = pal.accentHex,
+                        bgHex = pal.paperHex,
+                        textHex = pal.inkHex,
+                        borderHex = pal.inkHex,
                         fillMode = "solid",
                         shape = "pill",
                         specialKind = "personal_v1",
+                        hardShadowHex = pal.accentHex,
+                        hardShadowOffsetDp = 1.5f to 1.5f,
                     )
                 }
             }
@@ -1321,20 +1616,26 @@ object BadgeAndCosmeticRegistry {
                         label = "拾光司书",
                         levelText = if (dispLv > 1) "Lv$dispLv" else null,
                         rarity = "SSR",
-                        bgHex = "#4A2E1B",
-                        textHex = "#FBF5EA",
-                        borderHex = "#D4AF37",
+                        bgHex = "#FAF0DC",
+                        textHex = "#542710",
+                        borderHex = "#B8894A",
                         fillMode = "grad",
                         shape = "ribbon",
-                        secondaryBgHex = "#2A180D",
+                        secondaryBgHex = "#EAD3AE",
                         effect = if (activeRaffle.stage >= 6) "shine" else "none",
                         specialKind = "shiguang",
+                        raffleColorHex = r.colorHex,
+                        raffleAccentHex = r.accentHex,
+                        raffleStage = activeRaffle.stage,
                     )
                 } else {
+                    val isOldFarmer = r.id == "oldfarmer"
                     val npBg = if (isDarkTheme) blendHex(r.colorHex, "#15202B", 0.34f) else blendHex(r.accentHex, "#FFFFFF", 0.28f)
                     val npSec = if (isDarkTheme) blendHex(r.accentHex, "#15202B", 0.20f) else blendHex(r.colorHex, "#FFFFFF", 0.16f)
                     val npFg = if (isDarkTheme) "#F1F5F9" else blendHex(r.colorHex, "#212E40", 0.70f)
-                    val npBd = if (isDarkTheme) r.accentHex else blendHex(r.colorHex, "#FFFFFF", 0.65f)
+                    val symPath = ChatBubbleCosmetics.TITLE_SYMBOL_PATHS[r.id]
+                        ?: r.symbolKey.takeIf { it.isNotBlank() }?.let { ChatBubbleCosmetics.resolveTitleSymbolPath(it) }
+                        ?: ChatBubbleCosmetics.resolveTitleSymbolPath(r.id)
                     ResolvedTitleChip(
                         key = "raffle:${r.id}",
                         label = r.name,
@@ -1342,13 +1643,16 @@ object BadgeAndCosmeticRegistry {
                         rarity = r.rarity,
                         bgHex = npBg,
                         textHex = npFg,
-                        borderHex = npBd,
+                        borderHex = r.colorHex,
                         fillMode = "grad",
                         shape = "tag",
                         secondaryBgHex = npSec,
                         effect = if (activeRaffle.stage >= 8) "shine" else "none",
-                        symbolSvgPath = ChatBubbleCosmetics.TITLE_SYMBOL_PATHS[r.id],
-                        specialKind = "raffle_nameplate",
+                        symbolSvgPath = symPath,
+                        specialKind = if (isOldFarmer) "raffle_oldfarmer" else "raffle_nameplate",
+                        raffleColorHex = r.colorHex,
+                        raffleAccentHex = r.accentHex,
+                        raffleStage = activeRaffle.stage,
                     )
                 }
             }
@@ -1366,6 +1670,10 @@ object BadgeAndCosmeticRegistry {
                         fillMode = "solid",
                         shape = "tag",
                         specialKind = "official",
+                        customCss = ParsedSafeCss(cornerRadiiDp = pal.cornersDp),
+                        officialPalette = pal,
+                        hardShadowHex = pal.accentHex,
+                        hardShadowOffsetDp = 0f to 2f,
                     )
                 } else {
                     ResolvedTitleChip("official:$otId", officialMeta.name, null, "SSR", "#1D4ED8", "#FFFFFF", "#60A5FA", specialKind = "official")
@@ -1377,12 +1685,15 @@ object BadgeAndCosmeticRegistry {
                     label = "✿ 广结善缘",
                     levelText = null,
                     rarity = "rare",
-                    bgHex = "#9D174D",
-                    textHex = "#FCE7F3",
-                    borderHex = "#F472B6",
-                    fillMode = "grad",
+                    bgHex = if (isDarkTheme) "#24351A" else "#EFFBDC",
+                    textHex = if (isDarkTheme) "#D7F3AF" else "#3B5B1D",
+                    borderHex = if (isDarkTheme) "#638D39" else "#9BC665",
+                    fillMode = "solid",
                     shape = "pill",
-                    secondaryBgHex = "#BE185D",
+                    secondaryBgHex = if (isDarkTheme) "#1B2913" else "#E2F5C7",
+                    specialKind = "guangjie",
+                    hardShadowHex = if (isDarkTheme) "#182411" else "#BAD78E",
+                    hardShadowOffsetDp = 0f to 2f,
                 )
             }
             customText.isNotEmpty() -> {
@@ -1417,10 +1728,11 @@ object BadgeAndCosmeticRegistry {
         val badgeMode = obj["badge_mode"]?.jsonPrimitive?.contentOrNull
             ?: obj["badgeMode"]?.jsonPrimitive?.contentOrNull
             ?: "set"
-        val bs = obj["bs"]?.jsonPrimitive?.contentOrNull
+        val rawBs = obj["bs"]?.jsonPrimitive?.contentOrNull
             ?: obj["badgeScope"]?.jsonPrimitive?.contentOrNull
             ?: "all"
-        if (badgeMode == "none" || (where != "card" && bs != "all" && bs != where)) {
+        val bs = if (rawBs == "wall") "post" else rawBs
+        if (badgeMode == "none" || (effWhere != "card" && bs != "all" && bs != effWhere)) {
             return ResolvedUserIdentity(title = resolvedTitle, badge = null, nickGradientHexes = nickHexes)
         }
 
@@ -1446,12 +1758,19 @@ object BadgeAndCosmeticRegistry {
                 tier = meta.tier,
                 desc = meta.desc,
                 art = resolveBadgeArt(targetId, bl),
+                alwaysIconOnly = false,
             )
         }
 
         val resolvedBadge: ResolvedBadgeChip? = when {
             commBadgeMeta != null -> {
                 val cid = communityBadgeId!!
+                val badgeSpec = ChatBubbleCosmetics.resolveCommunityBadgeSpec(
+                    id = cid,
+                    imgSha = commBadgeMeta.badgeImgSha,
+                    cssSha = commBadgeMeta.badgeCssSha,
+                    isDarkTheme = isDarkTheme,
+                )
                 val badgeArt: BadgeArtKind = when {
                     cid == "aurora-preset" -> BadgeArtKind.InlineXmlSvg(AURORA_COMPASS_SVG)
                     cid == "lanting-ink" -> BadgeArtKind.InlineXmlSvg(LANTING_INK_BADGE_SVG)
@@ -1462,17 +1781,19 @@ object BadgeAndCosmeticRegistry {
                         } ?: "https://52dmeme.com/api/community-skins/image/19b1612f344bacb77ff295e1015b806caf76b8c71d573f4d6ab572e20b3ede2d"
                         BadgeArtKind.SpriteSheetCell(sheetUrl, cols = 9, rows = 5, col = 2, row = 2)
                     }
-                    (cid == "shadow-dao" || cid == "shadow-path") && isDarkTheme && commBadgeMeta.badgeCssSha != null -> {
-                        BadgeArtKind.RemoteImage("community-css-dark:$cid:badge:${commBadgeMeta.badgeCssSha}")
-                    }
+                    !commBadgeMeta.badgeCssSha.isNullOrBlank() -> BadgeArtKind.CommunityCssBadge(
+                        id = cid,
+                        imgSha = commBadgeMeta.badgeImgSha,
+                        cssSha = commBadgeMeta.badgeCssSha,
+                        isDarkTheme = isDarkTheme,
+                    )
                     commBadgeMeta.badgeImgSha != null -> {
                         BadgeArtKind.RemoteImage("https://52dmeme.com/api/community-skins/image/${commBadgeMeta.badgeImgSha}")
                     }
-                    commBadgeMeta.badgeCssSha != null -> {
-                        BadgeArtKind.RemoteImage("community-css:$cid:badge:${commBadgeMeta.badgeCssSha}")
-                    }
                     else -> BadgeArtKind.EmojiGlyph("✦")
                 }
+                val isInlineVector = cid == "aurora-preset" || cid == "lanting-ink" ||
+                    cid == "orange-flick" || cid == "laowu-dispatch" || cid == "laowu-dispatch-all-in"
                 ResolvedBadgeChip(
                     id = "community:$cid",
                     name = commBadgeMeta.name,
@@ -1481,12 +1802,20 @@ object BadgeAndCosmeticRegistry {
                     tier = "epic",
                     desc = "社区投稿徽章 · ${commBadgeMeta.author}",
                     art = badgeArt,
+                    alwaysIconOnly = true,
+                    iconWidthDp = badgeSpec?.widthDp ?: 24f,
+                    iconHeightDp = badgeSpec?.heightDp ?: 24f,
+                    dynamicCssSpec = if (!isInlineVector && badgeSpec == null && !commBadgeMeta.badgeCssSha.isNullOrBlank()) {
+                        "$cid:badge:${commBadgeMeta.badgeCssSha}"
+                    } else {
+                        null
+                    },
                 )
             }
             badgeMode == "custom" -> buildCustomBadge(bdId)
             isOwner52Suit(ptId) -> {
                 val suitId = ptId!!
-                val p = PERSONAL_TITLES[suitId] ?: PersonalTitleCatalogItem(suitId, "52帝", "站长专属", "SSR", "owner")
+                val p = resolvePersonalTitle(suitId) ?: PersonalTitleCatalogItem(suitId, "52帝", "站长专属", "SSR", "owner")
                 val isB = suitId == "owner-52b" || suitId == "owner52b"
                 ResolvedBadgeChip(
                     id = "pt:$suitId",
@@ -1502,6 +1831,7 @@ object BadgeAndCosmeticRegistry {
                         col = if (isB) 2 else 0,
                         row = 1,
                     ),
+                    alwaysIconOnly = true,
                 )
             }
             growthMeta != null -> {
@@ -1514,10 +1844,11 @@ object BadgeAndCosmeticRegistry {
                     tier = "epic",
                     desc = growthMeta.desc,
                     art = resolveBadgeArt(series, growthMeta.level),
+                    alwaysIconOnly = true,
                 )
             }
-            !ptId.isNullOrBlank() && PERSONAL_TITLES[ptId] != null -> {
-                val p = PERSONAL_TITLES[ptId]!!
+            !ptId.isNullOrBlank() && resolvePersonalTitle(ptId) != null -> {
+                val p = resolvePersonalTitle(ptId)!!
                 val artKind = if (p.art == "v2") {
                     BadgeArtKind.RemoteImage("https://52dmeme.com/assets/personal-v2/$ptId-badge.webp")
                 } else {
@@ -1531,6 +1862,7 @@ object BadgeAndCosmeticRegistry {
                     tier = if (p.rarity == "SSR") "legend" else "rare",
                     desc = p.mood,
                     art = artKind,
+                    alwaysIconOnly = true,
                 )
             }
             activeRaffle != null -> {
@@ -1549,6 +1881,9 @@ object BadgeAndCosmeticRegistry {
                     tier = if (r.rarity == "SSR") "legend" else "rare",
                     desc = r.mood,
                     art = artKind,
+                    alwaysIconOnly = r.id == "claude",
+                    textHex = r.colorHex,
+                    levelBgHex = r.colorHex,
                 )
             }
             officialMeta != null && OFFICIAL_ART_SVG.containsKey(otId) -> {
@@ -1559,7 +1894,8 @@ object BadgeAndCosmeticRegistry {
                     levelText = "",
                     tier = "legend",
                     desc = "站长授予 · ${officialMeta.mood}",
-                    art = BadgeArtKind.InlineOfficialSvg(OFFICIAL_ART_SVG.getValue(otId!!)),
+                    art = BadgeArtKind.InlineOfficialSvg(OFFICIAL_ART_SVG.getValue(otId!!), otId),
+                    alwaysIconOnly = true,
                 )
             }
             else -> buildCustomBadge(bdId)
@@ -1573,7 +1909,66 @@ object BadgeAndCosmeticRegistry {
     }
 
     /**
-     * Parses server `me.deco` into `DecoConfig` (reading real web keys `t, sh, fill, c, c2, bc, fc, bb, bd, badge_mode, pt, ft, ot, gr, rt, community`
+     * Resolves profile showcase items (`badge:<id>` & `official:<id>`, max 6 per `app.js:2266-2274`).
+     * Returns `(selectedUpTo6, allAvailable)`.
+     */
+    fun resolveShowcaseItems(
+        badgesJson: JsonElement?,
+        officialTitles: List<OfficialTitleMeta> = emptyList(),
+        showcaseKeys: List<String>? = null,
+    ): Pair<List<ShowcaseItem>, List<ShowcaseItem>> {
+        val available = ArrayList<ShowcaseItem>()
+        for (b in parseOwnedBadges(badgesJson)) {
+            val fullLabel = if (b.levelText.isNotBlank()) "${b.meta.name} ${b.levelText}" else b.meta.name
+            available.add(
+                ShowcaseItem(
+                    key = "badge:${b.id}",
+                    label = fullLabel,
+                    chip = ResolvedBadgeChip(
+                        id = b.id,
+                        name = b.meta.name,
+                        level = b.level,
+                        levelText = if (b.id == "elder") "★" else "Lv${b.level}",
+                        tier = b.meta.tier,
+                        desc = b.meta.desc,
+                        art = b.art,
+                        alwaysIconOnly = false,
+                    ),
+                ),
+            )
+        }
+        val seenOt = HashSet<String>()
+        for (t in officialTitles) {
+            if (t.id.isBlank() || !seenOt.add(t.id) || !OFFICIAL_ART_SVG.containsKey(t.id)) continue
+            val resolvedName = t.name.takeIf { it.isNotBlank() } ?: resolveOfficialTitleName(t.id)?.name ?: t.id
+            available.add(
+                ShowcaseItem(
+                    key = "official:${t.id}",
+                    label = resolvedName,
+                    chip = ResolvedBadgeChip(
+                        id = "ot:${t.id}",
+                        name = resolvedName,
+                        level = 5,
+                        levelText = "",
+                        tier = "legend",
+                        desc = "站长授予 · ${t.mood}",
+                        art = BadgeArtKind.InlineOfficialSvg(OFFICIAL_ART_SVG.getValue(t.id), t.id),
+                        alwaysIconOnly = true,
+                    ),
+                ),
+            )
+        }
+        val selected = if (showcaseKeys != null) {
+            val byKey = available.associateBy { it.key }
+            showcaseKeys.mapNotNull { byKey[it] }.distinctBy { it.key }.take(6)
+        } else {
+            available.take(6)
+        }
+        return selected to available
+    }
+
+    /**
+     * Parses server `me.deco` into `DecoConfig` (reading real web keys `t, sh, fill, c, c2, bc, fc, bb, bd, badge_mode, pt, ft, ot, gr, rt, community, showcase`
      * with full backward compatibility for local clean preferences).
      */
     fun parseServerDecoConfig(deco: JsonElement?, localCleanRaw: String? = null): DecoConfig {
@@ -1591,7 +1986,26 @@ object BadgeAndCosmeticRegistry {
             else -> obj?.get("nickGradient")?.jsonPrimitive?.contentOrNull.orEmpty()
         }
         val commObj = runCatching { obj?.get("community")?.jsonObject }.getOrNull()
+        val showcaseParsed: List<String>? = if (obj != null && obj.containsKey("showcase") && obj["showcase"] !is JsonNull) {
+            runCatching { obj["showcase"]?.jsonArray }.getOrNull()
+                ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf { k -> k.isNotEmpty() } }
+                ?.take(6)
+                ?: emptyList()
+        } else {
+            obj?.get("showcaseKeys")?.let { el ->
+                if (el is JsonNull) null
+                else runCatching { el.jsonArray }.getOrNull()
+                    ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf { k -> k.isNotEmpty() } }
+                    ?.take(6)
+            }
+        }
         val fromServer = if (obj != null) {
+            val rawSc = obj["sc"]?.jsonPrimitive?.contentOrNull
+                ?: obj["decoScope"]?.jsonPrimitive?.contentOrNull
+                ?: "all"
+            val rawBs = obj["bs"]?.jsonPrimitive?.contentOrNull
+                ?: obj["badgeScope"]?.jsonPrimitive?.contentOrNull
+                ?: "all"
             DecoConfig(
                 customTitle = obj["t"]?.jsonPrimitive?.contentOrNull
                     ?: obj["customTitle"]?.jsonPrimitive?.contentOrNull
@@ -1606,6 +2020,10 @@ object BadgeAndCosmeticRegistry {
                     ?: obj["primaryHex"]?.jsonPrimitive?.contentOrNull ?: "#1B7F4B",
                 secondaryHex = obj["bc"]?.jsonPrimitive?.contentOrNull
                     ?: obj["secondaryHex"]?.jsonPrimitive?.contentOrNull ?: "#34A853",
+                titleFont = obj["f"]?.jsonPrimitive?.contentOrNull
+                    ?: obj["titleFont"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                titleEffect = obj["fx"]?.jsonPrimitive?.contentOrNull
+                    ?: obj["titleEffect"]?.jsonPrimitive?.contentOrNull ?: "none",
                 nickGradient = matchedPreset,
                 customGradientStops = fcList,
                 bubbleSkin = obj["bb"]?.jsonPrimitive?.contentOrNull
@@ -1614,16 +2032,28 @@ object BadgeAndCosmeticRegistry {
                     ?: obj["badgeMode"]?.jsonPrimitive?.contentOrNull ?: "set",
                 equippedBadgeId = obj["bd"]?.jsonPrimitive?.contentOrNull
                     ?: obj["equippedBadgeId"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-                badgeScope = obj["bs"]?.jsonPrimitive?.contentOrNull
-                    ?: obj["badgeScope"]?.jsonPrimitive?.contentOrNull ?: "all",
-                decoScope = obj["sc"]?.jsonPrimitive?.contentOrNull
-                    ?: obj["decoScope"]?.jsonPrimitive?.contentOrNull ?: "all",
+                badgeScope = if (rawBs == "wall") "post" else rawBs,
+                decoScope = if (rawSc == "wall") "post" else rawSc,
                 equippedPersonalId = obj["pt"]?.jsonPrimitive?.contentOrNull
                     ?: obj["equippedPersonalId"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                 equippedRaffleId = obj["ft"]?.jsonPrimitive?.contentOrNull
                     ?: obj["equippedRaffleId"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                 equippedRaffleLevel = obj["fn"]?.jsonPrimitive?.intOrNull
                     ?: obj["equippedRaffleLevel"]?.jsonPrimitive?.intOrNull ?: 1,
+                equippedRaffleDisplayLevel = obj["fl"]?.jsonPrimitive?.intOrNull
+                    ?: obj["equippedRaffleDisplayLevel"]?.jsonPrimitive?.intOrNull ?: 0,
+                equippedRafflePermLevel = obj["fp"]?.jsonPrimitive?.intOrNull
+                    ?: obj["equippedRafflePermLevel"]?.jsonPrimitive?.intOrNull ?: 0,
+                equippedRaffleExpiresAt = obj["fxp"]?.jsonPrimitive?.longOrNull
+                    ?: obj["equippedRaffleExpiresAt"]?.jsonPrimitive?.longOrNull ?: 0L,
+                cgSize = obj["cg_size"]?.jsonPrimitive?.intOrNull
+                    ?: obj["cgSize"]?.jsonPrimitive?.intOrNull ?: 0,
+                cgRandom = obj["cg_random"]?.jsonPrimitive?.booleanOrNull
+                    ?: obj["cgRandom"]?.jsonPrimitive?.booleanOrNull ?: false,
+                cgMotion = obj["cg_motion"]?.jsonPrimitive?.booleanOrNull
+                    ?: obj["cgMotion"]?.jsonPrimitive?.booleanOrNull ?: true,
+                cgFire = obj["cg_fire"]?.jsonPrimitive?.booleanOrNull
+                    ?: obj["cgFire"]?.jsonPrimitive?.booleanOrNull ?: true,
                 equippedOfficialId = obj["ot"]?.jsonPrimitive?.contentOrNull
                     ?: obj["equippedOfficialId"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                 equippedGrowthId = obj["gr"]?.jsonPrimitive?.contentOrNull
@@ -1633,6 +2063,9 @@ object BadgeAndCosmeticRegistry {
                 communityTitleId = commObj?.get("title")?.jsonPrimitive?.contentOrNull.orEmpty(),
                 communityBadgeId = commObj?.get("badge")?.jsonPrimitive?.contentOrNull.orEmpty(),
                 communityBubbleId = commObj?.get("bubble")?.jsonPrimitive?.contentOrNull.orEmpty(),
+                communityReplyId = commObj?.get("reply")?.jsonPrimitive?.contentOrNull
+                    ?: obj["communityReplyId"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                showcaseKeys = showcaseParsed,
                 cleanHideOthersNick = obj["cleanHideOthersNick"]?.jsonPrimitive?.booleanOrNull ?: false,
                 cleanHideOthersBadges = obj["cleanHideOthersBadges"]?.jsonPrimitive?.booleanOrNull ?: false,
                 cleanHideOthersStyles = obj["cleanHideOthersStyles"]?.jsonPrimitive?.booleanOrNull ?: false,
@@ -1666,10 +2099,14 @@ object BadgeAndCosmeticRegistry {
             // Strip legacy Android-only keys so server stays clean
             if (k !in setOf(
                     "customTitle", "titleStyle", "fillMode", "primaryHex", "secondaryHex", "textHex",
-                    "nickGradient", "bubbleSkin", "badgeMode", "equippedBadgeId", "badgeScope", "decoScope",
-                    "equippedPersonalId", "equippedRaffleId", "equippedRaffleLevel", "equippedOfficialId",
-                    "equippedGrowthId", "equippedInviteTitle", "communityTitleId", "communityBadgeId",
-                    "communityBubbleId", "cleanHideOthersNick", "cleanHideOthersBadges",
+                    "titleFont", "titleEffect", "nickGradient", "bubbleSkin", "badgeMode",
+                    "equippedBadgeId", "badgeScope", "decoScope", "equippedPersonalId",
+                    "equippedRaffleId", "equippedRaffleLevel", "equippedRaffleDisplayLevel",
+                    "equippedRafflePermLevel", "equippedRaffleExpiresAt",
+                    "cgSize", "cgRandom", "cgMotion", "cgFire",
+                    "equippedOfficialId", "equippedGrowthId", "equippedInviteTitle",
+                    "communityTitleId", "communityBadgeId", "communityBubbleId", "communityReplyId",
+                    "showcaseKeys", "cleanHideOthersNick", "cleanHideOthersBadges",
                     "cleanHideOthersStyles", "cleanHideBubbles", "customGradientStops",
                 ) && v !is JsonNull
             ) {
@@ -1683,9 +2120,17 @@ object BadgeAndCosmeticRegistry {
         map["c"] = JsonPrimitive(config.textHex.ifBlank { "#ffffff" })
         map["c2"] = JsonPrimitive(config.primaryHex.ifBlank { "#16a34a" })
         map["bc"] = JsonPrimitive(config.secondaryHex.ifBlank { config.primaryHex.ifBlank { "#16a34a" } })
-        map["sc"] = JsonPrimitive(config.decoScope.ifBlank { "all" })
-        map["bs"] = JsonPrimitive(config.badgeScope.ifBlank { "all" })
+        val normSc = config.decoScope.ifBlank { "all" }.let { if (it == "wall") "post" else it }
+        val normBs = config.badgeScope.ifBlank { "all" }.let { if (it == "wall") "post" else it }
+        map["sc"] = JsonPrimitive(normSc)
+        map["bs"] = JsonPrimitive(normBs)
         map["badge_mode"] = JsonPrimitive(config.badgeMode.ifBlank { "set" })
+        if (config.titleFont.isNotBlank()) map["f"] = JsonPrimitive(config.titleFont) else map.remove("f")
+        if (config.titleEffect.isNotBlank() && config.titleEffect != "none") {
+            map["fx"] = JsonPrimitive(config.titleEffect)
+        } else {
+            map.remove("fx")
+        }
 
         val resolvedStops = when (config.nickGradient) {
             "sakura" -> listOf("#ff5fa2", "#ffb3d1", "#c86bff")
@@ -1724,8 +2169,20 @@ object BadgeAndCosmeticRegistry {
                 listOf("ft", "fn", "fl", "fp", "fxp", "ot", "gr", "rt").forEach { map.remove(it) }
             }
             config.equippedRaffleId.isNotBlank() -> {
+                val baseLv = config.equippedRaffleLevel.coerceAtLeast(1)
                 map["ft"] = JsonPrimitive(config.equippedRaffleId)
-                map["fn"] = JsonPrimitive(config.equippedRaffleLevel.coerceAtLeast(1))
+                map["fn"] = JsonPrimitive(baseLv)
+                if (config.equippedRaffleDisplayLevel > 0) {
+                    map["fl"] = JsonPrimitive(config.equippedRaffleDisplayLevel.coerceIn(1, baseLv))
+                } else {
+                    map.remove("fl")
+                }
+                if (config.equippedRaffleId == "chickengun") {
+                    if (config.cgSize > 0) map["cg_size"] = JsonPrimitive(config.cgSize) else map.remove("cg_size")
+                    map["cg_random"] = JsonPrimitive(config.cgRandom)
+                    map["cg_motion"] = JsonPrimitive(config.cgMotion)
+                    map["cg_fire"] = JsonPrimitive(config.cgFire)
+                }
                 listOf("pt", "ot", "gr", "rt").forEach { map.remove(it) }
             }
             config.equippedOfficialId.isNotBlank() -> {
@@ -1751,10 +2208,17 @@ object BadgeAndCosmeticRegistry {
         if (config.communityTitleId.isNotBlank()) commMap["title"] = JsonPrimitive(config.communityTitleId) else commMap.remove("title")
         if (config.communityBadgeId.isNotBlank()) commMap["badge"] = JsonPrimitive(config.communityBadgeId) else commMap.remove("badge")
         if (config.communityBubbleId.isNotBlank()) commMap["bubble"] = JsonPrimitive(config.communityBubbleId) else commMap.remove("bubble")
+        if (config.communityReplyId.isNotBlank()) commMap["reply"] = JsonPrimitive(config.communityReplyId) else commMap.remove("reply")
         if (commMap.isNotEmpty()) {
             map["community"] = JsonObject(commMap)
         } else {
             map.remove("community")
+        }
+
+        if (config.showcaseKeys != null) {
+            map["showcase"] = JsonArray(config.showcaseKeys.distinct().take(6).map { JsonPrimitive(it) })
+        } else {
+            map.remove("showcase")
         }
 
         return JsonObject(map)
