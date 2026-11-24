@@ -2799,7 +2799,10 @@ private fun LinuxDoPreferencesOverlay(
                     Surface(color = lc.surface, shape = RoundedCornerShape(10.dp), border = BorderStroke(0.5.dp, lc.line), modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             LinuxDoSwitchRow("图片与附件默认保护遮罩", privacyConfig.blurAllEnabled, lc) {
-                                onUpdatePrivacyConfig(privacyConfig.copy(blurAllEnabled = it))
+                                onUpdatePrivacyConfig(privacyConfig.copy(blurAllEnabled = it, blurDefaultsMigratedV1 = true))
+                            }
+                            LinuxDoSwitchRow("进入伪装时自动开启全局图片模糊", privacyConfig.autoBlurOnEnterDisguise, lc) {
+                                onUpdatePrivacyConfig(privacyConfig.copy(autoBlurOnEnterDisguise = it, blurDefaultsMigratedV1 = true))
                             }
                             LinuxDoSwitchRow("连续两次返回切换只读文档", privacyConfig.bossDoubleBack, lc) {
                                 onUpdatePrivacyConfig(privacyConfig.copy(bossDoubleBack = it))

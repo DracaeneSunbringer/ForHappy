@@ -873,6 +873,14 @@ fun ForHappyShell(
                         me = me,
                         hasFloatingDock = palette.isModernUi,
                         onDockHideChanged = { hidden -> chatDockHidden = hidden },
+                        onToggleBlurAll = { enabled ->
+                            onUpdatePrivacyConfig(
+                                privacyConfig.copy(
+                                    blurAllEnabled = enabled,
+                                    blurDefaultsMigratedV1 = true,
+                                ),
+                            )
+                        },
                         initialJump = pendingChatJump,
                         onConsumeInitialJump = { pendingChatJump = null },
                         onNavigateToMeme = { id ->

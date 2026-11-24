@@ -38,6 +38,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.AlternateEmail
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.CardGiftcard
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
@@ -46,6 +47,7 @@ import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.GroupAdd
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Notifications
@@ -58,6 +60,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -97,12 +101,14 @@ import com.jinhuan.forhappy.core.chat.ChatRichTextParser
 import com.jinhuan.forhappy.core.chat.ChatSessionController
 import com.jinhuan.forhappy.core.clock.ServerClock
 import com.jinhuan.forhappy.core.cosmetics.BadgeAndCosmeticRegistry
+import com.jinhuan.forhappy.core.cosmetics.SelectableCosmeticEntry
 import com.jinhuan.forhappy.core.model.AppDisguiseMode
 import com.jinhuan.forhappy.core.model.ChatGoneGroup
 import com.jinhuan.forhappy.core.model.ChatGroup
 import com.jinhuan.forhappy.core.model.ChatMessage
 import com.jinhuan.forhappy.core.model.ChatScrollPolicy
 import com.jinhuan.forhappy.core.model.ChatUser
+import com.jinhuan.forhappy.core.model.DecoConfig
 import com.jinhuan.forhappy.core.model.DmThread
 import com.jinhuan.forhappy.core.model.GroupMemberItem
 import com.jinhuan.forhappy.core.model.MeUser
@@ -1159,6 +1165,7 @@ private fun GlobalMessagesSearchDialog(
 /**
  * Full-screen group information & management dialog (`02c §1`).
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun GroupInfoDialog(
     group: ChatGroup,
@@ -1166,6 +1173,11 @@ fun GroupInfoDialog(
     controller: ChatSessionController,
     api: ForHappyApiClient,
     me: MeUser?,
+    blurAllEnabled: Boolean = false,
+    onToggleBlurAll: ((Boolean) -> Unit)? = null,
+    cleanDecoConfig: DecoConfig = DecoConfig(),
+    onUpdateCleanConfig: ((DecoConfig) -> Unit)? = null,
+    onOpenSelectiveCosmetics: (() -> Unit)? = null,
     onDismiss: () -> Unit,
     onOpenRedpackArchive: () -> Unit,
     onSelectMember: (GroupMemberItem) -> Unit,
@@ -1342,15 +1354,95 @@ fun GroupInfoDialog(
                                     },
                                 )
                             }
+                            if (onToggleBlurAll != null) {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("全图防窥模糊", color = palette.text, fontSize = 14.sp)
+                                        Text("群聊与图廊图片默认高斯模糊，点按单张看清", color = palette.muted, fontSize = 11.sp)
+                                    }
+                                    Switch(
+                                        checked = blurAllEnabled,
+                                        onCheckedChange = { onToggleBlurAll(it) },
+                                    )
+                                }
+                            }
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text("清爽模式", color = palette.text, fontSize = 14.sp)
-                                    Text("弱化气泡装扮与挂件效果，阅读更纯粹", color = palette.muted, fontSize = 11.sp)
+                                    Text("一键隐藏全部装扮与气泡特效，阅读更纯粹", color = palette.muted, fontSize = 11.sp)
                                 }
                                 Switch(
                                     checked = state.cleanDecoMode,
                                     onCheckedChange = { controller.setCleanDecoMode(it) },
                                 )
+                            }
+                            if (!state.cleanDecoMode && onUpdateCleanConfig != null) {
+                                HorizontalDivider(color = palette.line.copy(alpha = 0.6f))
+                                Text("按部位选择性关闭他人装扮", color = palette.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    listOf(
+                                        Triple("隐藏炫彩昵称", cleanDecoConfig.cleanHideOthersNick) { v: Boolean -> cleanDecoConfig.copy(cleanHideOthersNick = v) },
+                                        Triple("隐藏称号铭牌", cleanDecoConfig.cleanHideOthersStyles) { v: Boolean -> cleanDecoConfig.copy(cleanHideOthersStyles = v) },
+                                        Triple("隐藏徽章图标", cleanDecoConfig.cleanHideOthersBadges) { v: Boolean -> cleanDecoConfig.copy(cleanHideOthersBadges = v) },
+                                        Triple("隐藏气泡皮肤", cleanDecoConfig.cleanHideBubbles) { v: Boolean -> cleanDecoConfig.copy(cleanHideBubbles = v) },
+                                        Triple("隐藏 +1 回应框", cleanDecoConfig.cleanHideReplyFrames) { v: Boolean -> cleanDecoConfig.copy(cleanHideReplyFrames = v) },
+                                        Triple("隐藏气泡挂件", cleanDecoConfig.cleanPauseOrnaments) { v: Boolean -> cleanDecoConfig.copy(cleanPauseOrnaments = v) },
+                                    ).forEach { (label, checked, updater) ->
+                                        FilterChip(
+                                            selected = checked,
+                                            onClick = { onUpdateCleanConfig(updater(!checked)) },
+                                            label = { Text(label, fontSize = 11.5.sp) },
+                                        )
+                                    }
+                                }
+                                if (onOpenSelectiveCosmetics != null) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .clickable { onOpenSelectiveCosmetics() }
+                                            .padding(vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Icon(Icons.Rounded.FilterList, contentDescription = null, tint = palette.primary, modifier = Modifier.size(18.dp))
+                                            Column {
+                                                Text("选择性关闭指定装扮", color = palette.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                                                Text("可精准屏蔽单个社区皮肤、角色套装或特效，保留其余装扮", color = palette.muted, fontSize = 11.sp)
+                                            }
+                                        }
+                                        Text(
+                                            text = if (cleanDecoConfig.blockedCosmeticKeys.isEmpty()) "去选择 ›" else "已屏蔽 ${cleanDecoConfig.blockedCosmeticKeys.size} 款 ›",
+                                            color = palette.primary,
+                                            fontSize = 12.sp,
+                                        )
+                                    }
+                                }
+                                if (cleanDecoConfig.blockedCosmeticKeys.isNotEmpty()) {
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        cleanDecoConfig.blockedCosmeticKeys.forEach { key ->
+                                            val entry = remember(key) { BadgeAndCosmeticRegistry.describeCosmeticKey(key) }
+                                            FilterChip(
+                                                selected = true,
+                                                onClick = {
+                                                    onUpdateCleanConfig(
+                                                        cleanDecoConfig.copy(
+                                                            blockedCosmeticKeys = cleanDecoConfig.blockedCosmeticKeys - key,
+                                                        ),
+                                                    )
+                                                },
+                                                label = { Text("${entry.name} ✕", fontSize = 11.sp) },
+                                            )
+                                        }
+                                    }
+                                }
                             }
                             HorizontalDivider(color = palette.line.copy(alpha = 0.6f))
                             Text("新消息滚屏策略", color = palette.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
@@ -2022,4 +2114,224 @@ private fun formatSessionTime(epochSec: Long): String {
             timeZone = java.util.TimeZone.getTimeZone("Asia/Shanghai")
         }.format(Date(epochSec * 1000L))
     }.getOrDefault("")
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun SelectiveCosmeticBlockDialog(
+    config: DecoConfig,
+    recentChatEntries: List<SelectableCosmeticEntry> = emptyList(),
+    onUpdateConfig: (DecoConfig) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val palette = LocalForHappyPalette.current
+    val cosmeticCatalogRev by BadgeAndCosmeticRegistry.catalogRevision.collectAsState()
+    var query by remember { mutableStateOf("") }
+    val allEntries = remember(cosmeticCatalogRev) {
+        BadgeAndCosmeticRegistry.buildSelectableCosmeticCatalog()
+    }
+    val q = query.trim().lowercase()
+    val filteredRecent = remember(recentChatEntries, q) {
+        if (q.isEmpty()) recentChatEntries
+        else recentChatEntries.filter {
+            it.name.lowercase().contains(q) ||
+                it.subtitle.lowercase().contains(q) ||
+                it.key.lowercase().contains(q)
+        }
+    }
+    val groupedCatalog = remember(allEntries, q) {
+        val filtered = if (q.isEmpty()) allEntries else allEntries.filter {
+            it.name.lowercase().contains(q) ||
+                it.subtitle.lowercase().contains(q) ||
+                it.category.lowercase().contains(q) ||
+                it.key.lowercase().contains(q)
+        }
+        filtered.groupBy { it.category }
+    }
+    val navBottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = FullscreenDialogProperties,
+    ) {
+        ConfigureFullscreenDialogWindow(darkStatusIcons = !palette.isDark)
+        DialogBackOwnerScope {
+            BackHandler(onBack = onDismiss)
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(palette.bg),
+            ) {
+                Surface(color = if (palette.isModernUi) palette.glassSurface else palette.surface) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .height(if (palette.isModernUi) 52.dp else ForHappyDimens.topBarHeight)
+                            .padding(horizontal = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = palette.text)
+                        }
+                        Text(
+                            text = "选择性屏蔽装扮",
+                            color = palette.text,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (config.blockedCosmeticKeys.isNotEmpty()) {
+                            TextButton(
+                                onClick = {
+                                    onUpdateConfig(config.copy(blockedCosmeticKeys = emptySet()))
+                                },
+                            ) {
+                                Text("清空 (${config.blockedCosmeticKeys.size})", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+                HorizontalDivider(
+                    color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                    thickness = if (palette.isModernUi) 0.5.dp else 1.dp,
+                )
+
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        start = 14.dp,
+                        end = 14.dp,
+                        top = 12.dp,
+                        bottom = 18.dp + navBottomPad,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    item {
+                        ForHappySearchField(
+                            value = query,
+                            onValueChange = { query = it },
+                            placeholder = "搜索装扮名称或作者，如 虫棍 / 魅魔 / 极光…",
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("屏蔽作用范围", color = palette.muted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(
+                                    selected = config.blockedKeyHideFullSet,
+                                    onClick = { onUpdateConfig(config.copy(blockedKeyHideFullSet = true)) },
+                                    label = { Text("整套隐藏（气泡+回应框+称号+徽章）", fontSize = 11.5.sp) },
+                                )
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(
+                                    selected = !config.blockedKeyHideFullSet,
+                                    onClick = { onUpdateConfig(config.copy(blockedKeyHideFullSet = false)) },
+                                    label = { Text("仅屏蔽气泡与回应框（保留称号文字）", fontSize = 11.5.sp) },
+                                )
+                            }
+                        }
+                    }
+
+                    if (filteredRecent.isNotEmpty()) {
+                        item {
+                            Surface(
+                                color = palette.surface,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, palette.primary.copy(alpha = 0.35f), RoundedCornerShape(14.dp)),
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        Icon(Icons.Rounded.Block, contentDescription = null, tint = palette.primary, modifier = Modifier.size(16.dp))
+                                        Text(
+                                            text = "当前群聊近期出现的装扮（点选即关闭）",
+                                            color = palette.primary,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                    }
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        filteredRecent.forEach { entry ->
+                                            val blocked = entry.key in config.blockedCosmeticKeys
+                                            FilterChip(
+                                                selected = blocked,
+                                                onClick = {
+                                                    val next = if (blocked) {
+                                                        config.blockedCosmeticKeys - entry.key
+                                                    } else {
+                                                        config.blockedCosmeticKeys + entry.key
+                                                    }
+                                                    onUpdateConfig(config.copy(blockedCosmeticKeys = next))
+                                                },
+                                                label = {
+                                                    val tag = if (blocked) " · 已屏蔽" else ""
+                                                    Text("${entry.name}$tag", fontSize = 12.sp)
+                                                },
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    groupedCatalog.forEach { (category, entries) ->
+                        item(key = "blk_cat_$category") {
+                            Surface(
+                                color = palette.surface,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, palette.line, RoundedCornerShape(14.dp)),
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Text("$category (${entries.size})", color = palette.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        entries.forEach { entry ->
+                                            val blocked = entry.key in config.blockedCosmeticKeys
+                                            FilterChip(
+                                                selected = blocked,
+                                                onClick = {
+                                                    val next = if (blocked) {
+                                                        config.blockedCosmeticKeys - entry.key
+                                                    } else {
+                                                        config.blockedCosmeticKeys + entry.key
+                                                    }
+                                                    onUpdateConfig(config.copy(blockedCosmeticKeys = next))
+                                                },
+                                                label = {
+                                                    val tag = if (blocked) " · 已屏蔽" else ""
+                                                    Text("${entry.name}$tag", fontSize = 11.5.sp)
+                                                },
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

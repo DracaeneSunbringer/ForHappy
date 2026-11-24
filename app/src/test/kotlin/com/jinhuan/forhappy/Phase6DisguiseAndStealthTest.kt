@@ -163,4 +163,20 @@ class Phase6DisguiseAndStealthTest {
         assertEquals(AppDisguiseMode.NONE, backNormal.disguiseMode)
         assertFalse(backNormal.blurAllEnabled)
     }
+
+    @Test
+    fun defaultPrivacyConfigDoesNotForceAutoBlurOnDisguiseOrBossExit() {
+        val def = PrivacyStealthConfig()
+        assertFalse(def.blurAllEnabled)
+        assertFalse(def.autoBlurOnEnterDisguise)
+        assertFalse(def.keepBlurAfterBossExit)
+
+        val inFeishu = DisguiseSanitizer.applyDisguiseSwitch(def, AppDisguiseMode.FEISHU)
+        assertEquals(AppDisguiseMode.FEISHU, inFeishu.disguiseMode)
+        assertFalse(inFeishu.blurAllEnabled)
+
+        val inBoss = DisguiseSanitizer.applyEnterBoss(inFeishu, alreadyBoss = false)
+        val afterBoss = DisguiseSanitizer.applyExitBoss(inBoss)
+        assertFalse(afterBoss.blurAllEnabled)
+    }
 }

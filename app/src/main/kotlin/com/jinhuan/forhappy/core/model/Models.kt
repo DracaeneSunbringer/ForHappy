@@ -1672,7 +1672,7 @@ data class PrivacyStealthConfig(
     val disguiseMode: AppDisguiseMode = AppDisguiseMode.NONE,
     val blurAllEnabled: Boolean = false,
     val blurBeforeDisguise: Boolean = false,
-    val autoBlurOnEnterDisguise: Boolean = true,
+    val autoBlurOnEnterDisguise: Boolean = false,
     val autoReblurOnScrollOff: Boolean = true,
     val autoBlurOnBackground: Boolean = false,
     val blurShortcut: ShortcutGestureMode = ShortcutGestureMode.NONE,
@@ -1682,11 +1682,12 @@ data class PrivacyStealthConfig(
     val bossOnBackgroundResume: Boolean = false,
     val isBossPersisted: Boolean = false,
     val bossReturnDisguise: AppDisguiseMode = AppDisguiseMode.NONE,
-    val keepBlurAfterBossExit: Boolean = true,
+    val keepBlurAfterBossExit: Boolean = false,
     val bossExitLongPressTitle: Boolean = true,
     val bossExitTapCollabFive: Boolean = false,
     val stealthHapticFeedback: Boolean = true,
     val feishuMemberAliasEnabled: Boolean = true,
+    val blurDefaultsMigratedV1: Boolean = false,
 )
 
 @Serializable
@@ -2516,6 +2517,10 @@ data class DecoConfig(
     val cleanHideOthersBadges: Boolean = false,
     val cleanHideOthersStyles: Boolean = false,
     val cleanHideBubbles: Boolean = false,
+    val cleanHideReplyFrames: Boolean = false,
+    val cleanPauseOrnaments: Boolean = false,
+    val blockedCosmeticKeys: Set<String> = emptySet(),
+    val blockedKeyHideFullSet: Boolean = true,
 )
 
 internal fun parseJsonTruthy(el: JsonElement?): Boolean {

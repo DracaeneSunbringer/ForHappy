@@ -2001,12 +2001,22 @@ internal fun FeishuSettingsOverlay(
                     Surface(color = fc.card, modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(vertical = 4.dp)) {
                             FeishuSwitchRow(
-                                title = "工作群附件默认保护遮罩",
-                                subtitle = "进入工作区与滚动后自动隐藏图片细节，点击可查看",
+                                title = "全局图片模糊（附件防窥遮罩）",
+                                subtitle = "进入工作区与滚动后自动隐藏图片细节，点击单张可看清",
                                 checked = privacyConfig.blurAllEnabled,
                                 fc = fc,
                                 onCheckedChange = {
-                                    onUpdatePrivacyConfig(privacyConfig.copy(blurAllEnabled = it))
+                                    onUpdatePrivacyConfig(privacyConfig.copy(blurAllEnabled = it, blurDefaultsMigratedV1 = true))
+                                },
+                            )
+                            HorizontalDivider(color = fc.line, modifier = Modifier.padding(start = 16.dp))
+                            FeishuSwitchRow(
+                                title = "进入伪装时自动开启全局图片模糊",
+                                subtitle = "切入当前协作视图时自动糊图，退出伪装时恢复原状",
+                                checked = privacyConfig.autoBlurOnEnterDisguise,
+                                fc = fc,
+                                onCheckedChange = {
+                                    onUpdatePrivacyConfig(privacyConfig.copy(autoBlurOnEnterDisguise = it, blurDefaultsMigratedV1 = true))
                                 },
                             )
                             HorizontalDivider(color = fc.line, modifier = Modifier.padding(start = 16.dp))

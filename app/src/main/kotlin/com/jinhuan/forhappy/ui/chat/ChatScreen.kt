@@ -73,6 +73,7 @@ import androidx.compose.material.icons.rounded.AddCircleOutline
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.CardGiftcard
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Close
@@ -84,6 +85,7 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.EmojiEmotions
 import androidx.compose.material.icons.rounded.EmojiEvents
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.FormatQuote
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Image
@@ -174,11 +176,13 @@ import com.jinhuan.forhappy.core.chat.ChatRichTextParser
 import com.jinhuan.forhappy.core.chat.ChatSessionController
 import com.jinhuan.forhappy.core.clock.ServerClock
 import com.jinhuan.forhappy.core.cosmetics.BadgeAndCosmeticRegistry
+import com.jinhuan.forhappy.core.cosmetics.BubbleOrnament
 import com.jinhuan.forhappy.core.cosmetics.ChatBubbleCosmetics
 import com.jinhuan.forhappy.core.model.AppDisguiseMode
 import com.jinhuan.forhappy.core.model.BOOST_MAX_LEN
 import com.jinhuan.forhappy.core.model.BOOST_PRESETS
 import com.jinhuan.forhappy.core.model.ChatBoost
+import com.jinhuan.forhappy.core.model.ChatGroup
 import com.jinhuan.forhappy.core.model.ChatInputMode
 import com.jinhuan.forhappy.core.model.ChatMedia
 import com.jinhuan.forhappy.core.model.ChatMessage
@@ -290,6 +294,7 @@ fun ChatScreen(
     onOpenDiscoverRoute: ((String) -> Unit)? = null,
     hasFloatingDock: Boolean = false,
     onDockHideChanged: (Boolean) -> Unit = {},
+    onToggleBlurAll: (Boolean) -> Unit = {},
 ) {
     val palette = LocalForHappyPalette.current
     val stealth = LocalPrivacyStealthConfig.current
@@ -309,9 +314,11 @@ fun ChatScreen(
     var activePane by remember(isDirectEmbedded, forcedChannelMode) {
         mutableStateOf(if (isDirectEmbedded || bypassSessionList) (forcedChannelMode ?: "group") else "list")
     }
-    var cleanRawPref by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(me?.id, me?.deco, state.activeGroupId, activePane) {
-        cleanRawPref = api.getPref(KV_DECO_CLEAN)
+    val sharedCleanRaw by BadgeAndCosmeticRegistry.localCleanRawFlow.collectAsState()
+    LaunchedEffect(me?.id, sharedCleanRaw) {
+        if (sharedCleanRaw == null) {
+            BadgeAndCosmeticRegistry.seedLocalCleanRaw(api.getPref(KV_DECO_CLEAN))
+        }
     }
     LaunchedEffect(isDirectEmbedded, bypassSessionList, state.dmEnabled, disguiseMode) {
         if (!isDirectEmbedded) {
@@ -322,8 +329,14 @@ fun ChatScreen(
             }
         }
     }
-    val cleanDecoConfig = remember(me?.deco, cleanRawPref) {
-        BadgeAndCosmeticRegistry.parseServerDecoConfig(me?.deco, cleanRawPref)
+    val cleanDecoConfig = remember(me?.deco, sharedCleanRaw) {
+        BadgeAndCosmeticRegistry.parseServerDecoConfig(me?.deco, sharedCleanRaw)
+    }
+    var showSelectiveCosmeticDialog by remember { mutableStateOf(false) }
+    val updateCleanConfig: (DecoConfig) -> Unit = { next ->
+        scope.launch {
+            BadgeAndCosmeticRegistry.saveLocalCleanConfig(api, next)
+        }
     }
     var listFilter by remember { mutableStateOf("all") }
 
@@ -3295,6 +3308,18 @@ fun ChatScreen(
             msg = targetMsg,
             api = api,
             me = me,
+            cleanDecoConfig = cleanDecoConfig,
+            onToggleBlockCosmeticKey = { rawKey ->
+                val key = BadgeAndCosmeticRegistry.canonicalCosmeticKey(rawKey) ?: rawKey
+                val blocked = cleanDecoConfig.blockedCosmeticKeys
+                val next = if (key in blocked) blocked - key else blocked + key
+                updateCleanConfig(cleanDecoConfig.copy(blockedCosmeticKeys = next))
+                chatStatusBanner = if (key in blocked) "已恢复显示该装扮" else "已选择性屏蔽该装扮"
+            },
+            onOpenSelectiveCosmetics = {
+                actionSheetMsg = null
+                showSelectiveCosmeticDialog = true
+            },
             onDismiss = { actionSheetMsg = null },
             onReact = { emoji ->
                 actionSheetMsg = null
@@ -3418,13 +3443,19 @@ fun ChatScreen(
         )
     }
 
-    if (showGroupInfoDialog && activeGroup != null) {
+    if (showGroupInfoDialog) {
+        val resolvedGroup = activeGroup ?: ChatGroup(id = state.activeGroupId, name = "群聊", joined = true)
         GroupInfoDialog(
-            group = activeGroup,
+            group = resolvedGroup,
             state = state,
             controller = controller,
             api = api,
             me = me,
+            blurAllEnabled = stealth.blurAllEnabled,
+            onToggleBlurAll = onToggleBlurAll,
+            cleanDecoConfig = cleanDecoConfig,
+            onUpdateCleanConfig = updateCleanConfig,
+            onOpenSelectiveCosmetics = { showSelectiveCosmeticDialog = true },
             onDismiss = { showGroupInfoDialog = false },
             onOpenRedpackArchive = {
                 showGroupInfoDialog = false
@@ -3435,13 +3466,25 @@ fun ChatScreen(
             },
             onLeftGroup = {
                 showGroupInfoDialog = false
-                val remaining = state.groups.filter { it.joined && it.id != activeGroup.id }
+                val remaining = state.groups.filter { it.joined && it.id != resolvedGroup.id }
                 if (bypassSessionList && remaining.isNotEmpty()) {
                     controller.setActiveGroup(remaining.first().id)
                 } else {
                     activePane = "list"
                 }
             },
+        )
+    }
+
+    if (showSelectiveCosmeticDialog) {
+        val recentChatCosmetics = remember(state.messages, palette.isDark, cosmeticCatalogRev) {
+            BadgeAndCosmeticRegistry.extractActiveChatCosmetics(state.messages, palette.isDark)
+        }
+        SelectiveCosmeticBlockDialog(
+            config = cleanDecoConfig,
+            recentChatEntries = recentChatCosmetics,
+            onUpdateConfig = updateCleanConfig,
+            onDismiss = { showSelectiveCosmeticDialog = false },
         )
     }
 
@@ -4278,7 +4321,18 @@ private fun SwipeableChatRow(
                             modifier = Modifier.align(Alignment.CenterVertically),
                         )
                     }
-                    if (!hideTitle) {
+                    val titleKeyBlocked = cleanDecoConfig.blockedKeyHideFullSet &&
+                        BadgeAndCosmeticRegistry.isCosmeticBlocked(
+                            rawKey = chatIdentity?.title?.key,
+                            blockedKeys = cleanDecoConfig.blockedCosmeticKeys,
+                        )
+                    val badgeKeyBlocked = cleanDecoConfig.blockedKeyHideFullSet &&
+                        BadgeAndCosmeticRegistry.isCosmeticBlocked(
+                            rawKey = chatIdentity?.badge?.id,
+                            blockedKeys = cleanDecoConfig.blockedCosmeticKeys,
+                            isBadgeId = true,
+                        )
+                    if (!hideTitle && !titleKeyBlocked) {
                         if (chatIdentity?.title != null) {
                             TitleChipView(
                                 title = chatIdentity.title,
@@ -4295,7 +4349,7 @@ private fun SwipeableChatRow(
                             }
                         }
                     }
-                    if (!hideBadge) {
+                    if (!hideBadge && !badgeKeyBlocked) {
                         chatIdentity?.badge?.let { badgeChip ->
                             BadgeChipView(
                                 badge = badgeChip,
@@ -4677,16 +4731,27 @@ private fun SwipeableChatRow(
                                         msg.id,
                                         hideBubble,
                                         hideCss,
+                                        cleanDecoConfig.blockedCosmeticKeys,
+                                        cleanDecoConfig.cleanPauseOrnaments,
                                         palette.isDark,
                                         cosmeticCatalogRev,
                                     ) {
-                                        ChatBubbleCosmetics.resolveChatBubbleStyle(
+                                        val rawBubble = ChatBubbleCosmetics.resolveChatBubbleStyle(
                                             user = msg.user,
                                             messageId = msg.id.toString(),
                                             isDarkTheme = palette.isDark,
                                             hideBubble = hideBubble,
                                             hideCss = hideCss,
                                         )
+                                        val keyBlocked = rawBubble != null && BadgeAndCosmeticRegistry.isCosmeticBlocked(
+                                            rawKey = rawBubble.key,
+                                            blockedKeys = cleanDecoConfig.blockedCosmeticKeys,
+                                        )
+                                        when {
+                                            keyBlocked -> null
+                                            rawBubble != null && cleanDecoConfig.cleanPauseOrnaments -> rawBubble.copy(ornament = BubbleOrnament.None)
+                                            else -> rawBubble
+                                        }
                                     }
                                     ChatCosmeticBubbleBox(
                                         style = bubbleStyle,
@@ -5077,21 +5142,32 @@ private fun ChatBoostsBlock(
                         }
                     } else {
                         val bOwn = b.mine || (meId > 0L && b.userId == meId)
-                        val hideBoostFrame = cleanDecoMode || (!bOwn && cleanDecoConfig.cleanHideBubbles)
+                        val hideBoostFrame = cleanDecoMode || (!bOwn && (cleanDecoConfig.cleanHideBubbles || cleanDecoConfig.cleanHideReplyFrames))
                         val boostStyle = remember(
                             b.deco,
                             b.cosmeticAccess,
                             b.userId,
                             hideBoostFrame,
+                            cleanDecoConfig.blockedCosmeticKeys,
+                            cleanDecoConfig.cleanPauseOrnaments,
                             palette.isDark,
                             cosmeticCatalogRev,
                         ) {
-                            ChatBubbleCosmetics.resolveBoostFrameStyle(
+                            val rawBoost = ChatBubbleCosmetics.resolveBoostFrameStyle(
                                 boost = b,
                                 isDarkTheme = palette.isDark,
                                 hideBubble = hideBoostFrame,
                                 hideCss = hideBoostFrame,
                             )
+                            val keyBlocked = rawBoost != null && BadgeAndCosmeticRegistry.isCosmeticBlocked(
+                                rawKey = rawBoost.key,
+                                blockedKeys = cleanDecoConfig.blockedCosmeticKeys,
+                            )
+                            when {
+                                keyBlocked -> null
+                                rawBoost != null && cleanDecoConfig.cleanPauseOrnaments -> rawBoost.copy(ornament = BubbleOrnament.None)
+                                else -> rawBoost
+                            }
                         }
                         ChatCosmeticBoostPill(
                             style = boostStyle,
@@ -5126,6 +5202,9 @@ private fun ChatMessageActionSheet(
     msg: ChatMessage,
     api: ForHappyApiClient,
     me: MeUser?,
+    cleanDecoConfig: DecoConfig = DecoConfig(),
+    onToggleBlockCosmeticKey: ((String) -> Unit)? = null,
+    onOpenSelectiveCosmetics: (() -> Unit)? = null,
     onDismiss: () -> Unit,
     onReact: (String) -> Unit,
     onQuickBoost: (String) -> Unit,
@@ -5258,6 +5337,37 @@ private fun ChatMessageActionSheet(
                 if ((msg.canEdit || (msg.mine && msg.id > 0L)) && msg.body.isNotBlank()) ActionMenuTile(icon = Icons.Rounded.Edit, label = "编辑", onClick = onEdit)
                 if (msg.canDelete || (msg.mine && msg.id > 0L) || me?.isAdmin == true) {
                     ActionMenuTile(icon = Icons.Rounded.Delete, label = if (msg.mine) "撤回" else "删除", danger = true, onClick = onRecall)
+                }
+            }
+
+            val cosmeticCatalogRev by BadgeAndCosmeticRegistry.catalogRevision.collectAsState()
+            val wornCosmetics = remember(msg.id, msg.user?.deco, msg.boosts, palette.isDark, cosmeticCatalogRev, actionDisguiseMode) {
+                if (actionDisguiseMode == AppDisguiseMode.NONE) {
+                    BadgeAndCosmeticRegistry.extractMessageCosmeticEntries(msg, palette.isDark)
+                } else {
+                    emptyList()
+                }
+            }
+            if (actionDisguiseMode == AppDisguiseMode.NONE && (wornCosmetics.isNotEmpty() || onOpenSelectiveCosmetics != null)) {
+                HorizontalDivider(color = palette.line)
+                Text("装扮选择性屏蔽", color = palette.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    wornCosmetics.forEach { entry ->
+                        val isBlocked = BadgeAndCosmeticRegistry.isCosmeticBlocked(entry.key, cleanDecoConfig.blockedCosmeticKeys)
+                        ActionMenuTile(
+                            icon = Icons.Rounded.Block,
+                            label = if (isBlocked) "恢复 · ${entry.name}" else "屏蔽 · ${entry.name}",
+                            danger = !isBlocked,
+                            onClick = { onToggleBlockCosmeticKey?.invoke(entry.key) },
+                        )
+                    }
+                    if (onOpenSelectiveCosmetics != null) {
+                        ActionMenuTile(
+                            icon = Icons.Rounded.FilterList,
+                            label = if (cleanDecoConfig.blockedCosmeticKeys.isEmpty()) "选择性屏蔽管理" else "屏蔽管理 (${cleanDecoConfig.blockedCosmeticKeys.size})",
+                            onClick = onOpenSelectiveCosmetics,
+                        )
+                    }
                 }
             }
         }

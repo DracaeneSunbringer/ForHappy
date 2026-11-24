@@ -108,6 +108,7 @@ import com.jinhuan.forhappy.core.model.WalletSummary
 import com.jinhuan.forhappy.core.navigation.StealthExemptionGate
 import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
+import com.jinhuan.forhappy.ui.chat.SelectiveCosmeticBlockDialog
 import com.jinhuan.forhappy.ui.components.BadgeArtIcon
 import com.jinhuan.forhappy.ui.components.BadgeChipView
 import com.jinhuan.forhappy.ui.components.BadgePill
@@ -1177,6 +1178,7 @@ fun DecoStudioDialog(
     var syncingCatalog by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var bannerText by remember { mutableStateOf<String?>(null) }
+    var showSelectiveBlockDialog by remember { mutableStateOf(false) }
 
     val cosmeticCatalogRev by BadgeAndCosmeticRegistry.catalogRevision.collectAsState()
 
@@ -1355,8 +1357,12 @@ fun DecoStudioDialog(
                                         cleanHideOthersBadges = config.cleanHideOthersBadges,
                                         cleanHideOthersStyles = config.cleanHideOthersStyles,
                                         cleanHideBubbles = config.cleanHideBubbles,
+                                        cleanHideReplyFrames = config.cleanHideReplyFrames,
+                                        cleanPauseOrnaments = config.cleanPauseOrnaments,
+                                        blockedCosmeticKeys = config.blockedCosmeticKeys,
+                                        blockedKeyHideFullSet = config.blockedKeyHideFullSet,
                                     )
-                                    api.putPref(KV_DECO_CLEAN, ForHappyJson.encodeToString(DecoConfig.serializer(), cleaned))
+                                    BadgeAndCosmeticRegistry.saveLocalCleanConfig(api, cleaned)
                                     saving = false
                                     res.fold(
                                         onSuccess = {
@@ -1382,7 +1388,7 @@ fun DecoStudioDialog(
                                         ownedBadges = ownedBadges,
                                     )
                                     val res = api.updateMeDeco(payload)
-                                    api.putPref(KV_DECO_CLEAN, ForHappyJson.encodeToString(DecoConfig.serializer(), config))
+                                    BadgeAndCosmeticRegistry.saveLocalCleanConfig(api, config)
                                     saving = false
                                     res.fold(
                                         onSuccess = {
@@ -2198,23 +2204,53 @@ fun DecoStudioDialog(
                                     }
                                 }
                                 4 -> {
+                                    fun persistCleanTab(next: DecoConfig) {
+                                        config = next
+                                        scope.launch { BadgeAndCosmeticRegistry.saveLocalCleanConfig(api, next) }
+                                    }
                                     CleanDecoToggleRow("隐藏他人彩色渐变昵称", config.cleanHideOthersNick) {
-                                        config = config.copy(cleanHideOthersNick = it)
+                                        persistCleanTab(config.copy(cleanHideOthersNick = it))
                                     }
                                     CleanDecoToggleRow("隐藏他人徽章图标", config.cleanHideOthersBadges) {
-                                        config = config.copy(cleanHideOthersBadges = it)
+                                        persistCleanTab(config.copy(cleanHideOthersBadges = it))
                                     }
                                     CleanDecoToggleRow("隐藏他人装饰边框与特殊称号", config.cleanHideOthersStyles) {
-                                        config = config.copy(cleanHideOthersStyles = it)
+                                        persistCleanTab(config.copy(cleanHideOthersStyles = it))
                                     }
                                     CleanDecoToggleRow("隐藏聊天气泡特效皮肤", config.cleanHideBubbles) {
-                                        config = config.copy(cleanHideBubbles = it)
+                                        persistCleanTab(config.copy(cleanHideBubbles = it))
+                                    }
+                                    CleanDecoToggleRow("隐藏他人 +1 回应框皮肤", config.cleanHideReplyFrames) {
+                                        persistCleanTab(config.copy(cleanHideReplyFrames = it))
+                                    }
+                                    CleanDecoToggleRow("隐藏聊天气泡外挂件动效", config.cleanPauseOrnaments) {
+                                        persistCleanTab(config.copy(cleanPauseOrnaments = it))
+                                    }
+                                    HorizontalDivider(color = palette.line.copy(alpha = 0.6f))
+                                    OutlinedButton(
+                                        onClick = { showSelectiveBlockDialog = true },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Text(
+                                            text = "选择性屏蔽指定装扮（已屏蔽 ${config.blockedCosmeticKeys.size} 款）",
+                                            fontSize = 12.5.sp,
+                                        )
                                     }
                                 }
                             }
                         }
                     }
                 }
+            }
+            if (showSelectiveBlockDialog) {
+                SelectiveCosmeticBlockDialog(
+                    config = config,
+                    onUpdateConfig = { next ->
+                        config = next
+                        scope.launch { BadgeAndCosmeticRegistry.saveLocalCleanConfig(api, next) }
+                    },
+                    onDismiss = { showSelectiveBlockDialog = false },
+                )
             }
         }
     }

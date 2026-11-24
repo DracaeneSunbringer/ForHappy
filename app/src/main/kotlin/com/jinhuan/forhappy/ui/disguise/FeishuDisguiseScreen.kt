@@ -62,6 +62,8 @@ import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Tag
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -71,6 +73,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -338,7 +341,7 @@ fun FeishuDisguiseScreen(
     privacyShieldEnabled: Boolean = false,
     activeIconAlias: AppIconAlias = AppIconAlias.JINHUAN,
     onRequireLogin: () -> Unit,
-    @Suppress("UNUSED_PARAMETER") onToggleBlurAll: (Boolean) -> Unit,
+    onToggleBlurAll: (Boolean) -> Unit,
     @Suppress("UNUSED_PARAMETER") onTriggerBossKey: () -> Unit,
     @Suppress("UNUSED_PARAMETER") onOpenPrivacySettings: () -> Unit = {},
     onExitDisguise: () -> Unit,
@@ -387,6 +390,10 @@ fun FeishuDisguiseScreen(
     var newDmSending by remember { mutableStateOf(false) }
 
     var globalBanner by remember { mutableStateOf<String?>(null) }
+    val toggleBlurWithBanner: (Boolean) -> Unit = { enabled ->
+        onToggleBlurAll(enabled)
+        globalBanner = if (enabled) "已开启全局图片模糊" else "已关闭全局图片模糊"
+    }
     LaunchedEffect(globalBanner) {
         if (globalBanner != null) {
             delay(2200L)
@@ -474,6 +481,7 @@ fun FeishuDisguiseScreen(
                             tagFilter = null,
                             api = api,
                             privacyConfig = privacyConfig,
+                            onToggleBlurAll = toggleBlurWithBanner,
                             onNotify = { globalBanner = it },
                             onOpenTagTopic = { tag ->
                                 activeTarget = FeishuConvTarget.TagTopic(tag = tag, count = 0)
@@ -489,6 +497,7 @@ fun FeishuDisguiseScreen(
                             tagFilter = target.tag,
                             api = api,
                             privacyConfig = privacyConfig,
+                            onToggleBlurAll = toggleBlurWithBanner,
                             onNotify = { globalBanner = it },
                             onOpenTagTopic = { tag ->
                                 activeTarget = FeishuConvTarget.TagTopic(tag = tag, count = 0)
@@ -510,6 +519,8 @@ fun FeishuDisguiseScreen(
                             groupId = target.group.id,
                             dmThreadId = null,
                             currentAlias = customGroupAliases[target.group.id].orEmpty(),
+                            blurAllEnabled = privacyConfig.blurAllEnabled,
+                            onToggleBlurAll = toggleBlurWithBanner,
                             api = api,
                             chatController = chatController,
                             me = me,
@@ -539,6 +550,8 @@ fun FeishuDisguiseScreen(
                             groupId = null,
                             dmThreadId = target.dm.id,
                             currentAlias = "",
+                            blurAllEnabled = privacyConfig.blurAllEnabled,
+                            onToggleBlurAll = toggleBlurWithBanner,
                             api = api,
                             chatController = chatController,
                             me = me,
@@ -570,6 +583,8 @@ fun FeishuDisguiseScreen(
                                 loadingDays = loadingDays,
                                 customAliases = customGroupAliases,
                                 aliasEnabled = privacyConfig.feishuMemberAliasEnabled,
+                                blurAllEnabled = privacyConfig.blurAllEnabled,
+                                onToggleBlurAll = toggleBlurWithBanner,
                                 msgFilter = msgFilter,
                                 showSearch = showSearch,
                                 searchQuery = searchQuery,
@@ -628,6 +643,8 @@ fun FeishuDisguiseScreen(
                                 scope = scope,
                                 api = api,
                                 aliasEnabled = privacyConfig.feishuMemberAliasEnabled,
+                                blurAllEnabled = privacyConfig.blurAllEnabled,
+                                onToggleBlurAll = toggleBlurWithBanner,
                                 onRequireLogin = onRequireLogin,
                                 onOpenSettings = { settingsPage = it },
                                 onFilterFavorites = {
@@ -831,6 +848,8 @@ private fun FeishuMessagesHomeTab(
     loadingDays: Boolean,
     customAliases: Map<Long, String>,
     aliasEnabled: Boolean,
+    blurAllEnabled: Boolean,
+    onToggleBlurAll: (Boolean) -> Unit,
     msgFilter: String,
     showSearch: Boolean,
     searchQuery: String,
@@ -966,6 +985,17 @@ private fun FeishuMessagesHomeTab(
                         modifier = Modifier.weight(1f),
                     )
                     IconButton(
+                        onClick = { onToggleBlurAll(!blurAllEnabled) },
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (blurAllEnabled) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                            contentDescription = if (blurAllEnabled) "关闭全局图片模糊" else "开启全局图片模糊",
+                            tint = if (blurAllEnabled) fc.blue else fc.text,
+                            modifier = Modifier.size(19.dp),
+                        )
+                    }
+                    IconButton(
                         onClick = {
                             onSelectFilter(if (msgFilter == "unread") "all" else "unread")
                         },
@@ -998,6 +1028,13 @@ private fun FeishuMessagesHomeTab(
                             DropdownMenuItem(
                                 text = { Text("按话题标签浏览") },
                                 onClick = onJumpTopicsFilter,
+                            )
+                            DropdownMenuItem(
+                                text = { Text(if (blurAllEnabled) "关闭全局图片模糊" else "开启全局图片模糊") },
+                                onClick = {
+                                    onTogglePlusMenu(false)
+                                    onToggleBlurAll(!blurAllEnabled)
+                                },
                             )
                         }
                     }
@@ -1673,6 +1710,8 @@ private fun FeishuMeTab(
     scope: kotlinx.coroutines.CoroutineScope,
     api: ForHappyApiClient,
     aliasEnabled: Boolean,
+    blurAllEnabled: Boolean,
+    onToggleBlurAll: (Boolean) -> Unit,
     onRequireLogin: () -> Unit,
     onOpenSettings: (FeishuSettingsPage) -> Unit,
     onFilterFavorites: () -> Unit,
@@ -1776,6 +1815,27 @@ private fun FeishuMeTab(
         item {
             Surface(color = fc.card, modifier = Modifier.fillMaxWidth()) {
                 Column {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onToggleBlurAll(!blurAllEnabled) }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (blurAllEnabled) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                            contentDescription = null,
+                            tint = fc.blue,
+                            modifier = Modifier.size(22.dp),
+                        )
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("全局图片模糊（防窥遮罩）", color = fc.text, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                            Text("开启后所有图片默认模糊，点击单张可看清", color = fc.muted, fontSize = 12.sp)
+                        }
+                        Switch(checked = blurAllEnabled, onCheckedChange = onToggleBlurAll)
+                    }
+                    HorizontalDivider(color = fc.line, modifier = Modifier.padding(start = 52.dp))
                     FeishuMeMenuRow(Icons.Rounded.Bookmark, "我的收藏", "工作群与话题中标记的重点信息", fc) {
                         onFilterFavorites()
                     }
@@ -1851,6 +1911,7 @@ private fun FeishuWorkGroupDetailScreen(
     tagFilter: String?,
     api: ForHappyApiClient,
     privacyConfig: PrivacyStealthConfig,
+    onToggleBlurAll: (Boolean) -> Unit,
     onNotify: (String) -> Unit,
     onOpenTagTopic: (String) -> Unit,
     onBack: () -> Unit,
@@ -2040,6 +2101,17 @@ private fun FeishuWorkGroupDetailScreen(
                         }
                     }
                     IconButton(
+                        onClick = { onToggleBlurAll(!privacyConfig.blurAllEnabled) },
+                        modifier = Modifier.size(34.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (privacyConfig.blurAllEnabled) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                            contentDescription = if (privacyConfig.blurAllEnabled) "关闭全局图片模糊" else "开启全局图片模糊",
+                            tint = if (privacyConfig.blurAllEnabled) fc.blue else fc.text,
+                            modifier = Modifier.size(19.dp),
+                        )
+                    }
+                    IconButton(
                         onClick = {
                             showGroupSearch = !showGroupSearch
                             if (!showGroupSearch) groupSearchQuery = ""
@@ -2072,6 +2144,13 @@ private fun FeishuWorkGroupDetailScreen(
                             expanded = showGroupMenu,
                             onDismissRequest = { showGroupMenu = false },
                         ) {
+                            DropdownMenuItem(
+                                text = { Text(if (privacyConfig.blurAllEnabled) "关闭全局图片模糊" else "开启全局图片模糊") },
+                                onClick = {
+                                    showGroupMenu = false
+                                    onToggleBlurAll(!privacyConfig.blurAllEnabled)
+                                },
+                            )
                             DropdownMenuItem(
                                 text = { Text(if (unseenOnlyFilter) "显示全部消息" else "仅看未读消息") },
                                 onClick = {
@@ -2686,6 +2765,8 @@ private fun FeishuRealChatShell(
     groupId: Long?,
     dmThreadId: Long?,
     currentAlias: String,
+    blurAllEnabled: Boolean,
+    onToggleBlurAll: (Boolean) -> Unit,
     api: ForHappyApiClient,
     chatController: ChatSessionController,
     me: MeUser?,
@@ -2758,6 +2839,13 @@ private fun FeishuRealChatShell(
                             }
                             DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                                 DropdownMenuItem(
+                                    text = { Text(if (blurAllEnabled) "关闭全局图片模糊" else "开启全局图片模糊") },
+                                    onClick = {
+                                        showMenu = false
+                                        onToggleBlurAll(!blurAllEnabled)
+                                    },
+                                )
+                                DropdownMenuItem(
                                     text = { Text("修改群名备注") },
                                     onClick = {
                                         showMenu = false
@@ -2811,6 +2899,17 @@ private fun FeishuRealChatShell(
                                 }
                             }
                         }
+                        IconButton(
+                            onClick = { onToggleBlurAll(!blurAllEnabled) },
+                            modifier = Modifier.size(34.dp),
+                        ) {
+                            Icon(
+                                imageVector = if (blurAllEnabled) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                                contentDescription = if (blurAllEnabled) "关闭全局图片模糊" else "开启全局图片模糊",
+                                tint = if (blurAllEnabled) fc.blue else fc.text,
+                                modifier = Modifier.size(19.dp),
+                            )
+                        }
                     }
                 }
                 HorizontalDivider(color = fc.line, thickness = 0.5.dp)
@@ -2833,6 +2932,7 @@ private fun FeishuRealChatShell(
                 hideChannelHeader = true,
                 forcedChannelMode = if (isGroup) "group" else "dm",
                 forcedDmThreadId = dmThreadId,
+                onToggleBlurAll = onToggleBlurAll,
             )
         }
     }

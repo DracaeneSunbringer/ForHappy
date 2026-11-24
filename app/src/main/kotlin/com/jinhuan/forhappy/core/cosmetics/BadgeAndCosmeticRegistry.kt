@@ -1,12 +1,14 @@
 package com.jinhuan.forhappy.core.cosmetics
 
 import com.jinhuan.forhappy.core.clock.ServerClock
+import com.jinhuan.forhappy.core.model.ChatMessage
 import com.jinhuan.forhappy.core.model.DecoConfig
 import com.jinhuan.forhappy.core.model.FarmBadgeMeta
 import com.jinhuan.forhappy.core.model.ForHappyJson
 import com.jinhuan.forhappy.core.model.GrowthRewardMeta
 import com.jinhuan.forhappy.core.model.MeResponse
 import com.jinhuan.forhappy.core.model.OfficialTitleMeta
+import com.jinhuan.forhappy.core.network.api.ForHappyApiClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -183,6 +185,13 @@ data class ShowcaseItem(
     val key: String,
     val label: String,
     val chip: ResolvedBadgeChip,
+)
+
+data class SelectableCosmeticEntry(
+    val key: String,
+    val name: String,
+    val category: String,
+    val subtitle: String = "",
 )
 
 data class ResolvedUserIdentity(
@@ -786,6 +795,34 @@ object BadgeAndCosmeticRegistry {
 
     private val _catalogRevision = MutableStateFlow(0)
     val catalogRevision: StateFlow<Int> = _catalogRevision.asStateFlow()
+
+    const val KV_DECO_CLEAN_KEY = "deco.clean.v2"
+    private val _localCleanRawFlow = MutableStateFlow<String?>(null)
+    val localCleanRawFlow: StateFlow<String?> = _localCleanRawFlow.asStateFlow()
+
+    fun seedLocalCleanRaw(raw: String?) {
+        _localCleanRawFlow.value = raw
+    }
+
+    fun encodeLocalCleanConfig(config: DecoConfig): String {
+        val cleanOnly = DecoConfig(
+            cleanHideOthersNick = config.cleanHideOthersNick,
+            cleanHideOthersBadges = config.cleanHideOthersBadges,
+            cleanHideOthersStyles = config.cleanHideOthersStyles,
+            cleanHideBubbles = config.cleanHideBubbles,
+            cleanHideReplyFrames = config.cleanHideReplyFrames,
+            cleanPauseOrnaments = config.cleanPauseOrnaments,
+            blockedCosmeticKeys = config.blockedCosmeticKeys,
+            blockedKeyHideFullSet = config.blockedKeyHideFullSet,
+        )
+        return ForHappyJson.encodeToString(cleanOnly)
+    }
+
+    suspend fun saveLocalCleanConfig(api: ForHappyApiClient, config: DecoConfig) {
+        val encoded = encodeLocalCleanConfig(config)
+        _localCleanRawFlow.value = encoded
+        api.putPref(KV_DECO_CLEAN_KEY, encoded)
+    }
 
     private val dynamicBadges = ConcurrentHashMap<String, BadgeCatalogEntry>()
     private val dynamicGrowthById = ConcurrentHashMap<String, GrowthRewardMeta>()
@@ -2070,6 +2107,10 @@ object BadgeAndCosmeticRegistry {
                 cleanHideOthersBadges = obj["cleanHideOthersBadges"]?.jsonPrimitive?.booleanOrNull ?: false,
                 cleanHideOthersStyles = obj["cleanHideOthersStyles"]?.jsonPrimitive?.booleanOrNull ?: false,
                 cleanHideBubbles = obj["cleanHideBubbles"]?.jsonPrimitive?.booleanOrNull ?: false,
+                cleanHideReplyFrames = obj["cleanHideReplyFrames"]?.jsonPrimitive?.booleanOrNull ?: false,
+                cleanPauseOrnaments = obj["cleanPauseOrnaments"]?.jsonPrimitive?.booleanOrNull ?: false,
+                blockedCosmeticKeys = emptySet(),
+                blockedKeyHideFullSet = obj["blockedKeyHideFullSet"]?.jsonPrimitive?.booleanOrNull ?: true,
             )
         } else {
             DecoConfig()
@@ -2081,6 +2122,10 @@ object BadgeAndCosmeticRegistry {
             cleanHideOthersBadges = localCfg.cleanHideOthersBadges,
             cleanHideOthersStyles = localCfg.cleanHideOthersStyles,
             cleanHideBubbles = localCfg.cleanHideBubbles,
+            cleanHideReplyFrames = localCfg.cleanHideReplyFrames,
+            cleanPauseOrnaments = localCfg.cleanPauseOrnaments,
+            blockedCosmeticKeys = localCfg.blockedCosmeticKeys,
+            blockedKeyHideFullSet = localCfg.blockedKeyHideFullSet,
         )
     }
 
@@ -2107,7 +2152,10 @@ object BadgeAndCosmeticRegistry {
                     "equippedOfficialId", "equippedGrowthId", "equippedInviteTitle",
                     "communityTitleId", "communityBadgeId", "communityBubbleId", "communityReplyId",
                     "showcaseKeys", "cleanHideOthersNick", "cleanHideOthersBadges",
-                    "cleanHideOthersStyles", "cleanHideBubbles", "customGradientStops",
+                    "cleanHideOthersStyles", "cleanHideBubbles",
+                    "cleanHideReplyFrames", "cleanPauseOrnaments",
+                    "blockedCosmeticKeys", "blockedKeyHideFullSet",
+                    "customGradientStops",
                 ) && v !is JsonNull
             ) {
                 map[k] = v
@@ -2222,5 +2270,342 @@ object BadgeAndCosmeticRegistry {
         }
 
         return JsonObject(map)
+    }
+
+    fun canonicalCosmeticKey(rawKey: String?, isBadgeId: Boolean = false): String? {
+        val trimmed = rawKey?.trim().orEmpty()
+        if (trimmed.isEmpty() || trimmed == "default") return null
+        if (trimmed == "custom") return "custom"
+        if (trimmed == "preset:yinlu" || trimmed == "reward:guangjie") return "reward:guangjie"
+        if (trimmed.startsWith("pt:")) {
+            val id = trimmed.removePrefix("pt:")
+            return when (id) {
+                "owner52" -> "personal:owner-52di"
+                "owner52b" -> "personal:owner-52b"
+                else -> "personal:$id"
+            }
+        }
+        if (trimmed == "personal:owner52") return "personal:owner-52di"
+        if (trimmed == "personal:owner52b") return "personal:owner-52b"
+        if (trimmed.startsWith("ft:")) return "raffle:${trimmed.removePrefix("ft:")}"
+        if (trimmed.startsWith("ot:")) return "official:${trimmed.removePrefix("ot:")}"
+        if (trimmed.startsWith("community:") ||
+            trimmed.startsWith("personal:") ||
+            trimmed.startsWith("raffle:") ||
+            trimmed.startsWith("official:") ||
+            trimmed.startsWith("preset:") ||
+            trimmed.startsWith("reward:") ||
+            trimmed.startsWith("badge:")
+        ) {
+            return trimmed
+        }
+        if (trimmed.startsWith("growth:")) {
+            val id = trimmed.removePrefix("growth:")
+            if (id == "rank" || id == "activity" || id in BUILT_IN_BADGES || dynamicGrowthBySeries.containsKey(id)) {
+                return "growth:$id"
+            }
+            val resolvedSeries = resolveGrowthRewardMeta(id)?.series?.takeIf { it.isNotBlank() }
+            val fallbackSeries = when {
+                id.startsWith("luck_king") -> "luck_king"
+                id.startsWith("luck_last") -> "luck_last"
+                id.startsWith("rank_") -> id.substringBeforeLast('_')
+                Regex("""^.+[_:]\d+$""").matches(id) -> id.replace(Regex("""[_:]\d+$"""), "")
+                else -> id
+            }
+            return "growth:${resolvedSeries ?: fallbackSeries.ifBlank { "guess" }}"
+        }
+        Regex("""^([a-z0-9_]+):(\d+)$""").matchEntire(trimmed)?.let { m ->
+            return "growth:${m.groupValues[1]}"
+        }
+        if (isBadgeId) {
+            return if (
+                trimmed == "guess" ||
+                trimmed.startsWith("luck_") ||
+                trimmed.startsWith("rank_") ||
+                trimmed in GROWTH_V5_IDS ||
+                dynamicGrowthBySeries.containsKey(trimmed)
+            ) {
+                "growth:$trimmed"
+            } else {
+                "badge:$trimmed"
+            }
+        }
+        return trimmed
+    }
+
+    fun isCosmeticBlocked(
+        rawKey: String?,
+        blockedKeys: Set<String>,
+        isBadgeId: Boolean = false,
+    ): Boolean {
+        if (rawKey.isNullOrBlank() || blockedKeys.isEmpty()) return false
+        if (rawKey in blockedKeys) return true
+        val canon = canonicalCosmeticKey(rawKey, isBadgeId) ?: return false
+        if (canon in blockedKeys) return true
+        if (canon.startsWith("growth:")) {
+            val series = canon.removePrefix("growth:")
+            if (series.startsWith("rank_") && "growth:rank" in blockedKeys) return true
+            if (series !in setOf("guess", "luck_king", "luck_last") &&
+                !series.startsWith("rank_") &&
+                "growth:activity" in blockedKeys
+            ) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fun describeCosmeticKey(canonKey: String): SelectableCosmeticEntry {
+        val key = canonicalCosmeticKey(canonKey) ?: canonKey
+        return when {
+            key.startsWith("community:") -> {
+                val id = key.removePrefix("community:")
+                val skin = resolveCommunitySkinMeta(id)
+                SelectableCosmeticEntry(
+                    key = key,
+                    name = skin?.name?.ifBlank { id } ?: id,
+                    category = "开源社区装扮",
+                    subtitle = skin?.author?.takeIf { it.isNotBlank() }?.let { "作者 · $it" } ?: "社区投稿",
+                )
+            }
+            key.startsWith("raffle:") -> {
+                val id = key.removePrefix("raffle:")
+                val r = resolveRaffleTitle(id)
+                SelectableCosmeticEntry(
+                    key = key,
+                    name = r?.name ?: id,
+                    category = "抽奖角色套装",
+                    subtitle = r?.let { "${it.rarity} · ${it.mood}" } ?: "抽奖套装",
+                )
+            }
+            key.startsWith("personal:") -> {
+                val id = key.removePrefix("personal:")
+                val p = resolvePersonalTitle(id)
+                SelectableCosmeticEntry(
+                    key = key,
+                    name = p?.name ?: id,
+                    category = "群友专属定制",
+                    subtitle = p?.let { "${it.rarity} · ${it.mood}" } ?: "专属定制",
+                )
+            }
+            key.startsWith("official:") -> {
+                val id = key.removePrefix("official:")
+                val o = resolveOfficialTitleName(id)
+                SelectableCosmeticEntry(
+                    key = key,
+                    name = o?.name ?: id,
+                    category = "官方与精选气泡",
+                    subtitle = o?.mood?.takeIf { it.isNotBlank() }?.let { "官方称号 · $it" } ?: "官方授予",
+                )
+            }
+            key == "reward:guangjie" -> SelectableCosmeticEntry(
+                key = key,
+                name = "广结善缘",
+                category = "官方与精选气泡",
+                subtitle = "邀请奖励专属装扮",
+            )
+            key.startsWith("preset:") -> {
+                val id = key.removePrefix("preset:")
+                val label = BUBBLE_PRESETS.firstOrNull { it.first == id }?.second ?: id
+                SelectableCosmeticEntry(
+                    key = key,
+                    name = label,
+                    category = "官方与精选气泡",
+                    subtitle = "预设气泡皮肤",
+                )
+            }
+            key == "custom" -> SelectableCosmeticEntry(
+                key = key,
+                name = "自定义 CSS / 文本装扮",
+                category = "官方与精选气泡",
+                subtitle = "个人自定义样式或气泡 CSS",
+            )
+            key.startsWith("growth:") -> {
+                val series = key.removePrefix("growth:")
+                val (label, sub) = when (series) {
+                    "guess" -> "猜词成长奖励" to "猜词累计解锁五阶称号与气泡"
+                    "luck_king" -> "手气王成长奖励" to "拼手气红包最佳成长装扮"
+                    "luck_last" -> "手气亡成长奖励" to "拼手气红包垫底成长装扮"
+                    "rank" -> "日榜 / 总榜荣誉装扮" to "每日/总榜前三结算荣誉"
+                    "activity" -> "农牧 / 钓鱼 / 集卡奖励" to "各项活跃度成长系列装扮"
+                    else -> {
+                        val badgeName = resolveBadgeMeta(series)?.name ?: series
+                        badgeName to "成长系列装扮"
+                    }
+                }
+                SelectableCosmeticEntry(
+                    key = key,
+                    name = label,
+                    category = "成长与排行榜奖励",
+                    subtitle = sub,
+                )
+            }
+            key.startsWith("badge:") -> {
+                val id = key.removePrefix("badge:")
+                val b = resolveBadgeMeta(id)
+                SelectableCosmeticEntry(
+                    key = key,
+                    name = b?.name ?: id,
+                    category = "常规成就徽章",
+                    subtitle = b?.desc ?: "成就徽章",
+                )
+            }
+            else -> SelectableCosmeticEntry(key = key, name = key, category = "其他装扮")
+        }
+    }
+
+    fun buildSelectableCosmeticCatalog(): List<SelectableCosmeticEntry> {
+        val out = LinkedHashMap<String, SelectableCosmeticEntry>()
+        fun add(entry: SelectableCosmeticEntry) {
+            if (!out.containsKey(entry.key)) out[entry.key] = entry
+        }
+
+        allCommunitySkins().values.forEach { skin ->
+            val parts = buildList {
+                if (skin.hasBubble) add("气泡")
+                if (skin.hasTitle) add("称号")
+                if (skin.hasBadge) add("徽章")
+                if (skin.hasReply) add("回应框")
+            }.joinToString("/")
+            add(
+                SelectableCosmeticEntry(
+                    key = "community:${skin.id}",
+                    name = skin.name.ifBlank { skin.id },
+                    category = "开源社区装扮",
+                    subtitle = "${skin.author}${if (parts.isNotBlank()) " · $parts" else ""}",
+                ),
+            )
+        }
+
+        allRaffleTitles().values.forEach { r ->
+            add(
+                SelectableCosmeticEntry(
+                    key = "raffle:${r.id}",
+                    name = r.name,
+                    category = "抽奖角色套装",
+                    subtitle = "${r.rarity} · ${r.mood}",
+                ),
+            )
+        }
+
+        allPersonalTitles().values.forEach { p ->
+            if (p.id == "owner52" || p.id == "owner52b") return@forEach
+            add(
+                SelectableCosmeticEntry(
+                    key = "personal:${p.id}",
+                    name = p.name,
+                    category = "群友专属定制",
+                    subtitle = "${p.rarity} · ${p.mood}",
+                ),
+            )
+        }
+
+        val officialIds = LinkedHashSet<String>().apply {
+            addAll(BUILT_IN_OFFICIAL_NAMES.keys)
+            addAll(dynamicOfficialTitles.keys)
+        }
+        officialIds.forEach { id ->
+            val meta = resolveOfficialTitleName(id)
+            add(
+                SelectableCosmeticEntry(
+                    key = "official:$id",
+                    name = meta?.name ?: id,
+                    category = "官方与精选气泡",
+                    subtitle = meta?.mood?.takeIf { it.isNotBlank() } ?: "官方称号",
+                ),
+            )
+        }
+        add(describeCosmeticKey("reward:guangjie"))
+        BUBBLE_PRESETS.forEach { (id, label) ->
+            if (id.isNotBlank() && id != "default") {
+                add(
+                    SelectableCosmeticEntry(
+                        key = "preset:$id",
+                        name = label,
+                        category = "官方与精选气泡",
+                        subtitle = "官方/精选预设气泡",
+                    ),
+                )
+            }
+        }
+        add(describeCosmeticKey("custom"))
+
+        listOf("growth:guess", "growth:luck_king", "growth:luck_last", "growth:rank", "growth:activity").forEach {
+            add(describeCosmeticKey(it))
+        }
+
+        BUILT_IN_BADGES.values.forEach { b ->
+            if (b.id != "guess" && !b.id.startsWith("luck_") && !b.id.startsWith("rank_") && b.id !in GROWTH_V5_IDS) {
+                add(
+                    SelectableCosmeticEntry(
+                        key = "badge:${b.id}",
+                        name = b.name,
+                        category = "常规成就徽章",
+                        subtitle = b.desc,
+                    ),
+                )
+            }
+        }
+
+        return out.values.toList()
+    }
+
+    fun extractMessageCosmeticEntries(
+        msg: ChatMessage,
+        isDarkTheme: Boolean = false,
+    ): List<SelectableCosmeticEntry> {
+        val byKey = LinkedHashMap<String, SelectableCosmeticEntry>()
+        fun addRaw(rawKey: String?, isBadgeId: Boolean = false) {
+            val canon = canonicalCosmeticKey(rawKey, isBadgeId) ?: return
+            if (!byKey.containsKey(canon)) {
+                byKey[canon] = describeCosmeticKey(canon)
+            }
+        }
+        val user = msg.user
+        if (user != null) {
+            val id = resolveEquippedIdentity(
+                decoJson = user.deco,
+                badgesJson = user.badges,
+                officialTitles = user.officialTitles,
+                where = "chat",
+                isAdmin = user.isAdmin,
+                hasFancyPermission = user.isFancyGranted,
+                cosmeticAccess = user.cosmeticAccess,
+                isDarkTheme = isDarkTheme,
+            )
+            addRaw(id.title?.key)
+            addRaw(id.badge?.id, isBadgeId = true)
+            val bubble = ChatBubbleCosmetics.resolveChatBubbleStyle(
+                user = user,
+                messageId = msg.id.toString(),
+                isDarkTheme = isDarkTheme,
+            )
+            addRaw(bubble?.key)
+        }
+        msg.boosts.forEach { boost ->
+            val frame = ChatBubbleCosmetics.resolveBoostFrameStyle(
+                boost = boost,
+                isDarkTheme = isDarkTheme,
+            )
+            addRaw(frame?.key)
+        }
+        return byKey.values.toList()
+    }
+
+    fun extractActiveChatCosmetics(
+        messages: List<ChatMessage>,
+        isDarkTheme: Boolean = false,
+    ): List<SelectableCosmeticEntry> {
+        val byKey = LinkedHashMap<String, SelectableCosmeticEntry>()
+        for (i in messages.indices.reversed()) {
+            val msg = messages[i]
+            val entries = extractMessageCosmeticEntries(msg, isDarkTheme)
+            for (entry in entries) {
+                if (!byKey.containsKey(entry.key)) {
+                    byKey[entry.key] = entry.copy(subtitle = "本群出现 · @${msg.displayAuthor}")
+                }
+            }
+        }
+        return byKey.values.toList()
     }
 }

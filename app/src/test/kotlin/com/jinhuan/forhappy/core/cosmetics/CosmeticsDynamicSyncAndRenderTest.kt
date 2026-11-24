@@ -362,4 +362,52 @@ class CosmeticsDynamicSyncAndRenderTest {
         )
         assertTrue("title:guangjie" in keys)
     }
+
+    @Test
+    fun selectiveCosmeticBlockingNormalizesKeysAndStripsFromServerPayload() {
+        assertEquals("raffle:chickengun", BadgeAndCosmeticRegistry.canonicalCosmeticKey("ft:chickengun"))
+        assertEquals("personal:owner-52di", BadgeAndCosmeticRegistry.canonicalCosmeticKey("pt:owner52"))
+        assertEquals("official:coder", BadgeAndCosmeticRegistry.canonicalCosmeticKey("ot:coder"))
+        assertEquals("growth:guess", BadgeAndCosmeticRegistry.canonicalCosmeticKey("guess:3"))
+        assertEquals("growth:guess", BadgeAndCosmeticRegistry.canonicalCosmeticKey("growth:g1"))
+        assertEquals("growth:rank_points_day", BadgeAndCosmeticRegistry.canonicalCosmeticKey("rank_points_day:2"))
+        assertEquals("reward:guangjie", BadgeAndCosmeticRegistry.canonicalCosmeticKey("preset:yinlu"))
+        assertEquals("growth:farm_harvest", BadgeAndCosmeticRegistry.canonicalCosmeticKey("farm_harvest", isBadgeId = true))
+        assertEquals("badge:guide", BadgeAndCosmeticRegistry.canonicalCosmeticKey("guide", isBadgeId = true))
+
+        val blocked = setOf(
+            "community:succubus-lace",
+            "raffle:chickengun",
+            "growth:rank",
+            "growth:activity",
+        )
+        assertTrue(BadgeAndCosmeticRegistry.isCosmeticBlocked("community:succubus-lace", blocked))
+        assertTrue(BadgeAndCosmeticRegistry.isCosmeticBlocked("ft:chickengun", blocked))
+        assertTrue(BadgeAndCosmeticRegistry.isCosmeticBlocked("ft:chickengun", blocked, isBadgeId = true))
+        assertTrue(BadgeAndCosmeticRegistry.isCosmeticBlocked("rank_guess_day:1", blocked))
+        assertTrue(BadgeAndCosmeticRegistry.isCosmeticBlocked("farm_harvest", blocked, isBadgeId = true))
+        assertFalse(BadgeAndCosmeticRegistry.isCosmeticBlocked("community:aurora-preset", blocked))
+
+        val cfg = DecoConfig(
+            customTitle = "测试",
+            cleanHideOthersNick = true,
+            cleanHideReplyFrames = true,
+            cleanPauseOrnaments = true,
+            blockedCosmeticKeys = blocked,
+            blockedKeyHideFullSet = false,
+        )
+        val cleanJson = BadgeAndCosmeticRegistry.encodeLocalCleanConfig(cfg)
+        val serverPayload = BadgeAndCosmeticRegistry.buildServerDecoPayload(null, cfg)
+        assertFalse(serverPayload.containsKey("cleanHideReplyFrames"))
+        assertFalse(serverPayload.containsKey("cleanPauseOrnaments"))
+        assertFalse(serverPayload.containsKey("blockedCosmeticKeys"))
+        assertFalse(serverPayload.containsKey("blockedKeyHideFullSet"))
+
+        val parsed = BadgeAndCosmeticRegistry.parseServerDecoConfig(serverPayload, cleanJson)
+        assertTrue(parsed.cleanHideOthersNick)
+        assertTrue(parsed.cleanHideReplyFrames)
+        assertTrue(parsed.cleanPauseOrnaments)
+        assertFalse(parsed.blockedKeyHideFullSet)
+        assertEquals(blocked, parsed.blockedCosmeticKeys)
+    }
 }

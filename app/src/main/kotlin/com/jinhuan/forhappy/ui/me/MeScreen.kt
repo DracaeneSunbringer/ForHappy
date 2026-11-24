@@ -179,7 +179,7 @@ fun MeScreen(
     var cardPacks52b by remember { mutableStateOf<List<Owner52bPack>>(emptyList()) }
     var cards52bLoaded by remember { mutableStateOf(false) }
     var folders by remember { mutableStateOf<List<FolderItem>>(emptyList()) }
-    var cleanRawPref by remember { mutableStateOf<String?>(null) }
+    val sharedCleanRaw by BadgeAndCosmeticRegistry.localCleanRawFlow.collectAsState()
 
     var activeStreamTab by remember { mutableStateOf("fav") }
     var selectedFolderId by remember { mutableStateOf<Long?>(null) }
@@ -214,7 +214,9 @@ fun MeScreen(
     }
 
     LaunchedEffect(me?.id) {
-        cleanRawPref = api.getPref(KV_DECO_CLEAN)
+        if (sharedCleanRaw == null) {
+            BadgeAndCosmeticRegistry.seedLocalCleanRaw(api.getPref(KV_DECO_CLEAN))
+        }
         if (me != null) {
             cards52bLoaded = false
             stats = api.fetchMeStats()
@@ -258,7 +260,7 @@ fun MeScreen(
         (updateState.status == UpdateStatus.AVAILABLE || updateState.status == UpdateStatus.READY_TO_INSTALL)
 
     val cosmeticCatalogRev by BadgeAndCosmeticRegistry.catalogRevision.collectAsState()
-    val decoConfig = remember(me?.deco, cleanRawPref) { parseDecoConfig(me?.deco, cleanRawPref) }
+    val decoConfig = remember(me?.deco, sharedCleanRaw) { parseDecoConfig(me?.deco, sharedCleanRaw) }
     val equippedIdentity = remember(
         me?.deco,
         me?.badges,
@@ -934,9 +936,9 @@ fun MeScreen(
         DecoStudioDialog(
             api = api,
             me = me,
-            initialCleanRaw = cleanRawPref,
+            initialCleanRaw = sharedCleanRaw,
             onSaved = {
-                scope.launch { cleanRawPref = api.getPref(KV_DECO_CLEAN) }
+                scope.launch { BadgeAndCosmeticRegistry.seedLocalCleanRaw(api.getPref(KV_DECO_CLEAN)) }
                 onRefreshMe()
             },
             onDismiss = { showDecoDialog = false },

@@ -82,8 +82,9 @@ class MainActivity : ComponentActivity() {
             var bossKeyActive by remember { mutableStateOf(initial.privacyConfig.isBossPersisted) }
 
             fun persistPrivacyConfig(next: PrivacyStealthConfig, blocking: Boolean = false) {
-                privacyConfig = next
-                val encoded = ForHappyJson.encodeToString(PrivacyStealthConfig.serializer(), next)
+                val normalized = if (next.blurDefaultsMigratedV1) next else next.copy(blurDefaultsMigratedV1 = true)
+                privacyConfig = normalized
+                val encoded = ForHappyJson.encodeToString(PrivacyStealthConfig.serializer(), normalized)
                 if (blocking) {
                     app.db.putKvBlocking(KV_PRIVACY_STEALTH_V2, encoded)
                 } else {
@@ -294,7 +295,24 @@ class MainActivity : ComponentActivity() {
         if (!rawPrivacy.isNullOrBlank()) {
             runCatching {
                 ForHappyJson.decodeFromString(PrivacyStealthConfig.serializer(), rawPrivacy)
-            }.getOrNull()?.let { privacy = it }
+            }.getOrNull()?.let { decoded ->
+                privacy = if (decoded.blurDefaultsMigratedV1) {
+                    decoded
+                } else {
+                    val migrated = decoded.copy(
+                        blurAllEnabled = false,
+                        blurBeforeDisguise = false,
+                        autoBlurOnEnterDisguise = false,
+                        keepBlurAfterBossExit = false,
+                        blurDefaultsMigratedV1 = true,
+                    )
+                    app.db.putKvBlocking(
+                        KV_PRIVACY_STEALTH_V2,
+                        ForHappyJson.encodeToString(PrivacyStealthConfig.serializer(), migrated),
+                    )
+                    migrated
+                }
+            }
             theme = when (savedTheme) {
                 AppThemeMode.WARM_PAPER_LIGHT,
                 AppThemeMode.PINE_NIGHT_DARK,
@@ -308,14 +326,16 @@ class MainActivity : ComponentActivity() {
                     theme = AppThemeMode.FOLLOW_SYSTEM
                     privacy = PrivacyStealthConfig(
                         disguiseMode = AppDisguiseMode.FEISHU,
-                        blurAllEnabled = true,
+                        blurAllEnabled = false,
+                        blurDefaultsMigratedV1 = true,
                     )
                 }
                 AppThemeMode.LINUX_DO -> {
                     theme = AppThemeMode.FOLLOW_SYSTEM
                     privacy = PrivacyStealthConfig(
                         disguiseMode = AppDisguiseMode.LINUX_DO,
-                        blurAllEnabled = true,
+                        blurAllEnabled = false,
+                        blurDefaultsMigratedV1 = true,
                     )
                 }
                 AppThemeMode.WARM_PAPER_LIGHT,

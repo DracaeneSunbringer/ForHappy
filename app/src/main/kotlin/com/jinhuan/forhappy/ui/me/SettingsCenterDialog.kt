@@ -274,7 +274,7 @@ fun SettingsCenterDialog(
                             SettingsNavRow(
                                 icon = Icons.Rounded.Security,
                                 title = "防窥与摸鱼",
-                                subtitle = "${privacyConfig.disguiseMode.label} · 支持 10 秒演练",
+                                subtitle = "${privacyConfig.disguiseMode.label} · 全图模糊${if (privacyConfig.blurAllEnabled) "已开" else "已关"}",
                                 badgeText = "10秒演练",
                                 onClick = { currentSubpage = "stealth" },
                             )
