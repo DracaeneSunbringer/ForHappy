@@ -266,7 +266,7 @@ class CosmeticsDynamicSyncAndRenderTest {
         assertNotNull(dotLayer?.shadowDot)
         assertEquals(7.5f, dotLayer?.rightDp ?: 0f, 0.01f)
 
-        // Badge alwaysIconOnly rules
+        // Badge alwaysIconOnly & levelText rules (`earnedLevel` on title/badge, `displayLevel` on bubble)
         val raffleGeminiDeco = buildJsonObject {
             put("ft", JsonPrimitive("gemini"))
             put("fn", JsonPrimitive(100))
@@ -275,8 +275,11 @@ class CosmeticsDynamicSyncAndRenderTest {
         }
         val geminiPost = BadgeAndCosmeticRegistry.resolveEquippedIdentity(decoJson = raffleGeminiDeco, where = "post")
         assertNotNull(geminiPost.title)
-        assertEquals("Lv50", geminiPost.title?.levelText)
-        assertFalse(geminiPost.badge?.alwaysIconOnly ?: true)
+        assertEquals("Lv100", geminiPost.title?.levelText)
+        assertTrue(geminiPost.badge?.alwaysIconOnly == true)
+        val geminiCard = BadgeAndCosmeticRegistry.resolveEquippedIdentity(decoJson = raffleGeminiDeco, where = "card")
+        assertEquals("Lv100", geminiCard.title?.levelText)
+        assertFalse(geminiCard.badge?.alwaysIconOnly ?: true)
 
         val raffleClaudeDeco = buildJsonObject {
             put("ft", JsonPrimitive("claude"))

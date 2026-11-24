@@ -1,5 +1,7 @@
 package com.jinhuan.forhappy.ui.components
 
+import com.jinhuan.forhappy.core.cosmetics.BgScaleMode
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -39,6 +41,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntOffset
@@ -225,29 +228,54 @@ internal fun BubblePseudoLayerCanvas(
     if (artMap.isEmpty() && !hasPureShape) return
 
     Canvas(modifier = modifier) {
-        val pw = when {
+        val rawH = when {
+            layer.heightDp != null -> layer.heightDp.dp.toPx().let { h ->
+                if (layer.heightCapToParent) min(h, size.height) else h
+            }
+            layer.topDp != null && layer.bottomDp != null -> (size.height - layer.topDp.dp.toPx() - layer.bottomDp.dp.toPx()).coerceAtLeast(1f)
+            hasPureShape && layer.shadowDot != null -> 6.dp.toPx()
+            else -> null
+        }
+        val rawW = when {
             layer.widthDp != null -> layer.widthDp.dp.toPx()
             layer.leftDp != null && layer.rightDp != null -> (size.width - layer.leftDp.dp.toPx() - layer.rightDp.dp.toPx()).coerceAtLeast(1f)
             hasPureShape && layer.shadowDot != null -> 6.dp.toPx()
-            else -> size.width
+            else -> null
         }
+        val ar = layer.aspectRatio
+        val pw = when {
+            layer.widthDp != null && layer.heightCapToParent && ar != null && ar > 0f && rawH != null ->
+                min(layer.widthDp.dp.toPx(), rawH * ar)
+            rawW != null -> rawW
+            ar != null && ar > 0f && rawH != null -> rawH * ar
+            else -> size.width
+        }.coerceAtLeast(1f)
         val ph = when {
-            layer.heightDp != null -> layer.heightDp.dp.toPx()
-            layer.topDp != null && layer.bottomDp != null -> (size.height - layer.topDp.dp.toPx() - layer.bottomDp.dp.toPx()).coerceAtLeast(1f)
-            hasPureShape && layer.shadowDot != null -> 6.dp.toPx()
+            rawH != null -> rawH
+            ar != null && ar > 0f && rawW != null -> rawW / ar
             else -> size.height
+        }.coerceAtLeast(1f)
+        val selfDx = if (layer.centerX) {
+            if (layer.translateSelfX != 0f) pw * layer.translateSelfX else -pw * 0.5f
+        } else {
+            pw * layer.translateSelfX
+        }
+        val selfDy = if (layer.centerY) {
+            if (layer.translateSelfY != 0f) ph * layer.translateSelfY else -ph * 0.5f
+        } else {
+            ph * layer.translateSelfY
         }
         val px0 = when {
-            layer.centerX -> (size.width - pw) * 0.5f + layer.offsetXDp.dp.toPx()
-            layer.leftDp != null -> layer.leftDp.dp.toPx()
-            layer.rightDp != null -> size.width - layer.rightDp.dp.toPx() - pw
-            else -> layer.offsetXDp.dp.toPx()
+            layer.centerX -> size.width * 0.5f + selfDx + layer.offsetXDp.dp.toPx()
+            layer.leftDp != null -> layer.leftDp.dp.toPx() + selfDx
+            layer.rightDp != null -> size.width - layer.rightDp.dp.toPx() - pw + selfDx
+            else -> layer.offsetXDp.dp.toPx() + selfDx
         }
         val py0 = when {
-            layer.centerY -> (size.height - ph) * 0.5f + layer.offsetYDp.dp.toPx()
-            layer.topDp != null -> layer.topDp.dp.toPx()
-            layer.bottomDp != null -> size.height - layer.bottomDp.dp.toPx() - ph
-            else -> layer.offsetYDp.dp.toPx()
+            layer.centerY -> size.height * 0.5f + selfDy + layer.offsetYDp.dp.toPx()
+            layer.topDp != null -> layer.topDp.dp.toPx() + selfDy
+            layer.bottomDp != null -> size.height - layer.bottomDp.dp.toPx() - ph + selfDy
+            else -> layer.offsetYDp.dp.toPx() + selfDy
         }
 
         if (layer.shapeFillColor != null) {
@@ -292,36 +320,63 @@ internal fun BubblePseudoLayerCanvas(
             )
         }
 
-        layer.bgImagesBottomToTop.forEach { bg: BubbleBgImageSpec ->
-            val art = artMap[bg.sourceUrl] ?: return@forEach
-            val imgW = when {
-                bg.widthSubFromFullDp != null -> (pw - bg.widthSubFromFullDp.dp.toPx()).coerceAtLeast(1f)
-                bg.widthFraction != null -> (pw * bg.widthFraction).coerceAtLeast(1f)
-                bg.widthDp != null -> bg.widthDp.dp.toPx()
-                bg.heightDp != null -> bg.heightDp.dp.toPx() * (art.intrinsicWidth / art.intrinsicHeight.coerceAtLeast(1f))
-                else -> pw
+        clipRect(
+            left = px0,
+            top = py0,
+            right = (px0 + pw).coerceAtLeast(px0 + 1f),
+            bottom = (py0 + ph).coerceAtLeast(py0 + 1f),
+        ) {
+            layer.bgImagesBottomToTop.forEach { bg: BubbleBgImageSpec ->
+                if ((bg.widthDp != null && bg.widthDp <= 0f) || (bg.heightDp != null && bg.heightDp <= 0f)) {
+                    return@forEach
+                }
+                val art = artMap[bg.sourceUrl] ?: return@forEach
+                val (imgW, imgH) = when (bg.scaleMode) {
+                    BgScaleMode.CONTAIN -> {
+                        val artW = art.intrinsicWidth.coerceAtLeast(1f)
+                        val artH = art.intrinsicHeight.coerceAtLeast(1f)
+                        val s = min(pw / artW, ph / artH)
+                        (artW * s).coerceAtLeast(1f) to (artH * s).coerceAtLeast(1f)
+                    }
+                    BgScaleMode.COVER -> {
+                        val artW = art.intrinsicWidth.coerceAtLeast(1f)
+                        val artH = art.intrinsicHeight.coerceAtLeast(1f)
+                        val s = maxOf(pw / artW, ph / artH)
+                        (artW * s).coerceAtLeast(1f) to (artH * s).coerceAtLeast(1f)
+                    }
+                    BgScaleMode.STRETCH -> {
+                        val w = when {
+                            bg.widthSubFromFullDp != null -> (pw - bg.widthSubFromFullDp.dp.toPx()).coerceAtLeast(1f)
+                            bg.widthFraction != null -> (pw * bg.widthFraction).coerceAtLeast(1f)
+                            bg.widthDp != null -> bg.widthDp.dp.toPx()
+                            bg.heightDp != null -> bg.heightDp.dp.toPx() * (art.intrinsicWidth / art.intrinsicHeight.coerceAtLeast(1f))
+                            else -> pw
+                        }
+                        val h = when {
+                            bg.heightFraction != null -> (ph * bg.heightFraction).coerceAtLeast(1f)
+                            bg.heightDp != null -> bg.heightDp.dp.toPx()
+                            else -> w * (art.intrinsicHeight / art.intrinsicWidth.coerceAtLeast(1f))
+                        }
+                        w to h
+                    }
+                }
+                val dx = when {
+                    bg.alignCenterX -> px0 + (pw - imgW) * 0.5f
+                    bg.offsetRightDp != null -> px0 + pw - imgW - bg.offsetRightDp.dp.toPx()
+                    else -> px0 + bg.offsetXDp.dp.toPx()
+                }
+                val dy = when {
+                    bg.alignCenterY -> py0 + (ph - imgH) * 0.5f
+                    bg.offsetBottomDp != null -> py0 + ph - imgH - bg.offsetBottomDp.dp.toPx()
+                    else -> py0 + bg.offsetYDp.dp.toPx()
+                }
+                drawImage(
+                    image = art.bitmap,
+                    dstOffset = IntOffset(dx.roundToInt(), dy.roundToInt()),
+                    dstSize = IntSize(imgW.roundToInt().coerceAtLeast(1), imgH.roundToInt().coerceAtLeast(1)),
+                    filterQuality = FilterQuality.Medium,
+                )
             }
-            val imgH = when {
-                bg.heightFraction != null -> (ph * bg.heightFraction).coerceAtLeast(1f)
-                bg.heightDp != null -> bg.heightDp.dp.toPx()
-                else -> imgW * (art.intrinsicHeight / art.intrinsicWidth.coerceAtLeast(1f))
-            }
-            val dx = when {
-                bg.alignCenterX -> px0 + (pw - imgW) * 0.5f
-                bg.offsetRightDp != null -> px0 + pw - imgW - bg.offsetRightDp.dp.toPx()
-                else -> px0 + bg.offsetXDp.dp.toPx()
-            }
-            val dy = when {
-                bg.alignCenterY -> py0 + (ph - imgH) * 0.5f
-                bg.offsetBottomDp != null -> py0 + ph - imgH - bg.offsetBottomDp.dp.toPx()
-                else -> py0 + bg.offsetYDp.dp.toPx()
-            }
-            drawImage(
-                image = art.bitmap,
-                dstOffset = IntOffset(dx.roundToInt(), dy.roundToInt()),
-                dstSize = IntSize(imgW.roundToInt().coerceAtLeast(1), imgH.roundToInt().coerceAtLeast(1)),
-                filterQuality = FilterQuality.Medium,
-            )
         }
 
         layer.nineSliceSpec?.let { ns ->
@@ -392,8 +447,8 @@ fun ChatCosmeticBubbleBox(
 
     val ornamentEndDp = when (val orn = style.ornament) {
         is BubbleOrnament.RaffleChickengun -> (orn.sizeDp * 0.60f).coerceIn(14f, 30f)
-        is BubbleOrnament.PersonalV1Mascot -> 16f
-        is BubbleOrnament.PersonalV2Mascot -> 18f
+        is BubbleOrnament.PersonalV1Mascot -> 24f
+        is BubbleOrnament.PersonalV2Mascot -> 28f
         is BubbleOrnament.RaffleRailcannon -> 18f
         else -> 0f
     }
@@ -444,7 +499,13 @@ fun ChatCosmeticBubbleBox(
         // Main bubble container (leave sculpted 9-slice frames unclipped so alpha edges never truncate)
         Box(
             modifier = Modifier
-                .then(if (style.minWidthDp > 0f) Modifier.defaultMinSize(minWidth = style.minWidthDp.dp) else Modifier)
+                .then(
+                    if (style.minWidthDp > 0f || style.minHeightDp > 0f) {
+                        Modifier.defaultMinSize(minWidth = style.minWidthDp.dp, minHeight = style.minHeightDp.dp)
+                    } else {
+                        Modifier
+                    },
+                )
                 .then(if (shouldClipContainer) Modifier.clip(bubbleShape) else Modifier)
                 .then(
                     when {
@@ -509,17 +570,6 @@ fun ChatCosmeticBubbleBox(
                 )
             }
 
-            // 5. P3R protagonist bust crop inside left 42dp gutter
-            if (style.ornament is BubbleOrnament.P3rZeroHour) {
-                P3rLeftPortraitLayer(
-                    spriteSheetUrl = style.ornament.spriteSheetUrl,
-                    modifier = Modifier
-                        .align(Alignment.CenterStart)
-                        .width(38.dp)
-                        .matchParentSize(),
-                )
-            }
-
             // 6. Message body content
             Box(
                 modifier = Modifier.padding(style.contentPadding),
@@ -533,57 +583,6 @@ fun ChatCosmeticBubbleBox(
             imageLoader = imageLoader,
             modifier = Modifier.matchParentSize(),
         )
-    }
-}
-
-@Composable
-private fun P3rLeftPortraitLayer(
-    spriteSheetUrl: String,
-    modifier: Modifier = Modifier,
-) {
-    val context = LocalContext.current
-    val httpClient = LocalCosmeticHttpClient.current
-    val portrait by produceState<ImageBitmap?>(initialValue = null, spriteSheetUrl) {
-        value = BadgeArtworkCache.getOrCropSpriteCell(
-            context = context,
-            okHttpClient = httpClient,
-            source = spriteSheetUrl,
-            cols = 7,
-            rows = 9,
-            col = 0,
-            row = 0,
-            reqSizePx = 2048,
-        )
-    }
-    Box(modifier = modifier, contentAlignment = Alignment.BottomStart) {
-        Canvas(modifier = Modifier.matchParentSize()) {
-            // Cyan diagonal Persona stripe behind portrait
-            val path = Path().apply {
-                moveTo(0f, 0f)
-                lineTo(size.width * 0.92f, 0f)
-                lineTo(size.width * 0.56f, size.height)
-                lineTo(0f, size.height)
-                close()
-            }
-            drawPath(path, Color(0xFF031A5C).copy(alpha = 0.65f))
-            drawLine(
-                color = Color(0xFF52D6FF),
-                start = Offset(size.width * 0.92f, 0f),
-                end = Offset(size.width * 0.56f, size.height),
-                strokeWidth = 1.6.dp.toPx(),
-            )
-        }
-        portrait?.let { bmp ->
-            Image(
-                bitmap = bmp,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .padding(start = 2.dp, bottom = 1.dp)
-                    .size(34.dp)
-                    .clip(RoundedCornerShape(topStart = 4.dp, bottomStart = 8.dp, topEnd = 6.dp, bottomEnd = 6.dp)),
-            )
-        }
     }
 }
 
@@ -667,18 +666,6 @@ private fun BubblePatternLayer(
                     topLeft = Offset(10.dp.toPx(), 3.dp.toPx()),
                     size = Size((size.width - 20.dp.toPx()).coerceAtLeast(8f), 4.dp.toPx()),
                     cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
-                )
-            }
-            BubbleOrnament.LantingInk -> {
-                // Red cinnabar seal mark at top-right corner
-                val sealSize = 9.dp.toPx()
-                val sx = size.width - sealSize - 6.dp.toPx()
-                val sy = 6.dp.toPx()
-                drawRoundRect(
-                    color = Color(0xFF991B1B).copy(alpha = 0.75f),
-                    topLeft = Offset(sx, sy),
-                    size = Size(sealSize, sealSize),
-                    cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx()),
                 )
             }
             is BubbleOrnament.ShiguangBook -> {
@@ -816,8 +803,8 @@ private fun BubbleCornerMascotLayer(
                         contentScale = ContentScale.Fit,
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
-                            .offset(x = 14.dp, y = 2.dp)
-                            .size(22.dp),
+                            .offset(x = 22.dp, y = 1.dp)
+                            .size(width = 23.dp, height = 25.dp),
                     )
                 }
             }
@@ -833,7 +820,7 @@ private fun BubbleCornerMascotLayer(
                         contentScale = ContentScale.Fit,
                         modifier = Modifier
                             .align(Alignment.CenterEnd)
-                            .offset(x = 15.dp, y = 0.dp)
+                            .offset(x = 26.dp, y = 0.dp)
                             .width(24.dp)
                             .height(28.dp),
                     )
@@ -848,7 +835,7 @@ private fun BubbleCornerMascotLayer(
                             contentScale = ContentScale.Fit,
                             modifier = Modifier
                                 .align(Alignment.CenterEnd)
-                                .offset(x = 15.dp, y = 0.dp)
+                                .offset(x = 26.dp, y = 0.dp)
                                 .width(24.dp)
                                 .height(28.dp),
                         )

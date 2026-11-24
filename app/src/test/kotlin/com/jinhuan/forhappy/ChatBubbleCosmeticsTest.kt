@@ -150,15 +150,55 @@ class ChatBubbleCosmeticsTest {
             )
         }
         val commId = BadgeAndCosmeticRegistry.resolveEquippedIdentity(allInDeco, where = "chat")
-        assertTrue(commId.badge?.art is BadgeArtKind.SpriteSheetCell)
+        assertTrue(commId.badge?.art is BadgeArtKind.CommunityCssBadge)
+        val preLightBubble = ChatBubbleCosmetics.resolveBubbleFromDeco(allInDeco, isDarkTheme = false)
+        assertTrue(preLightBubble?.nineSliceSpec?.sourceUrl?.startsWith("https://") == true)
+        assertNotNull(preLightBubble?.dynamicCssSpec)
+
+        val shadowDaoCss = """
+            .cskin-bubble-shadow-dao {
+              border-image-source: url("data:image/webp;base64,LIGHTDAO");
+              border-image-slice: 42 60 48 64 fill;
+              border-image-width: 22px 34px 24px 36px;
+              padding: 16px 26px 18px 26px;
+              color: #141418;
+            }
+            [data-theme="dark"] .cskin-bubble-shadow-dao {
+              border-image-source: url("data:image/webp;base64,DARKDAO");
+              color: #f3efe6;
+            }
+        """.trimIndent()
+        val shadowPathCss = """
+            .cskin-reply-shadow-path {
+              border-image-source: url("data:image/webp;base64,LIGHTPATH");
+              border-image-slice: 18 56 18 56 fill;
+              border-image-width: 9px 22px 8px 22px;
+              color: #0f1418;
+            }
+            [data-theme="dark"] .cskin-reply-shadow-path {
+              border-image-source: url("data:image/webp;base64,DARKPATH");
+              color: #f2f7f8;
+            }
+        """.trimIndent()
+        val daoSha = BadgeAndCosmeticRegistry.resolveCommunitySkinMeta("shadow-dao")!!.bubbleCssSha!!
+        val pathSha = BadgeAndCosmeticRegistry.resolveCommunitySkinMeta("shadow-path")!!.replyCssSha!!
+        assertTrue(ChatBubbleCosmetics.registerParsedCommunityCss("bubble", daoSha, shadowDaoCss))
+        assertTrue(ChatBubbleCosmetics.registerParsedCommunityCss("reply", pathSha, shadowPathCss))
+
         val lightCommBubble = ChatBubbleCosmetics.resolveBubbleFromDeco(allInDeco, isDarkTheme = false)
         val darkCommBubble = ChatBubbleCosmetics.resolveBubbleFromDeco(allInDeco, isDarkTheme = true)
         assertTrue(lightCommBubble?.nineSliceSpec?.sourceUrl?.startsWith("https://") == true)
-        assertTrue(darkCommBubble?.nineSliceSpec?.sourceUrl?.startsWith("community-css-dark:shadow-dao:") == true)
+        assertEquals(
+            "community-css:shadow-dao:bubble:$daoSha:1",
+            darkCommBubble?.nineSliceSpec?.sourceUrl,
+        )
         val darkCommReply = ChatBubbleCosmetics.resolveBubbleFromDeco(allInDeco, frame = true, isDarkTheme = true)
-        assertTrue(darkCommReply?.nineSliceSpec?.sourceUrl?.startsWith("community-css-dark:shadow-path:") == true)
+        assertEquals(
+            "community-css:shadow-path:reply:$pathSha:1",
+            darkCommReply?.nineSliceSpec?.sourceUrl,
+        )
 
-        BadgeAndCosmeticRegistry.COMMUNITY_SKINS.keys.forEach { skinId ->
+        BadgeAndCosmeticRegistry.COMMUNITY_SKINS.forEach { (skinId, skin) ->
             val d = buildJsonObject {
                 put(
                     "community",
@@ -170,10 +210,22 @@ class ChatBubbleCosmeticsTest {
                 )
             }
             val resolved = BadgeAndCosmeticRegistry.resolveEquippedIdentity(d, where = "chat")
-            assertNotNull("Community skin $skinId title must resolve", resolved.title)
-            assertNotNull("Community skin $skinId badge must resolve", resolved.badge)
+            if (skin.hasTitle) {
+                assertNotNull("Community skin $skinId title must resolve", resolved.title)
+            } else {
+                org.junit.Assert.assertNull("Community skin $skinId title must be null when hasTitle=false", resolved.title)
+            }
+            if (skin.hasBadge) {
+                assertNotNull("Community skin $skinId badge must resolve", resolved.badge)
+            } else {
+                org.junit.Assert.assertNull("Community skin $skinId badge must be null when hasBadge=false", resolved.badge)
+            }
             val b = ChatBubbleCosmetics.resolveBubbleFromDeco(d, isDarkTheme = false)
-            assertNotNull("Community skin $skinId bubble must resolve", b)
+            if (skin.hasBubble) {
+                assertNotNull("Community skin $skinId bubble must resolve", b)
+            } else {
+                org.junit.Assert.assertNull("Community skin $skinId bubble must be null when hasBubble=false", b)
+            }
         }
 
         ChatBubbleCosmetics.OFFICIAL_PALETTES.keys.forEach { otId ->
@@ -242,8 +294,25 @@ class ChatBubbleCosmeticsTest {
             text = "好",
             deco = ForHappyJson.parseToJsonElement("""{"community":{"reply":"shadow-dao"}}"""),
         )
+        val boostReplySha = BadgeAndCosmeticRegistry.resolveCommunitySkinMeta("shadow-dao")!!.replyCssSha!!
+        ChatBubbleCosmetics.registerParsedCommunityCss(
+            "reply",
+            boostReplySha,
+            """
+            .cskin-reply-shadow-dao {
+              border-image-source: url("data:image/webp;base64,LIGHTBOOST");
+              border-image-slice: 18 50 20 56 fill;
+              border-image-width: 8px 20px 9px 22px;
+              color: #141418;
+            }
+            [data-theme="dark"] .cskin-reply-shadow-dao {
+              border-image-source: url("data:image/webp;base64,DARKBOOST");
+              color: #f3efe6;
+            }
+            """.trimIndent(),
+        )
         val boostStyle = ChatBubbleCosmetics.resolveBoostFrameStyle(boost, isDarkTheme = true)
-        assertTrue(boostStyle?.nineSliceSpec?.sourceUrl?.startsWith("community-css-dark:shadow-dao:reply:") == true)
+        assertEquals("community-css:shadow-dao:reply:$boostReplySha:1", boostStyle?.nineSliceSpec?.sourceUrl)
     }
 
     @Test
@@ -285,30 +354,48 @@ class ChatBubbleCosmeticsTest {
             "waibi-babu",
         )
         catSkins.forEach { skinId ->
+            val skinMeta = BadgeAndCosmeticRegistry.resolveCommunitySkinMeta(skinId)!!
             val d = buildJsonObject {
                 put("community", buildJsonObject { put("bubble", JsonPrimitive(skinId)) })
             }
-            val style = ChatBubbleCosmetics.resolveBubbleFromDeco(d, isDarkTheme = false)
-            assertNotNull("Missing community bubble style for $skinId", style)
-            assertEquals(BubbleShapeKind.Rounded(0f, 0f, 0f, 0f), style!!.shapeKind)
-            assertTrue("$skinId minWidthDp must be >= 72", style.minWidthDp >= 72f)
-            val slice = style.nineSliceSpec!!
-            val leftPad = style.contentPadding.calculateLeftPadding(LayoutDirection.Ltr).value
-            val rightPad = style.contentPadding.calculateRightPadding(LayoutDirection.Ltr).value
-            val minExpectedPad = if (skinId == "laowu-dispatch-white") 32f else slice.borderLeftDp
-            assertTrue(
-                "$skinId left pad ($leftPad) must clear cat/frame cap ($minExpectedPad)",
-                leftPad >= minExpectedPad,
-            )
-            if (skinId != "laowu-dispatch-white") {
-                assertTrue(
-                    "$skinId right pad ($rightPad) must clear cat/frame cap (${slice.borderRightDp})",
-                    rightPad >= slice.borderRightDp,
-                )
+            val preStyle = ChatBubbleCosmetics.resolveBubbleFromDeco(d, isDarkTheme = false)
+            assertNotNull("Missing community bubble style for $skinId", preStyle)
+            if (preStyle!!.nineSliceSpec == null) {
+                assertNotNull("Expected dynamicCssSpec while CSS unloaded for $skinId", preStyle.dynamicCssSpec)
+            }
+
+            val cssSha = skinMeta.bubbleCssSha
+            if (!cssSha.isNullOrBlank()) {
+                val (bW, bR, pL, pR, minW) = when (skinId) {
+                    "laowu-dispatch-black" -> listOf(31f, 37f, 21f, 21f, 112f)
+                    "laowu-dispatch-siamese" -> listOf(34f, 48f, 123f, 25f, 205f)
+                    "laowu-dispatch-white" -> listOf(42f, 57f, 36f, 43f, 119f)
+                    else -> listOf(26f, 28f, 29f, 31f, 72f)
+                }
+                val css = """
+                    .cskin-bubble-$skinId {
+                      border-image-source: url("data:image/webp;base64,CAT");
+                      border-image-slice: 42 43 40 36 fill;
+                      border-image-width: 30px ${bR}px 30px ${bW}px;
+                      padding: 16px ${pR}px 16px ${pL}px;
+                      min-width: ${minW}px;
+                      color: #302318;
+                    }
+                """.trimIndent()
+                ChatBubbleCosmetics.registerParsedCommunityCss("bubble", cssSha, css)
+                val style = ChatBubbleCosmetics.resolveBubbleFromDeco(d, isDarkTheme = false)!!
+                assertEquals(BubbleShapeKind.Rounded(0f, 0f, 0f, 0f), style.shapeKind)
+                assertNotNull("Missing nine-slice after CSS load for $skinId", style.nineSliceSpec)
+                assertTrue("$skinId minWidthDp (${style.minWidthDp}) must be >= $minW", style.minWidthDp >= minW)
+                val leftPad = style.contentPadding.calculateLeftPadding(LayoutDirection.Ltr).value
+                val rightPad = style.contentPadding.calculateRightPadding(LayoutDirection.Ltr).value
+                assertTrue("$skinId left pad ($leftPad) must match CSS ($pL)", leftPad >= pL)
+                assertTrue("$skinId right pad ($rightPad) must match CSS ($pR)", rightPad >= pR)
             }
         }
 
         listOf("taike-lili", "step-by-step-bird").forEach { skinId ->
+            val skinMeta = BadgeAndCosmeticRegistry.resolveCommunitySkinMeta(skinId)!!
             val d = buildJsonObject {
                 put("community", buildJsonObject {
                     put("title", JsonPrimitive(skinId))
@@ -316,9 +403,41 @@ class ChatBubbleCosmeticsTest {
                     put("bubble", JsonPrimitive(skinId))
                 })
             }
+            val titleCss = """
+                .cskin-title-$skinId {
+                  background: linear-gradient(135deg, #4c1d95, #7e22ce);
+                  color: #ffffff;
+                  padding-inline: 22px 10px;
+                }
+                .cskin-title-${skinId}::before {
+                  content: "";
+                  position: absolute;
+                  left: 4px;
+                  top: 50%;
+                  width: 14px;
+                  height: 14px;
+                  transform: translateY(-50%);
+                  background: url("data:image/webp;base64,ICO") center / contain no-repeat;
+                }
+            """.trimIndent()
+            val bubbleCss = """
+                .cskin-bubble-$skinId {
+                  border-image-source: url("data:image/webp;base64,BUB");
+                  border-image-slice: 45 49 43 47 fill;
+                  border-image-width: 24px 33px 20px 32px;
+                  padding: 22px 31px 17px 30px;
+                  min-width: 96px;
+                  color: #ffffff;
+                }
+            """.trimIndent()
+            skinMeta.titleCssSha?.let { ChatBubbleCosmetics.registerParsedCommunityCss("title", it, titleCss) }
+            skinMeta.bubbleCssSha?.let { ChatBubbleCosmetics.registerParsedCommunityCss("bubble", it, bubbleCss) }
             val identity = BadgeAndCosmeticRegistry.resolveEquippedIdentity(d, where = "chat")
             assertNotNull("$skinId title missing", identity.title)
-            assertNotNull("$skinId leading icon missing", identity.title?.leadingIconUrl)
+            assertTrue(
+                "$skinId title must have leadingIconUrl or pseudoLayers after CSS registration",
+                identity.title?.leadingIconUrl != null || identity.title?.communitySpec?.pseudoLayers?.isNotEmpty() == true,
+            )
             assertNotNull("$skinId badge missing", identity.badge)
             val bStyle = ChatBubbleCosmetics.resolveBubbleFromDeco(d)
             assertNotNull("$skinId bubble missing", bStyle)

@@ -102,6 +102,7 @@ fun ForHappyAvatar(
     avatarUrl: String?,
     imageLoader: ImageLoader,
     size: Dp = 36.dp,
+    frameImageUrl: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalForHappyPalette.current
@@ -119,54 +120,71 @@ fun ForHappyAvatar(
     val effectiveUrl = remember(avatarUrl, avatarSpec) {
         avatarSpec?.cleanUrl ?: MediaUrlRewriter.rewriteWithExtProxy(avatarUrl)
     }
+    val effectiveFrameUrl = remember(frameImageUrl, hideAvatarForFeishu) {
+        if (hideAvatarForFeishu || frameImageUrl.isNullOrBlank()) null else MediaUrlRewriter.rewriteMediaUrl(frameImageUrl)
+    }
 
     Box(
         contentAlignment = Alignment.Center,
-        modifier = modifier
-            .size(size)
-            .clip(CircleShape)
-            .background(bgTint)
-            .border(
-                width = if (palette.isModernUi) 0.5.dp else 1.dp,
-                color = if (palette.isModernUi) palette.glassBorder else palette.line,
-                shape = CircleShape,
-            ),
+        modifier = modifier.size(size),
     ) {
-        if (!imageLoaded || hideAvatarForFeishu) {
-            Text(
-                text = initial,
-                color = palette.text,
-                fontSize = (size.value * 0.42f).sp,
-                fontWeight = FontWeight.Bold,
-            )
-        }
-        if (!hideAvatarForFeishu && effectiveUrl.isNotBlank() && !loadFailed) {
-            val imageModifier = if (avatarSpec != null) {
-                Modifier
-                    .requiredSize(
-                        width = size * (avatarSpec.width * avatarSpec.scale),
-                        height = size * (avatarSpec.height * avatarSpec.scale),
-                    )
-                    .graphicsLayer {
-                        val boxPx = size.toPx()
-                        translationX = avatarSpec.tx * boxPx
-                        translationY = avatarSpec.ty * boxPx
-                        rotationZ = avatarSpec.rotationDeg.toFloat()
-                    }
-            } else {
-                Modifier.fillMaxSize()
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(CircleShape)
+                .background(bgTint)
+                .border(
+                    width = if (palette.isModernUi) 0.5.dp else 1.dp,
+                    color = if (palette.isModernUi) palette.glassBorder else palette.line,
+                    shape = CircleShape,
+                ),
+        ) {
+            if (!imageLoaded || hideAvatarForFeishu) {
+                Text(
+                    text = initial,
+                    color = palette.text,
+                    fontSize = (size.value * 0.42f).sp,
+                    fontWeight = FontWeight.Bold,
+                )
             }
+            if (!hideAvatarForFeishu && effectiveUrl.isNotBlank() && !loadFailed) {
+                val imageModifier = if (avatarSpec != null) {
+                    Modifier
+                        .requiredSize(
+                            width = size * (avatarSpec.width * avatarSpec.scale),
+                            height = size * (avatarSpec.height * avatarSpec.scale),
+                        )
+                        .graphicsLayer {
+                            val boxPx = size.toPx()
+                            translationX = avatarSpec.tx * boxPx
+                            translationY = avatarSpec.ty * boxPx
+                            rotationZ = avatarSpec.rotationDeg.toFloat()
+                        }
+                } else {
+                    Modifier.fillMaxSize()
+                }
+                AsyncImage(
+                    model = effectiveUrl,
+                    imageLoader = imageLoader,
+                    contentDescription = display,
+                    contentScale = if (avatarSpec != null) ContentScale.FillBounds else ContentScale.Crop,
+                    onSuccess = { imageLoaded = true },
+                    onError = {
+                        loadFailed = true
+                        imageLoaded = false
+                    },
+                    modifier = imageModifier,
+                )
+            }
+        }
+        if (!effectiveFrameUrl.isNullOrBlank()) {
             AsyncImage(
-                model = effectiveUrl,
+                model = effectiveFrameUrl,
                 imageLoader = imageLoader,
-                contentDescription = display,
-                contentScale = if (avatarSpec != null) ContentScale.FillBounds else ContentScale.Crop,
-                onSuccess = { imageLoaded = true },
-                onError = {
-                    loadFailed = true
-                    imageLoaded = false
-                },
-                modifier = imageModifier,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.requiredSize(size * 1.36f),
             )
         }
     }

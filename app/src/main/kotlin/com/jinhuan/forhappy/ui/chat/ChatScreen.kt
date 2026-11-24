@@ -4217,6 +4217,17 @@ private fun SwipeableChatRow(
     ) {
         if (!msg.mine || isLinuxDo) {
             if (!isContinuation) {
+                val isDisguisedPre = disguiseMode != AppDisguiseMode.NONE
+                val isOwnPre = msg.mine || (meId > 0L && msg.effectiveUserId == meId)
+                val hideAllPre = isDisguisedPre || cleanDecoMode
+                val hideTitlePre = hideAllPre || (!isOwnPre && cleanDecoConfig.cleanHideOthersStyles)
+                val avatarFrameUrl = remember(msg.user?.deco, hideTitlePre, cosmeticCatalogRev) {
+                    if (hideTitlePre) {
+                        null
+                    } else {
+                        BadgeAndCosmeticRegistry.resolveCommunityAvatarFrameUrl(msg.user?.deco, "chat")
+                    }
+                }
                 Box(
                     modifier = Modifier.combinedClickable(
                         onClick = onTapAvatar,
@@ -4231,6 +4242,7 @@ private fun SwipeableChatRow(
                         avatarUrl = if (disguiseMode == AppDisguiseMode.FEISHU) null else msg.resolvedAvatar,
                         imageLoader = api.imageLoader,
                         size = 32.dp,
+                        frameImageUrl = avatarFrameUrl,
                     )
                 }
                 Spacer(Modifier.width(8.dp))
@@ -4287,18 +4299,24 @@ private fun SwipeableChatRow(
                     verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically),
                 ) {
                     if (!msg.mine || isLinuxDo) {
-                        val gradColors = remember(chatIdentity?.nickGradientHexes, hideNick, palette.muted) {
+                        val gradColors = remember(chatIdentity?.nickGradientHexes, hideNick, palette.muted, palette.isDark) {
                             if (hideNick) {
                                 null
                             } else {
-                                chatIdentity?.nickGradientHexes?.map { parseSafeHex(it, palette.muted) }?.takeIf { it.size >= 2 }
+                                chatIdentity?.nickGradientHexes
+                                    ?.map { parseSafeHex(it, palette.muted) }
+                                    ?.takeIf { it.size >= 2 }
+                                    ?.let { ChatBubbleCosmetics.ensureReadableNickColors(it, palette.isDark) }
                             }
                         }
-                        val singleColor = remember(chatIdentity?.nickGradientHexes, hideNick, palette.muted) {
+                        val singleColor = remember(chatIdentity?.nickGradientHexes, hideNick, palette.muted, palette.isDark) {
                             if (hideNick) {
                                 null
                             } else {
-                                chatIdentity?.nickGradientHexes?.singleOrNull()?.let { parseSafeHex(it, palette.muted) }
+                                chatIdentity?.nickGradientHexes
+                                    ?.singleOrNull()
+                                    ?.let { parseSafeHex(it, palette.muted) }
+                                    ?.let { ChatBubbleCosmetics.ensureReadableNickColors(listOf(it), palette.isDark).firstOrNull() }
                             }
                         }
                         val compactNickPlatform = PlatformTextStyle(includeFontPadding = false)
@@ -4483,24 +4501,12 @@ private fun SwipeableChatRow(
                             ).nickGradientHexes
                         }
                     }
-                    val repLineAnnotated = remember(repAuthor, cleanRefText, repNickHexes, palette.muted, palette.primary) {
-                        buildAnnotatedString {
-                            val grad = repNickHexes.map { parseSafeHex(it, palette.muted) }
-                            when {
-                                grad.size >= 2 -> withStyle(
-                                    SpanStyle(brush = Brush.horizontalGradient(grad), fontWeight = FontWeight.SemiBold),
-                                ) {
-                                    append(repAuthor)
-                                }
-                                grad.size == 1 -> withStyle(
-                                    SpanStyle(color = grad.first(), fontWeight = FontWeight.SemiBold),
-                                ) {
-                                    append(repAuthor)
-                                }
-                                else -> append(repAuthor)
-                            }
-                            append("：$cleanRefText")
-                        }
+                    val repGrad = remember(repNickHexes, palette.isDark, palette.muted) {
+                        val raw = repNickHexes.map { parseSafeHex(it, palette.muted) }
+                        ChatBubbleCosmetics.ensureReadableNickColors(raw, palette.isDark)
+                    }
+                    val repAuthorLabel = remember(repAuthor, isFeishu) {
+                        if (!isFeishu && repAuthor.isNotBlank()) "@$repAuthor" else repAuthor
                     }
                     Surface(
                         color = if (insideBubble) palette.surface2 else palette.surface2.copy(alpha = 0.85f),
@@ -4518,7 +4524,7 @@ private fun SwipeableChatRow(
                         Row(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
                         ) {
                             if (isFeishu || !insideBubble) {
                                 Box(
@@ -4528,12 +4534,54 @@ private fun SwipeableChatRow(
                                         .background(palette.primary.copy(alpha = 0.7f), RoundedCornerShape(2.dp)),
                                 )
                             }
+                            if (!isDisguised) {
+                                ForHappyAvatar(
+                                    username = repAuthor,
+                                    avatarUrl = rep.avatar,
+                                    imageLoader = api.imageLoader,
+                                    size = 16.dp,
+                                )
+                            }
+                            if (repAuthorLabel.isNotBlank()) {
+                                val authorStyle = when {
+                                    repGrad.size >= 2 -> TextStyle(
+                                        brush = Brush.horizontalGradient(repGrad),
+                                        fontSize = 11.sp,
+                                        lineHeight = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        platformStyle = PlatformTextStyle(includeFontPadding = false),
+                                    )
+                                    repGrad.size == 1 -> TextStyle(
+                                        color = repGrad.first(),
+                                        fontSize = 11.sp,
+                                        lineHeight = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        platformStyle = PlatformTextStyle(includeFontPadding = false),
+                                    )
+                                    else -> TextStyle(
+                                        color = palette.primary,
+                                        fontSize = 11.sp,
+                                        lineHeight = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        platformStyle = PlatformTextStyle(includeFontPadding = false),
+                                    )
+                                }
+                                Text(
+                                    text = repAuthorLabel,
+                                    style = authorStyle,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.widthIn(max = 120.dp),
+                                )
+                            }
                             Text(
-                                text = repLineAnnotated,
+                                text = if (isFeishu) "：$cleanRefText" else cleanRefText,
                                 color = palette.muted,
                                 fontSize = 11.sp,
-                                maxLines = 2,
+                                lineHeight = 13.sp,
+                                maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
+                                style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
                                 modifier = Modifier.weight(1f, fill = false),
                             )
                             if (!rep.deleted && !rep.thumb.isNullOrBlank()) {

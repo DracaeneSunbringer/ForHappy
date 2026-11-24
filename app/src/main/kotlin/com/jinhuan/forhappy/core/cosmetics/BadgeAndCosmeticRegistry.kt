@@ -117,6 +117,9 @@ data class CommunitySkinCatalogItem(
     val replyImgSha: String? = null,
     val replyCssSha: String? = null,
     val replySlice: IntArray? = null,
+    val hasFrame: Boolean = false,
+    val frameImgSha: String? = null,
+    val frameCssSha: String? = null,
 )
 
 data class OwnedBadgeItem(
@@ -573,6 +576,14 @@ object BadgeAndCosmeticRegistry {
 
     val COMMUNITY_SKINS: Map<String, CommunitySkinCatalogItem> = mapOf(
         "aurora-preset" to CommunitySkinCatalogItem("aurora-preset", "极光流转", "qwddkxs", hasTitle = true, hasBadge = true, hasBubble = true, hasReply = true),
+        "gushen-yinpa" to CommunitySkinCatalogItem(
+            id = "gushen-yinpa", name = "古神银趴", author = "Earthcat",
+            hasTitle = true, hasBadge = true, hasBubble = true, hasReply = true,
+            bubbleCssSha = "44842f9a84ccfa72eef2eceb8d14c5671d5244961afedd66104e56a224855f56",
+            titleCssSha = "6a7a2bb0ff0a2956b641fd98de0a65759c7e61de57d54d692a86f7857fcbf06a",
+            badgeCssSha = "599048ca7b1d8131a35c1cee19e3efacd37c93c29ed3e53e729bc8fa9bd7e91b",
+            replyCssSha = "89e0b9ca54c2ec94ef0ed8250a417624657e703b8cc73bd731eb7efaee8bc638",
+        ),
         "lanting-ink" to CommunitySkinCatalogItem(
             id = "lanting-ink", name = "兰亭墨韵", author = "超时空蚂蚁",
             hasTitle = true, hasBadge = true, hasBubble = true, hasReply = true,
@@ -603,10 +614,12 @@ object BadgeAndCosmeticRegistry {
             badgeCssSha = "94246d3faec40ef12c0149002c8399d03334719b91f739e3c7b7b24288f1e83c",
         ),
         "laowu-dispatch-black" to CommunitySkinCatalogItem(
-            id = "laowu-dispatch-black", name = "老吴派遣·黑", author = "Earthcat",
-            hasTitle = true, hasBadge = false, hasBubble = true,
-            bubbleCssSha = "124cbd46081146004ff36715429e5b03dab38fad884fe3f04ee525755d96316c",
-            titleCssSha = "8cd9a254d97135f971c3ea3ec057ff5daf413d3a3f6f3f02b6dd358f131604b3",
+            id = "laowu-dispatch-black", name = "奶酪鼠王", author = "Earthcat",
+            hasTitle = true, hasBadge = true, hasBubble = true, hasReply = true,
+            bubbleCssSha = "0976ac4b25a15e410e37c3c85022bf50d068528a81a30e8d924ce7b2614e870d",
+            titleCssSha = "c26412a5ab7388f20014ebeec4b73ded19703380b428645f97af8937af043117",
+            badgeCssSha = "02495e1c24e7fa1733bf4a8099f05eab7d20016f9f6e8905c8b34140d21f8ac7",
+            replyCssSha = "85bb88df8d931f5a8e44724978da15b8ac1e4fc6f0b7f2381a93e05a1282551b",
         ),
         "laowu-dispatch-calico" to CommunitySkinCatalogItem(
             id = "laowu-dispatch-calico", name = "老吴派遣·三花", author = "Earthcat",
@@ -622,17 +635,28 @@ object BadgeAndCosmeticRegistry {
             badgeCssSha = "f217d3c8463c884e369b24ce89688e5c87505fe2fb28a065cf912c2862edebd1",
         ),
         "laowu-dispatch-siamese" to CommunitySkinCatalogItem(
-            id = "laowu-dispatch-siamese", name = "老吴派遣·暹罗", author = "Earthcat",
-            hasTitle = true, hasBadge = false, hasBubble = true,
-            bubbleCssSha = "832ed7919d46f2c984116cd0125284db50246b525a01560addb9b9541c168429",
-            titleCssSha = "2f5b6dbdbf7d14d7e7db3b12ca8957b8990a56e66fd7643d23b5ff4890bf6a62",
+            id = "laowu-dispatch-siamese", name = "sup早苗", author = "Earthcat",
+            hasTitle = true, hasBadge = true, hasBubble = true,
+            bubbleCssSha = "a397e6bb8c6b5d1cdc1b39157136edff9bcb01556f30beed37e65d695b2cf647",
+            titleCssSha = "f33eb7c4d83be2ca65d8d8b197073cb4eced04849cf7b0b8b9fbe52da9ab0723",
+            badgeCssSha = "539b83f39c5c714e8a2b8307588dbf3d023362e7dddd3cc8e086894c6f96774c",
         ),
         "laowu-dispatch-white" to CommunitySkinCatalogItem(
             id = "laowu-dispatch-white", name = "整点薯条", author = "Earthcat",
-            hasTitle = true, hasBadge = true, hasBubble = true,
-            bubbleCssSha = "ae1d64e1a3d81a4101a8c6e33969ebf1db3dfac4f4c182b28908b5df4d60c617",
+            hasTitle = true, hasBadge = true, hasBubble = true, hasReply = true,
+            bubbleCssSha = "25fc42b6c36583cc1667d11aea6be7026b00f63c511aab13e26adb6f6a390156",
             titleCssSha = "a2b9d6c54240e9e60c24cf21db215ff96428b7a45fde185ea7aea136ec1cc701",
             badgeCssSha = "b4fa89efd4d7ee5b295ed69149b418c4223d90a14bc2a554f98915bf52dfe5f8",
+            replyCssSha = "71cc0bcec9f5ea878e4f4f4477a657b4bf23ca3cbba04c86bcfc2d7a1163f37b",
+        ),
+        "manga-tremor" to CommunitySkinCatalogItem(
+            id = "manga-tremor", name = "娇怯拟声", author = "DracaeneSunbringer",
+            hasTitle = true, hasBadge = true, hasBubble = true, hasReply = true,
+            bubbleCssSha = "70628030042823f81331a1102144b183140c2d8dc60b4d12938d3d765a6d3d5a",
+            titleCssSha = "dd182da1acbdf9bf8a2896cfee7bf8bd6220bb429b0e4e6e81c5f8d195331448",
+            badgeImgSha = "ee7735aa671347752bf0d5b11f1f3b1ab263c64237f80c8de27d1e56f78cec97",
+            badgeCssSha = "878e318ff9927971bf038459b22d947e1c33950e450b002e0c78fcef36036ac4",
+            replyCssSha = "87d95d45610403d2d1255d708a0422c55dda13641edb8f46717255b9488761e2",
         ),
         "oiia-loaf" to CommunitySkinCatalogItem(
             id = "oiia-loaf", name = "oiia", author = "Earthcat",
@@ -654,6 +678,12 @@ object BadgeAndCosmeticRegistry {
             bubbleImgSha = "0a4fbf591d0059052bccc9baef213b050426ea90d02c154afe011e407e227245",
             bubbleCssSha = "003a8f449e3ff91f57c2c9fbcfffc6b735c7577a2b9b5cf45b7ee905123d674d",
             titleCssSha = "2e93383775162eabae36eb97ba3791c26073379d67b215ffe56b0fcae2c00ec8",
+        ),
+        "rem-dual-form" to CommunitySkinCatalogItem(
+            id = "rem-dual-form", name = "蕾姆·昼夜誓约", author = "shx126",
+            hasTitle = true, hasBadge = false, hasBubble = true,
+            bubbleCssSha = "1ca1e3cfa3a29ec18471745e2fd38e3391dbd7cd60c7292f8abba4e80fd5b695",
+            titleCssSha = "352b5fff6255041aefa65a5befb6325fcd3aa4a0abfe649d1196ff66a604c874",
         ),
         "round-maodie" to CommunitySkinCatalogItem(
             id = "round-maodie", name = "圆头耄耋", author = "Earthcat",
@@ -693,10 +723,20 @@ object BadgeAndCosmeticRegistry {
         ),
         "step-by-step-bird" to CommunitySkinCatalogItem(
             id = "step-by-step-bird", name = "一步一步走鸟", author = "Earthcat",
-            hasTitle = true, hasBadge = true, hasBubble = true,
-            bubbleCssSha = "1b0068d3ad032a89033eb10ee7a047e6c1d455c51cecfe27e478fd383478be96",
+            hasTitle = true, hasBadge = true, hasBubble = true, hasReply = true,
+            bubbleCssSha = "b2878c60154580c36c54645099a3281b1d7c6ea4a721e1d4da64a3e1e4c77645",
             titleCssSha = "e54236482a889d0e2397bdba4de33ea7e6516ace48b2346817e568cf2ebb3c8e",
             badgeCssSha = "64ad2adec4fb473dc109ba170059f4341487290354f45511ae2f2aecc30d8b22",
+            replyCssSha = "f8cb9516e35ebb597d9014464abb9a20f664cab3c865c68bb955a09225ec7170",
+        ),
+        "succubus-lace" to CommunitySkinCatalogItem(
+            id = "succubus-lace", name = "绯夜魅魔", author = "DracaeneSunbringer",
+            hasTitle = true, hasBadge = true, hasBubble = true, hasReply = true,
+            bubbleCssSha = "94aee08d840f68a591057ac5795db5544b4dcf329e4ff1fc3295dc22accece25",
+            titleCssSha = "c4a4c731ece36e07008f62362314edae01b5a0b49f243b4b2ba5b0beb8793643",
+            badgeImgSha = "ec7af8d611fa8d7ceabd9b693b650fc0a815979d426e836bdf45e4be76b1732f",
+            badgeCssSha = "2629d87c959d41181f8c85e92fccb677ca2746185a35b5a8ee425eaf1f4b8bb2",
+            replyCssSha = "bd75d8f2526b2c200e753f05a517ef0d0b6cea446cb8e2edb25a32561f7a24fd",
         ),
         "taike-lili" to CommunitySkinCatalogItem(
             id = "taike-lili", name = "肽克lili", author = "Earthcat",
@@ -768,30 +808,6 @@ object BadgeAndCosmeticRegistry {
           <circle cx="32" cy="32" r="5" fill="#ff007f"/>
           <circle cx="32" cy="32" r="2.5" fill="#ffffff"/>
         </svg>
-    """.trimIndent()
-
-    val LANTING_INK_BADGE_SVG: String = """
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-          <defs>
-            <linearGradient id="ik" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stop-color="#111827"/>
-              <stop offset="55%" stop-color="#374151"/>
-              <stop offset="100%" stop-color="#b48327"/>
-            </linearGradient>
-          </defs>
-          <circle cx="32" cy="32" r="27" fill="#f7f3e8" stroke="url(#ik)" stroke-width="4.5" stroke-linecap="round"/>
-          <circle cx="32" cy="32" r="22" fill="none" stroke="#b48327" stroke-width="1.2"/>
-          <circle cx="24" cy="22" r="8" fill="#b91c1c" opacity="0.92"/>
-          <path d="M10 41 L22 26 L34 38 L44 23 L54 40 Q32 54 10 41 Z" fill="#374151" opacity="0.65"/>
-          <path d="M14 45 L31 29 L45 41 L53 33 Q33 56 14 45 Z" fill="#111827" opacity="0.92"/>
-          <path d="M16 43 Q32 39 48 43" fill="none" stroke="#fef3c7" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
-          <circle cx="44" cy="19" r="3" fill="#dc2626"/>
-          <circle cx="49" cy="23" r="2.2" fill="#fde68a"/>
-        </svg>
-    """.trimIndent()
-
-    val ORANGE_FLICK_BADGE_SVG: String = """
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="ginger" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="#ffc575"/><stop offset="1" stop-color="#f3a04b"/></linearGradient><linearGradient id="wafer" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#f4d0a0"/><stop offset="1" stop-color="#d9a16a"/></linearGradient></defs><path d="M18 34.2H52L47.2 58.1Q46.8 60.8 43.9 61H26Q23.3 61 22.8 58.5Z" fill="url(#wafer)" stroke="#965737" stroke-width="1.7" stroke-linejoin="round"/><path d="M22 43.5 39.1 59M34 43.5 46.8 54.8M45.9 43.5 49 46.3M22.2 50.5 30.1 43.5M24.8 57.3 40.6 43.5M35.2 59.1 48.4 47.5" fill="none" stroke="#9d6239" stroke-width="1.25" stroke-linecap="round" opacity=".92"/><path d="M12.8 30.5Q12.2 28.5 15 28.5H51.8Q55.2 28.5 54.3 32.2L52.7 39.6Q52 42 49.1 42H18.5Q15.1 42 14.2 38.7Z" fill="url(#wafer)" stroke="#965737" stroke-width="1.7" stroke-linejoin="round"/><path d="M18.2 32.1 27.7 40.1M28.8 32.4 37.8 40.1M39.6 32.4 48.5 39.9M19.5 40 28.6 32.4M30 40 39.2 32.4M40.5 40 49.7 32.4" fill="none" stroke="#9d6239" stroke-width="1.25" stroke-linecap="round" opacity=".92"/><path d="M4.3 28.5Q3 22.4 6.9 18.8C10.1 15.5 14.1 13 19 10.9L19.6 5.6Q20.1 1.9 22.6 4.3Q24 5.5 24.6 9C31.8 6.5 39 6.9 45.6 9.1Q46.9 3.8 49.7 5.2Q52 6.4 51.5 11.7C56.9 15.4 59.1 21.5 59.2 29.9L59.4 41.9Q59.4 47.1 56 47.2Q53.3 47.2 53.3 43.1V33.2Q53.2 31.2 50.8 31.2H24.6Q22.8 31.2 21.2 33L18.1 36.3Q17 37.4 15.8 36.2L11.1 31.8Q9.7 30.4 8.3 32.2L6.9 33.8Q5.5 35.2 4.8 33.2Z" fill="url(#ginger)" stroke="#965737" stroke-width="1.65" stroke-linejoin="round"/><path d="M5.5 28.7Q7.2 25.4 12.5 25.1Q18 24.9 22.5 29.8Q21.1 31.3 17.1 35.9L11.3 31.8Q9.7 30.2 8.2 32.2L6.6 33.8Q5.9 34.1 5.5 28.7Z" fill="#fff0d3"/><path d="M20.9 8.9 21.5 5.9 23.1 8.1M47.5 8.4 49.2 6.9 49.9 10.3" fill="#f4a3a0" stroke-linejoin="round"/><path d="M26.5 9.2Q28.5 11.6 28.5 14.3M33 8.1Q34.5 10.7 34.8 14.1M39.3 8.8Q40.8 11.1 41.3 13.8M54.6 25.6Q56.8 26.2 58.4 25.6M54.4 37Q56.5 37.8 58.8 37.1" fill="none" stroke="#b86731" stroke-width="1.8" stroke-linecap="round"/><path d="M25 20.6Q25.6 15.1 27.9 15.6Q30.3 15.8 30.5 21.5M43.9 22.2Q47.3 18.5 47.3 14.9Q47.5 12.3 49.4 12.8Q51.4 13.2 51.9 18.2" fill="none" stroke="#965737" stroke-width="1.3" stroke-linecap="round" opacity=".86"/><circle cx="7.9" cy="25.5" r="1.4" fill="#512d24"/><circle cx="18.6" cy="27.2" r="1.5" fill="#512d24"/><path d="M11.5 24.8 14.2 25.4 12.6 27Z" fill="#512d24"/><path d="M21 28.8Q22.3 28.9 23.2 29.5" fill="none" stroke="#e58b86" stroke-width="1.5" stroke-linecap="round"/></svg>
     """.trimIndent()
 
     private val _catalogRevision = MutableStateFlow(0)
@@ -1183,6 +1199,7 @@ object BadgeAndCosmeticRegistry {
             val (hasBd, bdImg, bdCss) = compHash("badge")
             val (hasBb, bbImg, bbCss) = compHash("bubble")
             val (hasRp, rpImg, rpCss) = compHash("reply")
+            val (hasFr, frImg, frCss) = compHash("frame")
             val base = COMMUNITY_SKINS[id]
             dynamicCommunitySkins[id] = CommunitySkinCatalogItem(
                 id = id,
@@ -1203,6 +1220,9 @@ object BadgeAndCosmeticRegistry {
                 replyImgSha = rpImg ?: base?.replyImgSha,
                 replyCssSha = rpCss ?: base?.replyCssSha,
                 replySlice = compSlice("reply") ?: base?.replySlice,
+                hasFrame = hasFr || (base?.hasFrame == true),
+                frameImgSha = frImg ?: base?.frameImgSha,
+                frameCssSha = frCss ?: base?.frameCssSha,
             )
         }
         _catalogRevision.value += 1
@@ -1469,6 +1489,28 @@ object BadgeAndCosmeticRegistry {
         return "#%02x%02x%02x".format(r, g, b)
     }
 
+    private val COMMUNITY_SLUG_REGEX = Regex("""^[a-z0-9][a-z0-9-]{2,47}$""")
+
+    fun isValidCommunitySlug(id: String?): Boolean =
+        !id.isNullOrBlank() && COMMUNITY_SLUG_REGEX.matches(id)
+
+    fun resolveCommunityAvatarFrameUrl(
+        decoJson: JsonElement?,
+        where: String = "chat",
+    ): String? {
+        val obj = runCatching { decoJson?.jsonObject }.getOrNull() ?: return null
+        val rawSc = obj["sc"]?.jsonPrimitive?.contentOrNull ?: obj["decoScope"]?.jsonPrimitive?.contentOrNull ?: "all"
+        val sc = if (rawSc == "wall") "post" else rawSc
+        val effWhere = if (where == "wall") "post" else where
+        if (effWhere != "card" && sc != "all" && sc != effWhere) return null
+        val commObj = runCatching { obj["community"]?.jsonObject }.getOrNull() ?: return null
+        val frameId = commObj["frame"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        if (!isValidCommunitySlug(frameId)) return null
+        val skin = resolveCommunitySkinMeta(frameId) ?: return null
+        val imgSha = skin.frameImgSha?.takeIf { it.isNotBlank() } ?: return null
+        return "https://52dmeme.com/api/community-skins/image/$imgSha"
+    }
+
     fun resolveEquippedIdentity(
         decoJson: JsonElement?,
         badgesJson: JsonElement? = null,
@@ -1512,29 +1554,45 @@ object BadgeAndCosmeticRegistry {
         val rawSc = obj["sc"]?.jsonPrimitive?.contentOrNull ?: obj["decoScope"]?.jsonPrimitive?.contentOrNull ?: "all"
         val sc = if (rawSc == "wall") "post" else rawSc
         val effWhere = if (where == "wall") "post" else where
-        if (effWhere != "card" && sc != "all" && sc != effWhere) {
-            return ResolvedUserIdentity(nickGradientHexes = nickHexes)
-        }
+        val scMatches = effWhere == "card" || sc == "all" || sc == effWhere
 
         val communityObj = runCatching { obj["community"]?.jsonObject }.getOrNull()
-        val communityTitleId = communityObj?.get("title")?.jsonPrimitive?.contentOrNull
-            ?: obj["communityTitleId"]?.jsonPrimitive?.contentOrNull
-        val communityBadgeId = communityObj?.get("badge")?.jsonPrimitive?.contentOrNull
-            ?: obj["communityBadgeId"]?.jsonPrimitive?.contentOrNull
+        val communityTitleId = if (scMatches) {
+            communityObj?.get("title")?.jsonPrimitive?.contentOrNull
+                ?: obj["communityTitleId"]?.jsonPrimitive?.contentOrNull
+        } else {
+            null
+        }
+        val communityBadgeId = if (scMatches) {
+            communityObj?.get("badge")?.jsonPrimitive?.contentOrNull
+                ?: obj["communityBadgeId"]?.jsonPrimitive?.contentOrNull
+        } else {
+            null
+        }
 
-        val ptId = obj["pt"]?.jsonPrimitive?.contentOrNull ?: obj["equippedPersonalId"]?.jsonPrimitive?.contentOrNull
-        val otId = obj["ot"]?.jsonPrimitive?.contentOrNull ?: obj["equippedOfficialId"]?.jsonPrimitive?.contentOrNull
-        val grId = obj["gr"]?.jsonPrimitive?.contentOrNull ?: obj["equippedGrowthId"]?.jsonPrimitive?.contentOrNull
-        val rtId = obj["rt"]?.jsonPrimitive?.contentOrNull
-            ?: if (obj["equippedInviteTitle"]?.jsonPrimitive?.booleanOrNull == true) "guangjie" else null
-        val customText = (obj["t"]?.jsonPrimitive?.contentOrNull
-            ?: obj["customTitle"]?.jsonPrimitive?.contentOrNull
-            ?: obj["title"]?.jsonPrimitive?.contentOrNull)
-            ?.trim()
-            .orEmpty()
+        val ptId = if (scMatches) obj["pt"]?.jsonPrimitive?.contentOrNull ?: obj["equippedPersonalId"]?.jsonPrimitive?.contentOrNull else null
+        val otId = if (scMatches) obj["ot"]?.jsonPrimitive?.contentOrNull ?: obj["equippedOfficialId"]?.jsonPrimitive?.contentOrNull else null
+        val grId = if (scMatches) obj["gr"]?.jsonPrimitive?.contentOrNull ?: obj["equippedGrowthId"]?.jsonPrimitive?.contentOrNull else null
+        val rtId = if (scMatches) {
+            obj["rt"]?.jsonPrimitive?.contentOrNull
+                ?: if (obj["equippedInviteTitle"]?.jsonPrimitive?.booleanOrNull == true) "guangjie" else null
+        } else {
+            null
+        }
+        val customText = if (scMatches) {
+            (obj["t"]?.jsonPrimitive?.contentOrNull
+                ?: obj["customTitle"]?.jsonPrimitive?.contentOrNull
+                ?: obj["title"]?.jsonPrimitive?.contentOrNull)
+                ?.trim()
+                .orEmpty()
+        } else {
+            ""
+        }
 
         val commTitleMeta = communityTitleId?.takeIf { it.isNotBlank() }?.let { resolveCommunitySkinMeta(it) }
+        val commTitleAllowed = isValidCommunitySlug(communityTitleId) && (commTitleMeta == null || commTitleMeta.hasTitle)
         val commBadgeMeta = communityBadgeId?.takeIf { it.isNotBlank() }?.let { resolveCommunitySkinMeta(it) }
+        val commBadgeAllowed = isValidCommunitySlug(communityBadgeId) && (commBadgeMeta == null || commBadgeMeta.hasBadge)
         val growthMeta = grId?.takeIf { it.isNotBlank() }?.let { resolveGrowthRewardMeta(it) }
         val activeRaffle = resolveActiveRaffle(obj, cosmeticAccess, nowSec)
         val officialMeta = otId?.takeIf { it.isNotBlank() }?.let { resolveOfficialTitleName(it, officialTitles) }
@@ -1566,7 +1624,7 @@ object BadgeAndCosmeticRegistry {
                     specialKind = "owner52",
                 )
             }
-            commTitleMeta != null -> {
+            commTitleAllowed -> {
                 ChatBubbleCosmetics.resolveCommunityTitleStyle(communityTitleId!!, commTitleMeta, isDarkTheme)
             }
             growthMeta != null -> {
@@ -1647,12 +1705,13 @@ object BadgeAndCosmeticRegistry {
             }
             activeRaffle != null -> {
                 val r = activeRaffle.catalog
-                val dispLv = activeRaffle.displayLevel
+                val earnedLv = activeRaffle.earnedLevel
+                val earnedStage = raffleStage(earnedLv)
                 if (r.id == "claude") {
                     ResolvedTitleChip(
                         key = "raffle:claude",
                         label = "拾光司书",
-                        levelText = if (dispLv > 1) "Lv$dispLv" else null,
+                        levelText = if (earnedLv > 1) "Lv$earnedLv" else null,
                         rarity = "SSR",
                         bgHex = "#FAF0DC",
                         textHex = "#542710",
@@ -1660,11 +1719,11 @@ object BadgeAndCosmeticRegistry {
                         fillMode = "grad",
                         shape = "ribbon",
                         secondaryBgHex = "#EAD3AE",
-                        effect = if (activeRaffle.stage >= 6) "shine" else "none",
+                        effect = if (earnedStage >= 6) "shine" else "none",
                         specialKind = "shiguang",
                         raffleColorHex = r.colorHex,
                         raffleAccentHex = r.accentHex,
-                        raffleStage = activeRaffle.stage,
+                        raffleStage = earnedStage,
                     )
                 } else {
                     val isOldFarmer = r.id == "oldfarmer"
@@ -1674,10 +1733,11 @@ object BadgeAndCosmeticRegistry {
                     val symPath = ChatBubbleCosmetics.TITLE_SYMBOL_PATHS[r.id]
                         ?: r.symbolKey.takeIf { it.isNotBlank() }?.let { ChatBubbleCosmetics.resolveTitleSymbolPath(it) }
                         ?: ChatBubbleCosmetics.resolveTitleSymbolPath(r.id)
+                    val bannerSpec = ChatBubbleCosmetics.RAFFLE_TITLE_BANNERS[r.id]
                     ResolvedTitleChip(
                         key = "raffle:${r.id}",
                         label = r.name,
-                        levelText = if (dispLv > 1) "Lv$dispLv" else null,
+                        levelText = if (earnedLv > 1) "Lv$earnedLv" else null,
                         rarity = r.rarity,
                         bgHex = npBg,
                         textHex = npFg,
@@ -1685,12 +1745,13 @@ object BadgeAndCosmeticRegistry {
                         fillMode = "grad",
                         shape = "tag",
                         secondaryBgHex = npSec,
-                        effect = if (activeRaffle.stage >= 8) "shine" else "none",
+                        effect = if (earnedStage >= 8) "shine" else "none",
                         symbolSvgPath = symPath,
+                        bgImageUrl = bannerSpec?.let { "https://52dmeme.com${it.bannerPath}" },
                         specialKind = if (isOldFarmer) "raffle_oldfarmer" else "raffle_nameplate",
                         raffleColorHex = r.colorHex,
                         raffleAccentHex = r.accentHex,
-                        raffleStage = activeRaffle.stage,
+                        raffleStage = earnedStage,
                     )
                 }
             }
@@ -1770,9 +1831,10 @@ object BadgeAndCosmeticRegistry {
             ?: obj["badgeScope"]?.jsonPrimitive?.contentOrNull
             ?: "all"
         val bs = if (rawBs == "wall") "post" else rawBs
-        if (badgeMode == "none" || (effWhere != "card" && bs != "all" && bs != effWhere)) {
+        if (badgeMode == "none") {
             return ResolvedUserIdentity(title = resolvedTitle, badge = null, nickGradientHexes = nickHexes)
         }
+        val bsMatches = effWhere == "card" || bs == "all" || bs == effWhere
 
         val bdId = (obj["bd"]?.jsonPrimitive?.contentOrNull
             ?: obj["equippedBadgeId"]?.jsonPrimitive?.contentOrNull)
@@ -1781,13 +1843,15 @@ object BadgeAndCosmeticRegistry {
         val ownedBadges = parseOwnedBadges(badgesJson)
 
         fun buildCustomBadge(targetId: String): ResolvedBadgeChip? {
-            if (targetId.isEmpty()) return null
+            if (!bsMatches || targetId.isEmpty()) return null
             val meta = resolveBadgeMeta(targetId) ?: return null
             val ownedN = ownedBadges.firstOrNull { it.id == targetId }?.count
             val bn = obj["bn"]?.jsonPrimitive?.intOrNull
                 ?: ownedN
                 ?: if (cosmeticAccess == "all") 999999 else 1
             val bl = obj["bl"]?.jsonPrimitive?.intOrNull ?: computeBadgeLevel(targetId, bn).coerceAtLeast(1)
+            val isGrowthBadge = targetId == "guess" || targetId == "luck_king" ||
+                targetId == "luck_last" || targetId.startsWith("rank_")
             return ResolvedBadgeChip(
                 id = targetId,
                 name = meta.name,
@@ -1796,62 +1860,12 @@ object BadgeAndCosmeticRegistry {
                 tier = meta.tier,
                 desc = meta.desc,
                 art = resolveBadgeArt(targetId, bl),
-                alwaysIconOnly = false,
+                alwaysIconOnly = isGrowthBadge && effWhere != "card",
             )
         }
 
         val resolvedBadge: ResolvedBadgeChip? = when {
-            commBadgeMeta != null -> {
-                val cid = communityBadgeId!!
-                val badgeSpec = ChatBubbleCosmetics.resolveCommunityBadgeSpec(
-                    id = cid,
-                    imgSha = commBadgeMeta.badgeImgSha,
-                    cssSha = commBadgeMeta.badgeCssSha,
-                    isDarkTheme = isDarkTheme,
-                )
-                val badgeArt: BadgeArtKind = when {
-                    cid == "aurora-preset" -> BadgeArtKind.InlineXmlSvg(AURORA_COMPASS_SVG)
-                    cid == "lanting-ink" -> BadgeArtKind.InlineXmlSvg(LANTING_INK_BADGE_SVG)
-                    cid == "orange-flick" || cid == "laowu-dispatch" -> BadgeArtKind.InlineXmlSvg(ORANGE_FLICK_BADGE_SVG)
-                    cid == "laowu-dispatch-all-in" -> {
-                        val sheetUrl = commBadgeMeta.badgeImgSha?.let {
-                            "https://52dmeme.com/api/community-skins/image/$it"
-                        } ?: "https://52dmeme.com/api/community-skins/image/19b1612f344bacb77ff295e1015b806caf76b8c71d573f4d6ab572e20b3ede2d"
-                        BadgeArtKind.SpriteSheetCell(sheetUrl, cols = 9, rows = 5, col = 2, row = 2)
-                    }
-                    !commBadgeMeta.badgeCssSha.isNullOrBlank() -> BadgeArtKind.CommunityCssBadge(
-                        id = cid,
-                        imgSha = commBadgeMeta.badgeImgSha,
-                        cssSha = commBadgeMeta.badgeCssSha,
-                        isDarkTheme = isDarkTheme,
-                    )
-                    commBadgeMeta.badgeImgSha != null -> {
-                        BadgeArtKind.RemoteImage("https://52dmeme.com/api/community-skins/image/${commBadgeMeta.badgeImgSha}")
-                    }
-                    else -> BadgeArtKind.EmojiGlyph("✦")
-                }
-                val isInlineVector = cid == "aurora-preset" || cid == "lanting-ink" ||
-                    cid == "orange-flick" || cid == "laowu-dispatch" || cid == "laowu-dispatch-all-in"
-                ResolvedBadgeChip(
-                    id = "community:$cid",
-                    name = commBadgeMeta.name,
-                    level = 1,
-                    levelText = "",
-                    tier = "epic",
-                    desc = "社区投稿徽章 · ${commBadgeMeta.author}",
-                    art = badgeArt,
-                    alwaysIconOnly = true,
-                    iconWidthDp = badgeSpec?.widthDp ?: 24f,
-                    iconHeightDp = badgeSpec?.heightDp ?: 24f,
-                    dynamicCssSpec = if (!isInlineVector && badgeSpec == null && !commBadgeMeta.badgeCssSha.isNullOrBlank()) {
-                        "$cid:badge:${commBadgeMeta.badgeCssSha}"
-                    } else {
-                        null
-                    },
-                )
-            }
-            badgeMode == "custom" -> buildCustomBadge(bdId)
-            isOwner52Suit(ptId) -> {
+            isOwner52Suit(ptId) && badgeMode != "custom" -> {
                 val suitId = ptId!!
                 val p = resolvePersonalTitle(suitId) ?: PersonalTitleCatalogItem(suitId, "52帝", "站长专属", "SSR", "owner")
                 val isB = suitId == "owner-52b" || suitId == "owner52b"
@@ -1872,6 +1886,47 @@ object BadgeAndCosmeticRegistry {
                     alwaysIconOnly = true,
                 )
             }
+            commBadgeAllowed -> {
+                val cid = communityBadgeId!!
+                val badgeSpec = ChatBubbleCosmetics.resolveCommunityBadgeSpec(
+                    id = cid,
+                    imgSha = commBadgeMeta?.badgeImgSha,
+                    cssSha = commBadgeMeta?.badgeCssSha,
+                    isDarkTheme = isDarkTheme,
+                )
+                val badgeArt: BadgeArtKind = when {
+                    cid == "aurora-preset" -> BadgeArtKind.InlineXmlSvg(AURORA_COMPASS_SVG)
+                    !commBadgeMeta?.badgeCssSha.isNullOrBlank() -> BadgeArtKind.CommunityCssBadge(
+                        id = cid,
+                        imgSha = commBadgeMeta?.badgeImgSha,
+                        cssSha = commBadgeMeta?.badgeCssSha,
+                        isDarkTheme = isDarkTheme,
+                    )
+                    commBadgeMeta?.badgeImgSha != null -> {
+                        BadgeArtKind.RemoteImage("https://52dmeme.com/api/community-skins/image/${commBadgeMeta.badgeImgSha}")
+                    }
+                    else -> BadgeArtKind.EmojiGlyph("✦")
+                }
+                ResolvedBadgeChip(
+                    id = "community:$cid",
+                    name = commBadgeMeta?.name ?: cid,
+                    level = 1,
+                    levelText = "",
+                    tier = "epic",
+                    desc = "社区投稿徽章${commBadgeMeta?.author?.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()}",
+                    art = badgeArt,
+                    alwaysIconOnly = true,
+                    iconWidthDp = badgeSpec?.widthDp ?: 24f,
+                    iconHeightDp = badgeSpec?.heightDp ?: 24f,
+                    dynamicCssSpec = when {
+                        cid == "aurora-preset" -> null
+                        commBadgeMeta == null -> "catalog:$cid"
+                        badgeSpec == null && !commBadgeMeta.badgeCssSha.isNullOrBlank() -> "$cid:badge:${commBadgeMeta.badgeCssSha}"
+                        else -> null
+                    },
+                )
+            }
+            badgeMode == "custom" -> buildCustomBadge(bdId)
             growthMeta != null -> {
                 val series = growthMeta.series ?: "guess"
                 ResolvedBadgeChip(
@@ -1882,7 +1937,7 @@ object BadgeAndCosmeticRegistry {
                     tier = "epic",
                     desc = growthMeta.desc,
                     art = resolveBadgeArt(series, growthMeta.level),
-                    alwaysIconOnly = true,
+                    alwaysIconOnly = effWhere != "card",
                 )
             }
             !ptId.isNullOrBlank() && resolvePersonalTitle(ptId) != null -> {
@@ -1905,7 +1960,7 @@ object BadgeAndCosmeticRegistry {
             }
             activeRaffle != null -> {
                 val r = activeRaffle.catalog
-                val dispLv = activeRaffle.displayLevel
+                val earnedLv = activeRaffle.earnedLevel
                 val artKind = when (r.id) {
                     "claude" -> BadgeArtKind.RemoteImage("https://52dmeme.com/shiguang/assets/shiguang-sticker.webp")
                     "oldfarmer" -> BadgeArtKind.RemoteSvg(raffleBadgeUrl("oldfarmer"), "🥕")
@@ -1914,12 +1969,12 @@ object BadgeAndCosmeticRegistry {
                 ResolvedBadgeChip(
                     id = "ft:${r.id}",
                     name = if (r.id == "claude") "拾光司书" else r.name,
-                    level = dispLv,
-                    levelText = "Lv$dispLv",
+                    level = earnedLv,
+                    levelText = "Lv$earnedLv",
                     tier = if (r.rarity == "SSR") "legend" else "rare",
                     desc = r.mood,
                     art = artKind,
-                    alwaysIconOnly = r.id == "claude",
+                    alwaysIconOnly = r.id == "claude" || effWhere != "card",
                     textHex = r.colorHex,
                     levelBgHex = r.colorHex,
                 )
