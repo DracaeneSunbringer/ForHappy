@@ -6,11 +6,17 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas as AndroidCanvas
 import android.graphics.Color as AndroidColor
 import android.graphics.DashPathEffect
+import android.graphics.ImageDecoder
 import android.graphics.LinearGradient
+import android.graphics.Movie
 import android.graphics.Paint
+import android.graphics.PorterDuff
 import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
+import android.graphics.drawable.AnimatedImageDrawable
+import android.graphics.drawable.Drawable
+import android.os.Build
 import android.util.Base64
 import android.util.Xml
 import androidx.compose.animation.core.LinearEasing
@@ -45,14 +51,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,20 +70,28 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
@@ -96,11 +114,16 @@ import com.jinhuan.forhappy.core.cosmetics.BadgeAndCosmeticRegistry
 import com.jinhuan.forhappy.core.cosmetics.BadgeArtKind
 import com.jinhuan.forhappy.core.cosmetics.ChatBubbleCosmetics
 import com.jinhuan.forhappy.core.cosmetics.CommunityTitleRenderSpec
+import com.jinhuan.forhappy.core.cosmetics.CssVisualAnimTrack
 import com.jinhuan.forhappy.core.cosmetics.ResolvedBadgeChip
 import com.jinhuan.forhappy.core.cosmetics.ResolvedTitleChip
 import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
 import com.jinhuan.forhappy.ui.theme.LocalForHappyPalette
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -109,6 +132,7 @@ import java.io.File
 import java.io.StringReader
 import java.net.URL
 import java.net.URLDecoder
+import java.nio.ByteBuffer
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -119,12 +143,172 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 val LocalCosmeticHttpClient = staticCompositionLocalOf<OkHttpClient?> { null }
+val LocalPauseCosmeticAnimations = staticCompositionLocalOf { false }
 
 data class RasterizedArtwork(
     val bitmap: ImageBitmap,
     val intrinsicWidth: Float,
     val intrinsicHeight: Float,
-)
+    val animatedBytes: ByteArray? = null,
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is RasterizedArtwork) return false
+        return bitmap == other.bitmap &&
+            intrinsicWidth == other.intrinsicWidth &&
+            intrinsicHeight == other.intrinsicHeight
+    }
+
+    override fun hashCode(): Int {
+        var result = bitmap.hashCode()
+        result = 31 * result + intrinsicWidth.hashCode()
+        result = 31 * result + intrinsicHeight.hashCode()
+        return result
+    }
+}
+
+/**
+ * Checks container headers to determine whether raw image bytes contain an animated WebP,
+ * multi-frame GIF, or APNG sequence. Pure-byte check usable from JVM unit tests.
+ */
+internal fun isAnimatedRasterBytes(bytes: ByteArray): Boolean {
+    if (bytes.size < 14) return false
+    // 1. WebP (`RIFF....WEBP` -> `VP8X` anim flag 0x02 or `ANIM` chunk)
+    if (bytes[0] == 'R'.code.toByte() && bytes[1] == 'I'.code.toByte() &&
+        bytes[2] == 'F'.code.toByte() && bytes[3] == 'F'.code.toByte() &&
+        bytes[8] == 'W'.code.toByte() && bytes[9] == 'E'.code.toByte() &&
+        bytes[10] == 'B'.code.toByte() && bytes[11] == 'P'.code.toByte()
+    ) {
+        var pos = 12L
+        val limit = min(bytes.size, 8192).toLong()
+        while (pos + 8L <= limit) {
+            val p = pos.toInt()
+            val c0 = bytes[p].toInt().toChar()
+            val c1 = bytes[p + 1].toInt().toChar()
+            val c2 = bytes[p + 2].toInt().toChar()
+            val c3 = bytes[p + 3].toInt().toChar()
+            val fourCc = "$c0$c1$c2$c3"
+            if (fourCc == "VP8X" && p + 8 < bytes.size) {
+                if ((bytes[p + 8].toInt() and 0x02) != 0) return true
+            } else if (fourCc == "ANIM") {
+                return true
+            }
+            val chunkLen = (bytes[p + 4].toLong() and 0xFFL) or
+                ((bytes[p + 5].toLong() and 0xFFL) shl 8) or
+                ((bytes[p + 6].toLong() and 0xFFL) shl 16) or
+                ((bytes[p + 7].toLong() and 0xFFL) shl 24)
+            if (chunkLen < 0L || chunkLen > bytes.size.toLong()) break
+            val padded = (chunkLen + 1L) and 1L.inv()
+            pos += 8L + padded
+        }
+        return false
+    }
+    // 2. GIF (`GIF87a` / `GIF89a` -> >= 2 image descriptors `0x2C`)
+    if (bytes[0] == 'G'.code.toByte() && bytes[1] == 'I'.code.toByte() &&
+        bytes[2] == 'F'.code.toByte() && bytes[3] == '8'.code.toByte() &&
+        (bytes[4] == '7'.code.toByte() || bytes[4] == '9'.code.toByte()) &&
+        bytes[5] == 'a'.code.toByte()
+    ) {
+        val flags = bytes[10].toInt() and 0xFF
+        val gctSize = if ((flags and 0x80) != 0) 3 * (1 shl ((flags and 0x07) + 1)) else 0
+        var pos = 13 + gctSize
+        var imageCount = 0
+        while (pos < bytes.size) {
+            when (bytes[pos].toInt() and 0xFF) {
+                0x3B -> return false // Trailer
+                0x21 -> { // Extension block
+                    pos += 2
+                    while (pos < bytes.size) {
+                        val subLen = bytes[pos].toInt() and 0xFF
+                        pos += 1 + subLen
+                        if (subLen == 0) break
+                    }
+                }
+                0x2C -> { // Image descriptor
+                    imageCount++
+                    if (imageCount >= 2) return true
+                    if (pos + 9 >= bytes.size) return false
+                    val packed = bytes[pos + 9].toInt() and 0xFF
+                    val lctSize = if ((packed and 0x80) != 0) 3 * (1 shl ((packed and 0x07) + 1)) else 0
+                    pos += 10 + lctSize + 1 // +1 for LZW minimum code size
+                    while (pos < bytes.size) {
+                        val subLen = bytes[pos].toInt() and 0xFF
+                        pos += 1 + subLen
+                        if (subLen == 0) break
+                    }
+                }
+                else -> return false
+            }
+        }
+        return false
+    }
+    // 3. APNG (`\x89PNG\r\n\x1a\n` -> `acTL` chunk before `IDAT`)
+    if (bytes.size >= 33 &&
+        (bytes[0].toInt() and 0xFF) == 0x89 && bytes[1] == 'P'.code.toByte() &&
+        bytes[2] == 'N'.code.toByte() && bytes[3] == 'G'.code.toByte() &&
+        bytes[4] == 0x0D.toByte() && bytes[5] == 0x0A.toByte() &&
+        bytes[6] == 0x1A.toByte() && bytes[7] == 0x0A.toByte()
+    ) {
+        var pos = 8L
+        while (pos + 12L <= bytes.size.toLong()) {
+            val p = pos.toInt()
+            val len = ((bytes[p].toLong() and 0xFFL) shl 24) or
+                ((bytes[p + 1].toLong() and 0xFFL) shl 16) or
+                ((bytes[p + 2].toLong() and 0xFFL) shl 8) or
+                (bytes[p + 3].toLong() and 0xFFL)
+            val type = "${bytes[p + 4].toInt().toChar()}${bytes[p + 5].toInt().toChar()}${bytes[p + 6].toInt().toChar()}${bytes[p + 7].toInt().toChar()}"
+            if (type == "acTL") return true
+            if (type == "IDAT" || type == "IEND") return false
+            if (len < 0L || len > bytes.size.toLong()) break
+            pos += 12L + len
+        }
+    }
+    return false
+}
+
+@Composable
+fun rememberCosmeticElapsedMs(
+    active: Boolean,
+    intervalMs: Long = 33L,
+): State<Long> {
+    val paused = LocalPauseCosmeticAnimations.current
+    val elapsed = remember { mutableLongStateOf(0L) }
+    LaunchedEffect(active, paused, intervalMs) {
+        if (!active || paused) {
+            elapsed.longValue = 0L
+            return@LaunchedEffect
+        }
+        val startNs = System.nanoTime()
+        var lastEmit = -intervalMs
+        while (true) {
+            withFrameMillis {
+                val nowMs = (System.nanoTime() - startNs) / 1_000_000L
+                if (nowMs - lastEmit >= intervalMs) {
+                    elapsed.longValue = nowMs
+                    lastEmit = nowMs
+                }
+            }
+        }
+    }
+    return elapsed
+}
+
+fun Modifier.applyCssVisualAnim(
+    tracks: List<CssVisualAnimTrack>,
+    elapsedMsState: State<Long>,
+    paused: Boolean,
+): Modifier {
+    if (tracks.isEmpty() || paused) return this
+    return graphicsLayer {
+        val eval = ChatBubbleCosmetics.evaluateVisualAnim(tracks, elapsedMsState.value)
+        translationX += eval.txDpDelta.dp.toPx() + eval.txSelfDelta * size.width
+        translationY += eval.tyDpDelta.dp.toPx() + eval.tySelfDelta * size.height
+        scaleX *= eval.scaleX
+        scaleY *= eval.scaleY
+        rotationZ += eval.rotateDeg
+        eval.opacity?.let { alpha *= it }
+    }
+}
 
 /**
  * Zero-dependency loader, disk cache & rasterizer for bundled `assets/badges/v4/atlas.webp`,
@@ -136,6 +320,148 @@ object BadgeArtworkCache {
     private val artworkCache = ConcurrentHashMap<String, RasterizedArtwork>()
     private val failedUrls = ConcurrentHashMap<String, Boolean>()
     private val attemptedCatalogRefreshIds = ConcurrentHashMap<String, Boolean>()
+
+    internal class AnimatedSessionHandle(
+        val key: String,
+        val baseArt: RasterizedArtwork,
+        val targetW: Int,
+        val targetH: Int,
+    ) {
+        val frameBitmapState = mutableStateOf(baseArt.bitmap)
+        var refCount: Int = 0
+        var job: Job? = null
+    }
+
+    private val animatedSessionsLock = Any()
+    private val animatedSessions = HashMap<String, AnimatedSessionHandle>()
+    private val animatedScope: CoroutineScope by lazy {
+        CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    }
+
+    internal fun retainAnimatedSession(cacheKey: String, art: RasterizedArtwork, reqSizePx: Int): AnimatedSessionHandle {
+        val rawBytes = art.animatedBytes
+        val handle = synchronized(animatedSessionsLock) {
+            val existing = animatedSessions[cacheKey]
+            val h = if (existing != null) {
+                existing
+            } else {
+                val maxDim = max(art.bitmap.width, art.bitmap.height).coerceAtLeast(1)
+                val capDim = min(reqSizePx, 640).coerceAtLeast(1)
+                val scale = min(1f, capDim.toFloat() / maxDim.toFloat())
+                val tw = (art.bitmap.width * scale).roundToInt().coerceAtLeast(1)
+                val th = (art.bitmap.height * scale).roundToInt().coerceAtLeast(1)
+                AnimatedSessionHandle(cacheKey, art, tw, th).also { animatedSessions[cacheKey] = it }
+            }
+            h.refCount++
+            h
+        }
+        if (rawBytes != null && rawBytes.isNotEmpty()) {
+            synchronized(animatedSessionsLock) {
+                if (handle.job == null && handle.refCount > 0) {
+                    handle.job = animatedScope.launch {
+                        runAnimatedSessionLoop(handle, rawBytes)
+                    }
+                }
+            }
+        }
+        return handle
+    }
+
+    internal fun releaseAnimatedSession(handle: AnimatedSessionHandle) {
+        synchronized(animatedSessionsLock) {
+            handle.refCount = (handle.refCount - 1).coerceAtLeast(0)
+            if (handle.refCount <= 0) {
+                handle.job?.cancel()
+                handle.job = null
+                animatedSessions.remove(handle.key)
+            }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private suspend fun runAnimatedSessionLoop(handle: AnimatedSessionHandle, bytes: ByteArray) {
+        val tw = handle.targetW
+        val th = handle.targetH
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val drawable = withContext(Dispatchers.IO) {
+                runCatching {
+                    val src = ImageDecoder.createSource(ByteBuffer.wrap(bytes))
+                    ImageDecoder.decodeDrawable(src) { decoder, _, _ ->
+                        decoder.setTargetSize(tw, th)
+                    }
+                }.getOrNull()
+            } ?: return
+            if (drawable is AnimatedImageDrawable) {
+                val dummyCb = object : Drawable.Callback {
+                    override fun invalidateDrawable(who: Drawable) {}
+                    override fun scheduleDrawable(who: Drawable, what: Runnable, `when`: Long) {}
+                    override fun unscheduleDrawable(who: Drawable, what: Runnable) {}
+                }
+                val bufs = Array(3) { Bitmap.createBitmap(tw, th, Bitmap.Config.ARGB_8888) }
+                val canvases = Array(3) { AndroidCanvas(bufs[it]) }
+                val imgs = Array(3) { bufs[it].asImageBitmap() }
+                var bufIdx = 0
+                try {
+                    drawable.callback = dummyCb
+                    drawable.repeatCount = AnimatedImageDrawable.REPEAT_INFINITE
+                    drawable.setBounds(0, 0, tw, th)
+                    drawable.start()
+                    var lastDrawMs = -36L
+                    val startNs = System.nanoTime()
+                    while (true) {
+                        withFrameMillis {
+                            val nowMs = (System.nanoTime() - startNs) / 1_000_000L
+                            if (nowMs - lastDrawMs >= 36L) {
+                                lastDrawMs = nowMs
+                                bufIdx = (bufIdx + 1) % 3
+                                canvases[bufIdx].drawColor(AndroidColor.TRANSPARENT, PorterDuff.Mode.CLEAR)
+                                drawable.draw(canvases[bufIdx])
+                                handle.frameBitmapState.value = imgs[bufIdx]
+                            }
+                        }
+                    }
+                } finally {
+                    runCatching {
+                        drawable.stop()
+                        drawable.callback = null
+                    }
+                }
+            }
+            return
+        }
+
+        val movie = withContext(Dispatchers.IO) {
+            runCatching { Movie.decodeByteArray(bytes, 0, bytes.size) }.getOrNull()
+        } ?: return
+        val duration = movie.duration().takeIf { it > 0 } ?: 1000
+        val mw = movie.width().coerceAtLeast(1)
+        val mh = movie.height().coerceAtLeast(1)
+        val sx = tw.toFloat() / mw.toFloat()
+        val sy = th.toFloat() / mh.toFloat()
+        val bufs = Array(3) { Bitmap.createBitmap(tw, th, Bitmap.Config.ARGB_8888) }
+        val canvases = Array(3) { AndroidCanvas(bufs[it]) }
+        val imgs = Array(3) { bufs[it].asImageBitmap() }
+        var bufIdx = 0
+        val startNs = System.nanoTime()
+        var lastDrawMs = -36L
+        while (true) {
+            withFrameMillis {
+                val nowMs = (System.nanoTime() - startNs) / 1_000_000L
+                if (nowMs - lastDrawMs >= 36L) {
+                    lastDrawMs = nowMs
+                    bufIdx = (bufIdx + 1) % 3
+                    movie.setTime((nowMs % duration).toInt())
+                    val c = canvases[bufIdx]
+                    c.drawColor(AndroidColor.TRANSPARENT, PorterDuff.Mode.CLEAR)
+                    c.save()
+                    c.scale(sx, sy)
+                    movie.draw(c, 0f, 0f)
+                    c.restore()
+                    handle.frameBitmapState.value = imgs[bufIdx]
+                }
+            }
+        }
+    }
 
     @Volatile
     private var atlasBitmap: ImageBitmap? = null
@@ -347,8 +673,7 @@ object BadgeArtworkCache {
             MiniBadgeSvgRasterizer.renderSvgDetailed(svgXml, min(reqSizePx, 1024))
         } else if (header.contains(";base64")) {
             val bytes = runCatching { Base64.decode(payload, Base64.DEFAULT) }.getOrNull() ?: return null
-            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap() ?: return null
-            RasterizedArtwork(bmp, bmp.width.toFloat(), bmp.height.toFloat())
+            decodeBytesToArtwork(bytes, "data:raster", reqSizePx)
         } else {
             null
         }
@@ -363,7 +688,8 @@ object BadgeArtworkCache {
             return MiniBadgeSvgRasterizer.renderSvgDetailed(bytes.toString(Charsets.UTF_8), min(reqSizePx, 1024))
         }
         val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap() ?: return null
-        return RasterizedArtwork(bmp, bmp.width.toFloat(), bmp.height.toFloat())
+        val animBytes = bytes.takeIf(::isAnimatedRasterBytes)
+        return RasterizedArtwork(bmp, bmp.width.toFloat(), bmp.height.toFloat(), animatedBytes = animBytes)
     }
 
     private fun fetchBytesWithDiskCache(
@@ -397,6 +723,86 @@ object BadgeArtworkCache {
     private fun sha256Hex(input: String): String {
         val digest = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(Charsets.UTF_8))
         return digest.joinToString("") { "%02x".format(it) }
+    }
+}
+
+@Composable
+fun rememberAnimatedCosmeticArtwork(
+    source: String?,
+    reqSizePx: Int = 512,
+): RasterizedArtwork? {
+    val context = LocalContext.current
+    val httpClient = LocalCosmeticHttpClient.current
+    val paused = LocalPauseCosmeticAnimations.current
+    val baseArt by produceState<RasterizedArtwork?>(initialValue = null, source, reqSizePx) {
+        value = if (source.isNullOrBlank()) {
+            null
+        } else {
+            BadgeArtworkCache.getOrFetchNineSliceArtwork(context, httpClient, source, reqSizePx)
+        }
+    }
+    val loaded = baseArt ?: return null
+    val animBytes = loaded.animatedBytes
+    if (paused || animBytes == null || source.isNullOrBlank()) return loaded
+    val cacheKey = "$source#$reqSizePx"
+    val handle = remember(cacheKey, loaded) {
+        BadgeArtworkCache.retainAnimatedSession(cacheKey, loaded, reqSizePx)
+    }
+    DisposableEffect(handle) {
+        onDispose { BadgeArtworkCache.releaseAnimatedSession(handle) }
+    }
+    return loaded.copy(bitmap = handle.frameBitmapState.value)
+}
+
+@Composable
+fun rememberAnimatedCosmeticBitmap(
+    source: String?,
+    reqSizePx: Int = 512,
+): ImageBitmap? = rememberAnimatedCosmeticArtwork(source, reqSizePx)?.bitmap
+
+@Composable
+fun rememberAnimatedCosmeticArtworkMap(
+    urls: List<String>,
+    reqSizePx: Int = 1024,
+): Map<String, RasterizedArtwork> {
+    if (urls.isEmpty()) return emptyMap()
+    val context = LocalContext.current
+    val httpClient = LocalCosmeticHttpClient.current
+    val paused = LocalPauseCosmeticAnimations.current
+    val baseMap by produceState<Map<String, RasterizedArtwork>>(initialValue = emptyMap(), urls, reqSizePx) {
+        val out = LinkedHashMap<String, RasterizedArtwork>(urls.size)
+        for (url in urls) {
+            BadgeArtworkCache.getOrFetchNineSliceArtwork(context, httpClient, url, reqSizePx)?.let {
+                out[url] = it
+            }
+        }
+        value = out
+    }
+    if (baseMap.isEmpty()) return emptyMap()
+    val handles = remember(baseMap, paused, reqSizePx) {
+        if (paused) {
+            emptyMap()
+        } else {
+            val map = LinkedHashMap<String, BadgeArtworkCache.AnimatedSessionHandle>()
+            for ((url, art) in baseMap) {
+                if (art.animatedBytes != null) {
+                    map[url] = BadgeArtworkCache.retainAnimatedSession("$url#$reqSizePx", art, reqSizePx)
+                }
+            }
+            map
+        }
+    }
+    DisposableEffect(handles) {
+        onDispose {
+            handles.values.forEach { BadgeArtworkCache.releaseAnimatedSession(it) }
+        }
+    }
+    if (handles.isEmpty()) return baseMap
+    return buildMap(baseMap.size) {
+        for ((url, art) in baseMap) {
+            val h = handles[url]
+            put(url, if (h != null) art.copy(bitmap = h.frameBitmapState.value) else art)
+        }
     }
 }
 
@@ -992,6 +1398,7 @@ fun BadgeArtIcon(
 
         is BadgeArtKind.CommunityCssBadge -> {
             val catalogRev by BadgeAndCosmeticRegistry.catalogRevision.collectAsState()
+            val paused = LocalPauseCosmeticAnimations.current
             val badgeSpec = remember(art.id, art.imgSha, art.cssSha, art.isDarkTheme, catalogRev) {
                 ChatBubbleCosmetics.resolveCommunityBadgeSpec(art.id, art.imgSha, art.cssSha, art.isDarkTheme)
             }
@@ -1004,46 +1411,42 @@ fun BadgeArtIcon(
                     BadgeArtworkCache.ensureCommunityCssLoaded(context, httpClient, "catalog:${art.id}")
                 }
             }
+            val badgeTimeline = badgeSpec?.animationTimeline
+            val timelineClock = rememberCosmeticElapsedMs(active = badgeTimeline != null, intervalMs = 45L)
+            val visualClock = rememberCosmeticElapsedMs(active = badgeSpec?.visualAnim?.isNotEmpty() == true, intervalMs = 33L)
+            val activeFrame = if (!paused && badgeTimeline != null && badgeTimeline.frames.isNotEmpty()) {
+                val idx = (((timelineClock.value % badgeTimeline.periodMs).toDouble() / badgeTimeline.periodMs.toDouble()) * badgeTimeline.frames.size)
+                    .toInt()
+                    .coerceIn(0, badgeTimeline.frames.lastIndex)
+                badgeTimeline.frames[idx]
+            } else {
+                null
+            }
+            val activeUrlIdx = activeFrame?.baseUrlIdx ?: badgeSpec?.baseUrlIdx ?: 0
+            val activeCol = activeFrame?.spriteCol ?: badgeSpec?.spriteCol ?: 0
+            val activeRow = activeFrame?.spriteRow ?: badgeSpec?.spriteRow ?: 0
+            val activePseudo = activeFrame?.pseudoLayers ?: badgeSpec?.pseudoLayers.orEmpty()
+            val frameOpacity = activeFrame?.opacity ?: 1f
+
             val isDarkVariant = art.isDarkTheme && badgeSpec?.hasDarkImageVariant == true
             val hasBaseCssImg = badgeSpec?.hasBaseImage == true
             val hasAnyImg = badgeSpec?.hasImage == true
-            val srcUrl = remember(art.id, art.imgSha, art.cssSha, art.isDarkTheme, isDarkVariant, badgeSpec) {
+            val srcUrl = remember(art.id, art.imgSha, art.cssSha, art.isDarkTheme, isDarkVariant, badgeSpec, activeUrlIdx) {
                 when {
                     badgeSpec != null && !hasBaseCssImg && art.imgSha == null -> null
                     badgeSpec != null && hasBaseCssImg && !art.cssSha.isNullOrBlank() ->
-                        "community-css:${art.id}:badge:${art.cssSha}:${badgeSpec.baseUrlIdx}"
+                        "community-css:${art.id}:badge:${art.cssSha}:$activeUrlIdx"
                     isDarkVariant && !art.cssSha.isNullOrBlank() ->
-                        "community-css-dark:${art.id}:badge:${art.cssSha}:${badgeSpec?.baseUrlIdx ?: 0}"
-                    art.imgSha != null -> "https://52dmeme.com/api/community-skins/image/${art.imgSha}"
+                        "community-css-dark:${art.id}:badge:${art.cssSha}:$activeUrlIdx"
+                    art.imgSha != null && activeUrlIdx == 0 ->
+                        "https://52dmeme.com/api/community-skins/image/${art.imgSha}"
                     !art.cssSha.isNullOrBlank() && (badgeSpec == null || hasAnyImg) ->
-                        "community-css:${art.id}:badge:${art.cssSha}:${badgeSpec?.baseUrlIdx ?: 0}"
+                        "community-css:${art.id}:badge:${art.cssSha}:$activeUrlIdx"
                     else -> null
                 }
             }
-            val bmp by produceState<ImageBitmap?>(
-                initialValue = null,
-                srcUrl,
-                badgeSpec?.spriteCols,
-                badgeSpec?.spriteRows,
-                badgeSpec?.spriteCol,
-                badgeSpec?.spriteRow,
-            ) {
-                value = when {
-                    srcUrl == null -> null
-                    badgeSpec != null && (badgeSpec.spriteCols > 1 || badgeSpec.spriteRows > 1) ->
-                        BadgeArtworkCache.getOrCropSpriteCell(
-                            context = context,
-                            okHttpClient = httpClient,
-                            source = srcUrl,
-                            cols = badgeSpec.spriteCols,
-                            rows = badgeSpec.spriteRows,
-                            col = badgeSpec.spriteCol,
-                            row = badgeSpec.spriteRow,
-                            reqSizePx = 1024,
-                        )
-                    else -> BadgeArtworkCache.getOrFetchBitmap(context, httpClient, srcUrl, 256)
-                }
-            }
+            val isSpriteSheet = badgeSpec != null && (badgeSpec.spriteCols > 1 || badgeSpec.spriteRows > 1)
+            val bmp = rememberAnimatedCosmeticBitmap(srcUrl, reqSizePx = if (isSpriteSheet) 1024 else 256)
             val scaleFactor = if (badgeSpec != null && badgeSpec.heightDp > 0f) {
                 size.value / badgeSpec.heightDp
             } else {
@@ -1055,22 +1458,46 @@ fun BadgeArtIcon(
             val bottomRes = ((badgeSpec?.bottomReserveDp ?: 0f) * scaleFactor).dp
             val leftRes = ((badgeSpec?.leftReserveDp ?: 0f) * scaleFactor).dp
             Box(
-                modifier = modifier.padding(start = leftRes, top = topRes, end = rightRes, bottom = bottomRes),
+                modifier = modifier
+                    .applyCssVisualAnim(badgeSpec?.visualAnim.orEmpty(), visualClock, paused)
+                    .padding(start = leftRes, top = topRes, end = rightRes, bottom = bottomRes),
                 contentAlignment = Alignment.Center,
             ) {
                 Box(
                     modifier = Modifier.width(targetW).height(size),
                     contentAlignment = Alignment.Center,
                 ) {
-                    bmp?.let {
-                        Image(
-                            bitmap = it,
-                            contentDescription = null,
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxSize(),
-                        )
+                    bmp?.let { sheet ->
+                        if (isSpriteSheet && frameOpacity > 0.01f) {
+                            val safeCols = max(1, badgeSpec!!.spriteCols)
+                            val safeRows = max(1, badgeSpec.spriteRows)
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                val cellW = max(1, sheet.width / safeCols)
+                                val cellH = max(1, sheet.height / safeRows)
+                                val sx = (activeCol.coerceIn(0, safeCols - 1) * cellW).coerceIn(0, max(0, sheet.width - 1))
+                                val sy = (activeRow.coerceIn(0, safeRows - 1) * cellH).coerceIn(0, max(0, sheet.height - 1))
+                                val cw = min(cellW, sheet.width - sx).coerceAtLeast(1)
+                                val ch = min(cellH, sheet.height - sy).coerceAtLeast(1)
+                                drawImage(
+                                    image = sheet,
+                                    srcOffset = IntOffset(sx, sy),
+                                    srcSize = IntSize(cw, ch),
+                                    dstSize = IntSize(this.size.width.roundToInt().coerceAtLeast(1), this.size.height.roundToInt().coerceAtLeast(1)),
+                                    alpha = frameOpacity,
+                                    filterQuality = FilterQuality.Medium,
+                                )
+                            }
+                        } else if (frameOpacity > 0.01f) {
+                            Image(
+                                bitmap = sheet,
+                                contentDescription = null,
+                                contentScale = ContentScale.Fit,
+                                alpha = frameOpacity,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
                     }
-                    badgeSpec?.pseudoLayers?.forEach { layer ->
+                    activePseudo.forEach { layer ->
                         BubblePseudoLayerCanvas(layer = layer, modifier = Modifier.matchParentSize())
                     }
                 }
@@ -1078,9 +1505,15 @@ fun BadgeArtIcon(
         }
 
         is BadgeArtKind.RemoteImage -> {
-            if (art.url.startsWith("community-css")) {
-                val bmp by produceState<ImageBitmap?>(initialValue = null, art.url) {
-                    value = BadgeArtworkCache.getOrFetchBitmap(context, httpClient, art.url, 128)
+            val paused = LocalPauseCosmeticAnimations.current
+            if (art.url.startsWith("community-css") || paused) {
+                val bmp = if (art.url.startsWith("community-css") && !paused) {
+                    rememberAnimatedCosmeticBitmap(art.url, 128)
+                } else {
+                    val staticBmp by produceState<ImageBitmap?>(initialValue = null, art.url) {
+                        value = BadgeArtworkCache.getOrFetchBitmap(context, httpClient, art.url, 128)
+                    }
+                    staticBmp
                 }
                 Box(
                     modifier = modifier.size(size),
@@ -1311,6 +1744,150 @@ fun BadgeChipView(
     }
 }
 
+internal fun createRotatingSweepBrush(
+    colors: List<Color>,
+    angleDeg: Float,
+    size: Size,
+): Brush {
+    if (colors.size < 2) return SolidColor(colors.firstOrNull() ?: Color.Transparent)
+    val closed = if (colors.first() == colors.last()) colors else colors + colors.first()
+    val intColors = IntArray(closed.size) { closed[it].toArgb() }
+    val cx = size.width * 0.5f
+    val cy = size.height * 0.5f
+    val shader = android.graphics.SweepGradient(cx, cy, intColors, null)
+    if (angleDeg != 0f) {
+        val m = android.graphics.Matrix()
+        m.setRotate(angleDeg, cx, cy)
+        shader.setLocalMatrix(m)
+    }
+    return ShaderBrush(shader)
+}
+
+@Composable
+private fun rememberTitleEffectMotionModifier(
+    effect: String,
+    paused: Boolean,
+): Modifier {
+    val norm = effect.trim().lowercase()
+    if (paused) return Modifier
+    return when (norm) {
+        "pulse", "glow", "breathe" -> {
+            val tr = rememberInfiniteTransition(label = "title_pulse")
+            val scale by tr.animateFloat(
+                initialValue = 1f,
+                targetValue = 1.032f,
+                animationSpec = infiniteRepeatable(tween(1800), RepeatMode.Reverse),
+                label = "scale",
+            )
+            Modifier.graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+        }
+        "bounce", "float" -> {
+            val tr = rememberInfiniteTransition(label = "title_float")
+            val dy by tr.animateFloat(
+                initialValue = -1.4f,
+                targetValue = 1.4f,
+                animationSpec = infiniteRepeatable(tween(1600), RepeatMode.Reverse),
+                label = "dy",
+            )
+            Modifier.graphicsLayer { translationY = dy.dp.toPx() }
+        }
+        "shake", "tremor" -> {
+            val tr = rememberInfiniteTransition(label = "title_shake")
+            val phase by tr.animateFloat(
+                initialValue = 0f,
+                targetValue = (2.0 * PI).toFloat(),
+                animationSpec = infiniteRepeatable(tween(260, easing = LinearEasing), RepeatMode.Restart),
+                label = "shake_phase",
+            )
+            Modifier.graphicsLayer {
+                translationX = sin(phase) * 0.9.dp.toPx()
+                rotationZ = cos(phase) * 1.1f
+            }
+        }
+        else -> Modifier
+    }
+}
+
+@Composable
+private fun TitleEffectOverlay(
+    effect: String,
+    paused: Boolean,
+    maskToContent: Boolean = false,
+    modifier: Modifier = Modifier,
+) {
+    val norm = effect.trim().lowercase()
+    if (paused || norm.isEmpty() || norm == "none") return
+    val blend = if (maskToContent) BlendMode.SrcAtop else BlendMode.SrcOver
+    when (norm) {
+        "shine" -> {
+            val tr = rememberInfiniteTransition(label = "title_shine")
+            val frac by tr.animateFloat(
+                initialValue = -0.35f,
+                targetValue = 1.35f,
+                animationSpec = infiniteRepeatable(tween(2800, easing = LinearEasing), RepeatMode.Restart),
+                label = "shine_frac",
+            )
+            Canvas(modifier = modifier) {
+                val band = max(size.width * 0.28f, 10f)
+                val cx = frac * (size.width + band * 2f) - band
+                drawRect(
+                    brush = Brush.linearGradient(
+                        colors = listOf(Color.Transparent, Color.White.copy(alpha = 0.28f), Color.Transparent),
+                        start = Offset(cx - band, 0f),
+                        end = Offset(cx + band, size.height),
+                    ),
+                    blendMode = blend,
+                )
+            }
+        }
+        "flow", "aurora", "rainbow" -> {
+            val tr = rememberInfiniteTransition(label = "title_flow")
+            val frac by tr.animateFloat(
+                initialValue = -0.5f,
+                targetValue = 1.5f,
+                animationSpec = infiniteRepeatable(tween(2400, easing = LinearEasing), RepeatMode.Restart),
+                label = "flow_frac",
+            )
+            Canvas(modifier = modifier) {
+                val band = max(size.width * 0.45f, 16f)
+                val cx = frac * (size.width + band * 2f) - band
+                drawRect(
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color(0xFF00F0FF).copy(alpha = 0.22f),
+                            Color(0xFFC084FC).copy(alpha = 0.24f),
+                            Color(0xFFFF6EC7).copy(alpha = 0.22f),
+                            Color.Transparent,
+                        ),
+                        start = Offset(cx - band, 0f),
+                        end = Offset(cx + band, size.height),
+                    ),
+                    blendMode = blend,
+                )
+            }
+        }
+        "pulse", "glow", "breathe" -> {
+            val tr = rememberInfiniteTransition(label = "title_glow")
+            val alpha by tr.animateFloat(
+                initialValue = 0.04f,
+                targetValue = 0.20f,
+                animationSpec = infiniteRepeatable(tween(1800), RepeatMode.Reverse),
+                label = "glow_alpha",
+            )
+            Canvas(modifier = modifier) {
+                drawRect(
+                    color = Color(0xFFFFF3C4).copy(alpha = alpha),
+                    blendMode = blend,
+                )
+            }
+        }
+    }
+}
+
 /**
  * Renders the user's equipped title (`titleEl`) 1:1 matching `52dmeme.com` web styles.
  */
@@ -1322,6 +1899,7 @@ fun TitleChipView(
     val context = LocalContext.current
     val palette = LocalForHappyPalette.current
     val httpClient = LocalCosmeticHttpClient.current
+    val paused = LocalPauseCosmeticAnimations.current
 
     title.dynamicCssSpec?.let { cssSpec ->
         LaunchedEffect(cssSpec) {
@@ -1330,19 +1908,34 @@ fun TitleChipView(
     }
 
     if (title.specialKind == "owner52" && title.bgImageUrl != null) {
-        val ownerArt by produceState<ImageBitmap?>(initialValue = null, title.bgImageUrl) {
-            value = BadgeArtworkCache.getOrFetchBitmap(context, httpClient, title.bgImageUrl, 256)
-        }
-        val loadedOwnerArt = ownerArt
+        val loadedOwnerArt = rememberAnimatedCosmeticBitmap(title.bgImageUrl, 256)
         if (loadedOwnerArt != null) {
-            Image(
-                bitmap = loadedOwnerArt,
-                contentDescription = title.label,
-                contentScale = ContentScale.Fit,
+            Box(
                 modifier = modifier
-                    .width(52.dp)
-                    .height(28.dp),
-            )
+                    .then(rememberTitleEffectMotionModifier(title.effect, paused))
+                    .then(
+                        if (!paused && title.effect.isNotBlank() && title.effect != "none") {
+                            Modifier.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                        } else {
+                            Modifier
+                        },
+                    ),
+            ) {
+                Image(
+                    bitmap = loadedOwnerArt,
+                    contentDescription = title.label,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .width(52.dp)
+                        .height(28.dp),
+                )
+                TitleEffectOverlay(
+                    effect = title.effect,
+                    paused = paused,
+                    maskToContent = true,
+                    modifier = Modifier.matchParentSize(),
+                )
+            }
             return
         }
     }
@@ -1458,45 +2051,9 @@ fun TitleChipView(
     val fontStyle = css?.fontStyle
     val letterSpacing = css?.letterSpacingSp?.sp ?: TextStyle.Default.letterSpacing
 
-    val bgImageUrl = title.bgImageUrl
-    val bannerBmp by produceState<ImageBitmap?>(initialValue = null, bgImageUrl) {
-        value = if (!bgImageUrl.isNullOrBlank()) {
-            BadgeArtworkCache.getOrFetchBitmap(context, httpClient, bgImageUrl, 256)
-        } else {
-            null
-        }
-    }
-    val leadingIconBmp by produceState<ImageBitmap?>(initialValue = null, title.leadingIconUrl) {
-        value = if (!title.leadingIconUrl.isNullOrBlank()) {
-            BadgeArtworkCache.getOrFetchBitmap(context, httpClient, title.leadingIconUrl, 96)
-        } else {
-            null
-        }
-    }
-    val trailingIconBmp by produceState<ImageBitmap?>(initialValue = null, title.trailingIconUrl) {
-        value = if (!title.trailingIconUrl.isNullOrBlank()) {
-            BadgeArtworkCache.getOrFetchBitmap(context, httpClient, title.trailingIconUrl, 96)
-        } else {
-            null
-        }
-    }
-
-    val hasMotion = title.effect == "shine" || title.effect == "flow" || title.effect == "aurora"
-    val shimmerFraction = if (hasMotion) {
-        val transition = rememberInfiniteTransition(label = "title_fx")
-        val frac by transition.animateFloat(
-            initialValue = -0.35f,
-            targetValue = 1.35f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 2800, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart,
-            ),
-            label = "title_shimmer",
-        )
-        frac
-    } else {
-        -1f
-    }
+    val loadedBanner = rememberAnimatedCosmeticBitmap(title.bgImageUrl, 256)
+    val leadingIconBmp = rememberAnimatedCosmeticBitmap(title.leadingIconUrl, 96)
+    val trailingIconBmp = rememberAnimatedCosmeticBitmap(title.trailingIconUrl, 96)
 
     val symbolPath = remember(title.symbolSvgPath) {
         title.symbolSvgPath?.let { rawPath ->
@@ -1506,19 +2063,21 @@ fun TitleChipView(
 
     val hardShadowColor = title.hardShadowHex?.let { parseSafeHex(it, Color.Transparent) }?.takeIf { it != Color.Transparent }
     val hardShadowOff = title.hardShadowOffsetDp
-    val loadedBanner = bannerBmp
+    val motionMod = rememberTitleEffectMotionModifier(title.effect, paused)
 
     Box(
-        modifier = modifier.then(
-            if (hardShadowColor != null && hardShadowOff != null) {
-                Modifier.padding(
-                    end = hardShadowOff.first.coerceAtLeast(0f).dp,
-                    bottom = hardShadowOff.second.coerceAtLeast(0f).dp,
-                )
-            } else {
-                Modifier
-            },
-        ),
+        modifier = modifier
+            .then(motionMod)
+            .then(
+                if (hardShadowColor != null && hardShadowOff != null) {
+                    Modifier.padding(
+                        end = hardShadowOff.first.coerceAtLeast(0f).dp,
+                        bottom = hardShadowOff.second.coerceAtLeast(0f).dp,
+                    )
+                } else {
+                    Modifier
+                },
+            ),
     ) {
         if (hardShadowColor != null && hardShadowOff != null) {
             Box(
@@ -1568,19 +2127,12 @@ fun TitleChipView(
                 )
             }
 
-            if (shimmerFraction >= 0f) {
-                Canvas(modifier = Modifier.matchParentSize()) {
-                    val band = size.width * 0.28f
-                    val cx = shimmerFraction * (size.width + band * 2f) - band
-                    drawRect(
-                        brush = Brush.linearGradient(
-                            colors = listOf(Color.Transparent, Color.White.copy(alpha = 0.24f), Color.Transparent),
-                            start = Offset(cx - band, 0f),
-                            end = Offset(cx + band, size.height),
-                        ),
-                    )
-                }
-            }
+            TitleEffectOverlay(
+                effect = title.effect,
+                paused = paused,
+                maskToContent = false,
+                modifier = Modifier.matchParentSize(),
+            )
 
             Row(
                 modifier = Modifier.padding(
@@ -1649,23 +2201,36 @@ private fun CommunityTitleChipBox(
     spec: CommunityTitleRenderSpec,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
-    val httpClient = LocalCosmeticHttpClient.current
-    val leadingIconBmp by produceState<ImageBitmap?>(initialValue = null, title.leadingIconUrl) {
-        value = title.leadingIconUrl?.takeIf { it.isNotBlank() }?.let {
-            BadgeArtworkCache.getOrFetchBitmap(context, httpClient, it, 96)
-        }
-    }
-    val trailingIconBmp by produceState<ImageBitmap?>(initialValue = null, title.trailingIconUrl) {
-        value = title.trailingIconUrl?.takeIf { it.isNotBlank() }?.let {
-            BadgeArtworkCache.getOrFetchBitmap(context, httpClient, it, 96)
-        }
+    val paused = LocalPauseCosmeticAnimations.current
+    val timeline = spec.animationTimeline
+    val timelineClock = rememberCosmeticElapsedMs(active = timeline != null, intervalMs = 60L)
+    val visualClock = rememberCosmeticElapsedMs(active = spec.visualAnim.isNotEmpty(), intervalMs = 33L)
+    val activeFrame = if (!paused && timeline != null && timeline.frames.isNotEmpty()) {
+        val idx = (((timelineClock.value % timeline.periodMs).toDouble() / timeline.periodMs.toDouble()) * timeline.frames.size)
+            .toInt()
+            .coerceIn(0, timeline.frames.lastIndex)
+        timeline.frames[idx]
+    } else {
+        null
     }
 
-    val startRes = max(spec.startOverflowReserveDp, (spec.nineSliceSpec?.outsetLeftDp ?: 0f).coerceAtLeast(0f)).dp
-    val topRes = max(spec.topOverflowReserveDp, (spec.nineSliceSpec?.outsetTopDp ?: 0f).coerceAtLeast(0f)).dp
-    val endRes = max(spec.endOverflowReserveDp, (spec.nineSliceSpec?.outsetRightDp ?: 0f).coerceAtLeast(0f)).dp
-    val bottomRes = max(spec.bottomOverflowReserveDp, (spec.nineSliceSpec?.outsetBottomDp ?: 0f).coerceAtLeast(0f)).dp
+    val effBgColors = activeFrame?.bgColors ?: spec.bgColors
+    val effBgAngleDeg = activeFrame?.bgAngleDeg ?: spec.bgAngleDeg
+    val effBorderColor = activeFrame?.borderColor ?: spec.borderColor
+    val effBorderGradColors = activeFrame?.borderGradientColors ?: spec.borderGradientColors
+    val effTextColor = activeFrame?.textColor ?: spec.textColor
+    val effNineSlice = activeFrame?.nineSliceSpec ?: spec.nineSliceSpec
+    val effPseudoLayers = activeFrame?.pseudoLayers ?: spec.pseudoLayers
+    val effLeadingUrl = activeFrame?.leadingIconUrl ?: title.leadingIconUrl
+    val effTrailingUrl = activeFrame?.trailingIconUrl ?: title.trailingIconUrl
+
+    val leadingIconBmp = rememberAnimatedCosmeticBitmap(effLeadingUrl, 96)
+    val trailingIconBmp = rememberAnimatedCosmeticBitmap(effTrailingUrl, 96)
+
+    val startRes = max(spec.startOverflowReserveDp, (effNineSlice?.outsetLeftDp ?: 0f).coerceAtLeast(0f)).dp
+    val topRes = max(spec.topOverflowReserveDp, (effNineSlice?.outsetTopDp ?: 0f).coerceAtLeast(0f)).dp
+    val endRes = max(spec.endOverflowReserveDp, (effNineSlice?.outsetRightDp ?: 0f).coerceAtLeast(0f)).dp
+    val bottomRes = max(spec.bottomOverflowReserveDp, (effNineSlice?.outsetBottomDp ?: 0f).coerceAtLeast(0f)).dp
 
     val r = spec.cornerRadiiDp
     val shape = RoundedCornerShape(
@@ -1674,11 +2239,25 @@ private fun CommunityTitleChipBox(
         bottomEnd = r.getOrElse(2) { 999f }.dp,
         bottomStart = r.getOrElse(3) { 999f }.dp,
     )
-    val hasNineSlice = spec.nineSliceSpec != null
+    val hasNineSlice = effNineSlice != null
+    val hasGradBorder = !hasNineSlice && spec.borderWidthDp > 0f && effBorderGradColors != null && effBorderGradColors.size >= 2
+    val borderSweepAngle = if (hasGradBorder && !paused) {
+        val tr = rememberInfiniteTransition(label = "comm_title_border")
+        val a by tr.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(tween(4200, easing = LinearEasing), RepeatMode.Restart),
+            label = "sweep_angle",
+        )
+        a
+    } else {
+        0f
+    }
+
     val bgModifier = when {
         hasNineSlice -> Modifier
-        spec.bgColors.size >= 2 -> Modifier.drawBehind {
-            val angleRad = ((spec.bgAngleDeg ?: 135f) - 90f) * PI / 180.0
+        effBgColors.size >= 2 -> Modifier.drawBehind {
+            val angleRad = ((effBgAngleDeg ?: 135f) - 90f) * PI / 180.0
             val dx = cos(angleRad).toFloat()
             val dy = sin(angleRad).toFloat()
             val cx = size.width * 0.5f
@@ -1686,17 +2265,22 @@ private fun CommunityTitleChipBox(
             val halfSpan = max(size.width, size.height) * 0.5f
             drawRect(
                 brush = Brush.linearGradient(
-                    colors = spec.bgColors,
+                    colors = effBgColors,
                     start = Offset(cx - dx * halfSpan, cy - dy * halfSpan),
                     end = Offset(cx + dx * halfSpan, cy + dy * halfSpan),
                 ),
             )
         }
-        spec.bgColors.size == 1 -> Modifier.background(spec.bgColors[0])
+        effBgColors.size == 1 -> Modifier.background(effBgColors[0])
         else -> Modifier
     }
 
-    Box(modifier = modifier.padding(start = startRes, top = topRes, end = endRes, bottom = bottomRes)) {
+    Box(
+        modifier = modifier
+            .applyCssVisualAnim(spec.visualAnim, visualClock, paused)
+            .then(rememberTitleEffectMotionModifier(title.effect, paused))
+            .padding(start = startRes, top = topRes, end = endRes, bottom = bottomRes),
+    ) {
         Box(
             modifier = Modifier
                 .then(
@@ -1708,10 +2292,16 @@ private fun CommunityTitleChipBox(
                 .then(
                     if (!hasNineSlice && spec.borderWidthDp > 0f) {
                         when {
-                            spec.borderGradientColors != null && spec.borderGradientColors.size >= 2 ->
-                                Modifier.border(spec.borderWidthDp.dp, Brush.sweepGradient(spec.borderGradientColors), shape)
-                            spec.borderColor != Color.Transparent ->
-                                Modifier.border(spec.borderWidthDp.dp, spec.borderColor, shape)
+                            hasGradBorder -> Modifier.drawBehind {
+                                val bwPx = spec.borderWidthDp.dp.toPx()
+                                drawOutline(
+                                    outline = shape.createOutline(size, layoutDirection, this),
+                                    brush = createRotatingSweepBrush(effBorderGradColors!!, borderSweepAngle, size),
+                                    style = Stroke(width = bwPx * 2f),
+                                )
+                            }
+                            effBorderColor != Color.Transparent ->
+                                Modifier.border(spec.borderWidthDp.dp, effBorderColor, shape)
                             else -> Modifier
                         }
                     } else {
@@ -1720,12 +2310,18 @@ private fun CommunityTitleChipBox(
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            spec.nineSliceSpec?.let { ns ->
+            effNineSlice?.let { ns ->
                 NineSliceFrameCanvas(spec = ns, modifier = Modifier.matchParentSize())
             }
-            spec.pseudoLayers.forEach { layer ->
+            effPseudoLayers.forEach { layer ->
                 BubblePseudoLayerCanvas(layer = layer, modifier = Modifier.matchParentSize())
             }
+            TitleEffectOverlay(
+                effect = title.effect,
+                paused = paused,
+                maskToContent = false,
+                modifier = Modifier.matchParentSize(),
+            )
             val effPadLeft = if (leadingIconBmp != null) (spec.padLeftDp - 16f).coerceAtLeast(5f) else spec.padLeftDp
             val effPadRight = if (trailingIconBmp != null) (spec.padRightDp - 16f).coerceAtLeast(5f) else spec.padRightDp
             Row(
@@ -1743,7 +2339,7 @@ private fun CommunityTitleChipBox(
                 }
                 Text(
                     text = title.label,
-                    color = spec.textColor,
+                    color = effTextColor,
                     fontSize = 11.sp,
                     lineHeight = 13.sp,
                     fontWeight = spec.fontWeight,
@@ -1768,18 +2364,16 @@ private fun PersonalV2TitleChipBox(
     title: ResolvedTitleChip,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
-    val httpClient = LocalCosmeticHttpClient.current
+    val paused = LocalPauseCosmeticAnimations.current
     val artUrl = title.bgImageUrl ?: return
-    val bannerBmp by produceState<ImageBitmap?>(initialValue = null, artUrl) {
-        value = BadgeArtworkCache.getOrFetchBitmap(context, httpClient, artUrl, 256)
-    }
+    val loaded = rememberAnimatedCosmeticBitmap(artUrl, 256)
     val spec = title.personalV2Art ?: ChatBubbleCosmetics.resolvePersonalV2Art(title.key.removePrefix("personal:"))
-    val loaded = bannerBmp
+    val motionMod = rememberTitleEffectMotionModifier(title.effect, paused)
 
     if (loaded == null) {
         Box(
             modifier = modifier
+                .then(motionMod)
                 .height(25.dp)
                 .clip(RoundedCornerShape(999.dp))
                 .background(Color(0xFFF3F6FA))
@@ -1800,50 +2394,67 @@ private fun PersonalV2TitleChipBox(
         return
     }
 
-    Layout(
-        modifier = modifier,
-        content = {
-            Image(
-                bitmap = loaded,
-                contentDescription = null,
-                contentScale = ContentScale.FillBounds,
-            )
-            Text(
-                text = title.label,
-                color = Color(0xFF304052),
-                fontSize = 11.sp,
-                lineHeight = 13.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
-            )
-        },
-    ) { measurables, constraints ->
-        val chipH = 25.dp.roundToPx().coerceIn(constraints.minHeight, constraints.maxHeight)
-        val padPx = spec.titlePadDp.dp.roundToPx()
-        val textPlaceable = measurables[1].measure(
-            constraints.copy(
-                minWidth = 0,
-                minHeight = 0,
-                maxHeight = chipH,
+    Box(
+        modifier = modifier
+            .then(motionMod)
+            .then(
+                if (!paused && title.effect.isNotBlank() && title.effect != "none") {
+                    Modifier.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                } else {
+                    Modifier
+                },
             ),
-        )
-        val minBannerW = (loaded.width.toFloat() / loaded.height.coerceAtLeast(1).toFloat() * chipH).roundToInt()
-        val targetW = max(textPlaceable.width + padPx * 2, minBannerW)
-            .coerceIn(constraints.minWidth, constraints.maxWidth)
-        val imgPlaceable = measurables[0].measure(Constraints.fixed(targetW, chipH))
-        layout(targetW, chipH) {
-            imgPlaceable.placeRelative(0, 0)
-            val safePad = (padPx / 2).coerceAtMost((targetW - textPlaceable.width).coerceAtLeast(0) / 2)
-            val tx = (targetW * spec.titleX - textPlaceable.width * 0.5f)
-                .roundToInt()
-                .coerceIn(safePad, (targetW - textPlaceable.width - safePad).coerceAtLeast(safePad))
-            val ty = (chipH * spec.titleY - textPlaceable.height * 0.5f)
-                .roundToInt()
-                .coerceIn(0, (chipH - textPlaceable.height).coerceAtLeast(0))
-            textPlaceable.placeRelative(tx, ty)
+    ) {
+        Layout(
+            content = {
+                Image(
+                    bitmap = loaded,
+                    contentDescription = null,
+                    contentScale = ContentScale.FillBounds,
+                )
+                Text(
+                    text = title.label,
+                    color = Color(0xFF304052),
+                    fontSize = 11.sp,
+                    lineHeight = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
+                )
+            },
+        ) { measurables, constraints ->
+            val chipH = 25.dp.roundToPx().coerceIn(constraints.minHeight, constraints.maxHeight)
+            val padPx = spec.titlePadDp.dp.roundToPx()
+            val textPlaceable = measurables[1].measure(
+                constraints.copy(
+                    minWidth = 0,
+                    minHeight = 0,
+                    maxHeight = chipH,
+                ),
+            )
+            val minBannerW = (loaded.width.toFloat() / loaded.height.coerceAtLeast(1).toFloat() * chipH).roundToInt()
+            val targetW = max(textPlaceable.width + padPx * 2, minBannerW)
+                .coerceIn(constraints.minWidth, constraints.maxWidth)
+            val imgPlaceable = measurables[0].measure(Constraints.fixed(targetW, chipH))
+            layout(targetW, chipH) {
+                imgPlaceable.placeRelative(0, 0)
+                val safePad = (padPx / 2).coerceAtMost((targetW - textPlaceable.width).coerceAtLeast(0) / 2)
+                val tx = (targetW * spec.titleX - textPlaceable.width * 0.5f)
+                    .roundToInt()
+                    .coerceIn(safePad, (targetW - textPlaceable.width - safePad).coerceAtLeast(safePad))
+                val ty = (chipH * spec.titleY - textPlaceable.height * 0.5f)
+                    .roundToInt()
+                    .coerceIn(0, (chipH - textPlaceable.height).coerceAtLeast(0))
+                textPlaceable.placeRelative(tx, ty)
+            }
         }
+        TitleEffectOverlay(
+            effect = title.effect,
+            paused = paused,
+            maskToContent = true,
+            modifier = Modifier.matchParentSize(),
+        )
     }
 }
 
@@ -1852,6 +2463,7 @@ private fun ShiguangTitleChipBox(
     title: ResolvedTitleChip,
     modifier: Modifier = Modifier,
 ) {
+    val paused = LocalPauseCosmeticAnimations.current
     val bodyShape = remember {
         GenericShape { size, _ ->
             val cut = size.height * 0.22f
@@ -1874,7 +2486,9 @@ private fun ShiguangTitleChipBox(
         }
     }
     Row(
-        modifier = modifier.height(23.dp),
+        modifier = modifier
+            .then(rememberTitleEffectMotionModifier(title.effect, paused))
+            .height(23.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
@@ -1882,10 +2496,15 @@ private fun ShiguangTitleChipBox(
                 .fillMaxHeight()
                 .clip(bodyShape)
                 .background(Brush.verticalGradient(listOf(Color(0xFFFAF0DC), Color(0xFFEAD3AE))))
-                .border(1.dp, Color(0xFFB8894A), bodyShape)
-                .padding(start = 10.dp, end = 9.dp),
+                .border(1.dp, Color(0xFFB8894A), bodyShape),
             contentAlignment = Alignment.Center,
         ) {
+            TitleEffectOverlay(
+                effect = title.effect,
+                paused = paused,
+                maskToContent = false,
+                modifier = Modifier.matchParentSize(),
+            )
             Text(
                 text = title.label,
                 color = Color(0xFF542710),
@@ -1895,6 +2514,7 @@ private fun ShiguangTitleChipBox(
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
+                modifier = Modifier.padding(start = 10.dp, end = 9.dp),
             )
         }
         if (!title.levelText.isNullOrBlank()) {
@@ -1928,6 +2548,7 @@ private fun RaffleNameplateTitleChipBox(
     isDarkTheme: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val paused = LocalPauseCosmeticAnimations.current
     val isOldFarmer = title.specialKind == "raffle_oldfarmer"
     val rtColor = parseSafeHex(title.raffleColorHex ?: title.borderHex, Color(0xFF488CAF))
     val rtAccent = parseSafeHex(title.raffleAccentHex ?: title.secondaryBgHex ?: title.borderHex, Color(0xFFB6DCEC))
@@ -1960,63 +2581,74 @@ private fun RaffleNameplateTitleChipBox(
         ChatBubbleCosmetics.RAFFLE_TITLE_BANNERS[title.key.removePrefix("raffle:")]
     }
     val bannerUrl = if (bannerSpec != null) title.bgImageUrl else null
+    val motionMod = rememberTitleEffectMotionModifier(title.effect, paused)
     if (bannerSpec != null && !bannerUrl.isNullOrBlank()) {
-        val context = LocalContext.current
-        val httpClient = LocalCosmeticHttpClient.current
-        val bannerBmp by produceState<ImageBitmap?>(initialValue = null, bannerUrl) {
-            value = BadgeArtworkCache.getOrFetchBitmap(context, httpClient, bannerUrl, 256)
-        }
-        val loadedBanner = bannerBmp
+        val loadedBanner = rememberAnimatedCosmeticBitmap(bannerUrl, 256)
         if (loadedBanner != null) {
             val ink = parseSafeHex(bannerSpec.inkHex, fgColor)
             Row(
-                modifier = modifier,
+                modifier = modifier.then(motionMod),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                Layout(
-                    content = {
-                        Image(
-                            bitmap = loadedBanner,
-                            contentDescription = null,
-                            contentScale = ContentScale.FillBounds,
-                        )
-                        Text(
-                            text = title.label,
-                            color = ink,
-                            fontSize = 11.sp,
-                            lineHeight = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
-                        )
+                val bannerUseOffscreen = !paused && title.effect.isNotBlank() && title.effect != "none"
+                Box(
+                    modifier = if (bannerUseOffscreen) {
+                        Modifier.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                    } else {
+                        Modifier
                     },
-                ) { measurables, constraints ->
-                    val chipH = bannerSpec.heightDp.dp.roundToPx().coerceIn(constraints.minHeight, constraints.maxHeight)
-                    val padL = bannerSpec.padLeftDp.dp.roundToPx()
-                    val padR = bannerSpec.padRightDp.dp.roundToPx()
-                    val textPlaceable = measurables[1].measure(
-                        constraints.copy(minWidth = 0, minHeight = 0, maxHeight = chipH),
-                    )
-                    val aspectW = (loadedBanner.width.toFloat() / loadedBanner.height.coerceAtLeast(1).toFloat() * chipH).roundToInt()
-                    val minW = max(bannerSpec.minWidthDp.dp.roundToPx(), aspectW)
-                    val targetW = max(textPlaceable.width + padL + padR, minW)
-                        .coerceIn(constraints.minWidth, constraints.maxWidth)
-                    val imgPlaceable = measurables[0].measure(Constraints.fixed(targetW, chipH))
-                    layout(targetW, chipH) {
-                        imgPlaceable.placeRelative(0, 0)
-                        val availW = (targetW - textPlaceable.width).coerceAtLeast(0)
-                        val safeL = padL.coerceAtMost(availW)
-                        val safeMaxL = (targetW - textPlaceable.width - padR).coerceAtLeast(safeL)
-                        val tx = (targetW * bannerSpec.titleXFraction - textPlaceable.width * 0.5f)
-                            .roundToInt()
-                            .coerceIn(safeL, safeMaxL)
-                        val ty = (chipH * bannerSpec.titleYFraction - textPlaceable.height * 0.5f)
-                            .roundToInt()
-                            .coerceIn(0, (chipH - textPlaceable.height).coerceAtLeast(0))
-                        textPlaceable.placeRelative(tx, ty)
+                ) {
+                    Layout(
+                        content = {
+                            Image(
+                                bitmap = loadedBanner,
+                                contentDescription = null,
+                                contentScale = ContentScale.FillBounds,
+                            )
+                            Text(
+                                text = title.label,
+                                color = ink,
+                                fontSize = 11.sp,
+                                lineHeight = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
+                            )
+                        },
+                    ) { measurables, constraints ->
+                        val chipH = bannerSpec.heightDp.dp.roundToPx().coerceIn(constraints.minHeight, constraints.maxHeight)
+                        val padL = bannerSpec.padLeftDp.dp.roundToPx()
+                        val padR = bannerSpec.padRightDp.dp.roundToPx()
+                        val textPlaceable = measurables[1].measure(
+                            constraints.copy(minWidth = 0, minHeight = 0, maxHeight = chipH),
+                        )
+                        val aspectW = (loadedBanner.width.toFloat() / loadedBanner.height.coerceAtLeast(1).toFloat() * chipH).roundToInt()
+                        val minW = max(bannerSpec.minWidthDp.dp.roundToPx(), aspectW)
+                        val targetW = max(textPlaceable.width + padL + padR, minW)
+                            .coerceIn(constraints.minWidth, constraints.maxWidth)
+                        val imgPlaceable = measurables[0].measure(Constraints.fixed(targetW, chipH))
+                        layout(targetW, chipH) {
+                            imgPlaceable.placeRelative(0, 0)
+                            val availW = (targetW - textPlaceable.width).coerceAtLeast(0)
+                            val safeL = padL.coerceAtMost(availW)
+                            val safeMaxL = (targetW - textPlaceable.width - padR).coerceAtLeast(safeL)
+                            val tx = (targetW * bannerSpec.titleXFraction - textPlaceable.width * 0.5f)
+                                .roundToInt()
+                                .coerceIn(safeL, safeMaxL)
+                            val ty = (chipH * bannerSpec.titleYFraction - textPlaceable.height * 0.5f)
+                                .roundToInt()
+                                .coerceIn(0, (chipH - textPlaceable.height).coerceAtLeast(0))
+                            textPlaceable.placeRelative(tx, ty)
+                        }
                     }
+                    TitleEffectOverlay(
+                        effect = title.effect,
+                        paused = paused,
+                        maskToContent = true,
+                        modifier = Modifier.matchParentSize(),
+                    )
                 }
                 if (!title.levelText.isNullOrBlank()) {
                     Box(
@@ -2050,6 +2682,7 @@ private fun RaffleNameplateTitleChipBox(
 
     Box(
         modifier = modifier
+            .then(motionMod)
             .height(25.dp)
             .clip(shape)
             .background(Brush.linearGradient(bgStops))
@@ -2062,6 +2695,12 @@ private fun RaffleNameplateTitleChipBox(
                 .matchParentSize()
                 .padding(2.dp)
                 .border(0.8.dp, Color.White.copy(alpha = if (isDarkTheme) 0.25f else 0.78f), RoundedCornerShape(5.dp, 2.dp, 7.dp, 2.dp)),
+        )
+        TitleEffectOverlay(
+            effect = title.effect,
+            paused = paused,
+            maskToContent = false,
+            modifier = Modifier.matchParentSize(),
         )
         Row(
             modifier = Modifier.padding(horizontal = 8.dp),

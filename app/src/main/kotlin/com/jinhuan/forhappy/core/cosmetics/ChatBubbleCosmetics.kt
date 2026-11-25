@@ -18,9 +18,14 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
+import kotlin.math.sin
 
 /**
  * Authoritative chat bubble, boost frame, title typography & safe-CSS cosmetic engine
@@ -72,6 +77,196 @@ data class PseudoBoxShadowDot(
     val color: Color,
 )
 
+sealed interface CssTimingFn {
+    fun transform(t: Float): Float
+
+    data object Linear : CssTimingFn {
+        override fun transform(t: Float): Float = t.coerceIn(0f, 1f)
+    }
+
+    data class CubicBezier(
+        val x1: Float,
+        val y1: Float,
+        val x2: Float,
+        val y2: Float,
+    ) : CssTimingFn {
+        override fun transform(t: Float): Float {
+            val x = t.coerceIn(0f, 1f)
+            if (x <= 0f) return 0f
+            if (x >= 1f) return 1f
+            var lo = 0f
+            var hi = 1f
+            var u = x
+            repeat(14) {
+                val xEst = sampleBezier(u, x1, x2)
+                if (xEst < x) lo = u else hi = u
+                u = (lo + hi) * 0.5f
+            }
+            return sampleBezier(u, y1, y2).coerceIn(-0.5f, 1.5f)
+        }
+
+        private fun sampleBezier(u: Float, p1: Float, p2: Float): Float {
+            val inv = 1f - u
+            return 3f * inv * inv * u * p1 + 3f * inv * u * u * p2 + u * u * u
+        }
+
+        companion object {
+            val Ease = CubicBezier(0.25f, 0.1f, 0.25f, 1f)
+            val EaseIn = CubicBezier(0.42f, 0f, 1f, 1f)
+            val EaseOut = CubicBezier(0f, 0f, 0.58f, 1f)
+            val EaseInOut = CubicBezier(0.42f, 0f, 0.58f, 1f)
+        }
+    }
+
+    data class Steps(
+        val count: Int,
+        val jumpStart: Boolean = false,
+        val jumpNone: Boolean = false,
+    ) : CssTimingFn {
+        override fun transform(t: Float): Float {
+            val n = count.coerceAtLeast(1)
+            val x = t.coerceIn(0f, 0.999999f)
+            val raw = floor(x * n).toInt()
+            return when {
+                jumpNone && n > 1 -> (raw.toFloat() / (n - 1).toFloat()).coerceIn(0f, 1f)
+                jumpStart -> ((raw + 1).toFloat() / n.toFloat()).coerceIn(0f, 1f)
+                else -> (raw.toFloat() / n.toFloat()).coerceIn(0f, 1f)
+            }
+        }
+    }
+}
+
+enum class CssAnimDirection { NORMAL, REVERSE, ALTERNATE, ALTERNATE_REVERSE }
+
+data class CssAnimSpec(
+    val name: String,
+    val durationMs: Long,
+    val delayMs: Long = 0L,
+    val timing: CssTimingFn = CssTimingFn.CubicBezier.Ease,
+    val direction: CssAnimDirection = CssAnimDirection.NORMAL,
+    val iterationCount: Float = Float.POSITIVE_INFINITY,
+) {
+    val cyclePeriodMs: Long
+        get() = when {
+            durationMs <= 0L -> 0L
+            direction == CssAnimDirection.ALTERNATE || direction == CssAnimDirection.ALTERNATE_REVERSE -> durationMs * 2L
+            else -> durationMs
+        }
+
+    fun directedFracAt(elapsedMs: Long): Float {
+        if (durationMs <= 0L) return 0f
+        val shifted = elapsedMs - delayMs
+        if (shifted < 0L) {
+            return if (direction == CssAnimDirection.REVERSE || direction == CssAnimDirection.ALTERNATE_REVERSE) 1f else 0f
+        }
+        val totalCycles = shifted.toDouble() / durationMs.toDouble()
+        if (!iterationCount.isInfinite() && totalCycles >= iterationCount.toDouble()) {
+            val completed = kotlin.math.ceil(iterationCount.toDouble()).toLong() - 1L
+            val lastFrac = (iterationCount - completed.toFloat()).coerceIn(0f, 1f)
+            val forward = when (direction) {
+                CssAnimDirection.NORMAL -> true
+                CssAnimDirection.REVERSE -> false
+                CssAnimDirection.ALTERNATE -> (completed % 2L) == 0L
+                CssAnimDirection.ALTERNATE_REVERSE -> (completed % 2L) != 0L
+            }
+            return if (forward) lastFrac else (1f - lastFrac)
+        }
+        val cycleIdx = floor(totalCycles).toLong()
+        val frac = (totalCycles - cycleIdx).toFloat().coerceIn(0f, 0.999999f)
+        val forward = when (direction) {
+            CssAnimDirection.NORMAL -> true
+            CssAnimDirection.REVERSE -> false
+            CssAnimDirection.ALTERNATE -> (cycleIdx % 2L) == 0L
+            CssAnimDirection.ALTERNATE_REVERSE -> (cycleIdx % 2L) != 0L
+        }
+        return if (forward) frac else (1f - frac)
+    }
+
+    fun progressAt(elapsedMs: Long): Float = timing.transform(directedFracAt(elapsedMs))
+}
+
+data class CssVisualTransformStop(
+    val fraction: Float,
+    val txDpDelta: Float? = null,
+    val tyDpDelta: Float? = null,
+    val txSelfDelta: Float? = null,
+    val tySelfDelta: Float? = null,
+    val scaleX: Float? = null,
+    val scaleY: Float? = null,
+    val rotateDeg: Float? = null,
+    val opacity: Float? = null,
+)
+
+data class CssVisualAnimTrack(
+    val spec: CssAnimSpec,
+    val stops: List<CssVisualTransformStop>,
+)
+
+data class EvaluatedVisualAnim(
+    val txDpDelta: Float = 0f,
+    val tyDpDelta: Float = 0f,
+    val txSelfDelta: Float = 0f,
+    val tySelfDelta: Float = 0f,
+    val scaleX: Float = 1f,
+    val scaleY: Float = 1f,
+    val rotateDeg: Float = 0f,
+    val opacity: Float? = null,
+)
+
+data class PseudoLayerTimeline(
+    val periodMs: Long,
+    val frames: List<BubblePseudoLayer>,
+)
+
+data class BubbleTimelineFrame(
+    val fillColor: Color,
+    val fillGradColors: List<Color>? = null,
+    val fillGradAngleDeg: Float? = null,
+    val textColor: Color,
+    val linkColor: Color,
+    val mutedColor: Color,
+    val borderColor: Color,
+    val borderGradColors: List<Color>? = null,
+    val nineSliceSpec: NineSliceSpec? = null,
+    val pseudoLayers: List<BubblePseudoLayer> = emptyList(),
+    val opacity: Float = 1f,
+)
+
+data class CommunityBubbleTimeline(
+    val periodMs: Long,
+    val frames: List<BubbleTimelineFrame>,
+)
+
+data class TitleTimelineFrame(
+    val bgColors: List<Color>,
+    val bgAngleDeg: Float?,
+    val borderColor: Color,
+    val borderGradientColors: List<Color>?,
+    val textColor: Color,
+    val nineSliceSpec: NineSliceSpec?,
+    val pseudoLayers: List<BubblePseudoLayer>,
+    val leadingIconUrl: String?,
+    val trailingIconUrl: String?,
+)
+
+data class CommunityTitleTimeline(
+    val periodMs: Long,
+    val frames: List<TitleTimelineFrame>,
+)
+
+data class BadgeTimelineFrame(
+    val baseUrlIdx: Int,
+    val spriteCol: Int,
+    val spriteRow: Int,
+    val pseudoLayers: List<BubblePseudoLayer> = emptyList(),
+    val opacity: Float = 1f,
+)
+
+data class CommunityBadgeTimeline(
+    val periodMs: Long,
+    val frames: List<BadgeTimelineFrame>,
+)
+
 data class CommunityTitleRenderSpec(
     val fixedHeightDp: Float? = null,
     val minHeightDp: Float = 22f,
@@ -95,6 +290,8 @@ data class CommunityTitleRenderSpec(
     val nineSliceSpec: NineSliceSpec? = null,
     val pseudoLayers: List<BubblePseudoLayer> = emptyList(),
     val borderGradientColors: List<Color>? = null,
+    val visualAnim: List<CssVisualAnimTrack> = emptyList(),
+    val animationTimeline: CommunityTitleTimeline? = null,
 )
 
 data class CommunityBadgeRenderSpec(
@@ -113,6 +310,8 @@ data class CommunityBadgeRenderSpec(
     val bottomReserveDp: Float = 0f,
     val leftReserveDp: Float = 0f,
     val pseudoLayers: List<BubblePseudoLayer> = emptyList(),
+    val visualAnim: List<CssVisualAnimTrack> = emptyList(),
+    val animationTimeline: CommunityBadgeTimeline? = null,
 )
 
 data class RaffleBubbleSliceSpec(
@@ -213,6 +412,12 @@ data class BubblePseudoLayer(
     val shadowDot: PseudoBoxShadowDot? = null,
     val bgImagesBottomToTop: List<BubbleBgImageSpec> = emptyList(),
     val nineSliceSpec: NineSliceSpec? = null,
+    val opacity: Float = 1f,
+    val scaleX: Float = 1f,
+    val scaleY: Float = 1f,
+    val rotateDeg: Float = 0f,
+    val visualAnim: List<CssVisualAnimTrack> = emptyList(),
+    val pseudoTimeline: PseudoLayerTimeline? = null,
 )
 
 sealed interface BubbleOrnament {
@@ -239,7 +444,13 @@ sealed interface BubbleOrnament {
     data class ShiguangBook(val level: Int) : BubbleOrnament
     data class PersonalV1Mascot(val svgUrl: String) : BubbleOrnament
     data class PersonalV2Mascot(val webpUrl: String) : BubbleOrnament
-    data class RaffleChickengun(val webpUrl: String, val sizeDp: Float) : BubbleOrnament
+    data class RaffleChickengun(
+        val webpUrl: String,
+        val sizeDp: Float,
+        val cgMotion: Boolean = true,
+        val cgFire: Boolean = true,
+        val stage: Int = 1,
+    ) : BubbleOrnament
     data class RaffleRailcannon(val cannonUrl: String, val stage: Int) : BubbleOrnament
     data class RaffleWhalebuddy(val personUrl: String, val stage: Int) : BubbleOrnament
     data class Owner52(val skinIndex: Int, val isBVariant: Boolean) : BubbleOrnament
@@ -279,6 +490,9 @@ data class ResolvedChatBubbleStyle(
     val topOverflowReserveDp: Float = 0f,
     val bottomOverflowReserveDp: Float = 0f,
     val startOverflowReserveDp: Float = 0f,
+    val borderGradientColors: List<Color>? = null,
+    val visualAnim: List<CssVisualAnimTrack> = emptyList(),
+    val animationTimeline: CommunityBubbleTimeline? = null,
 )
 
 object ChatBubbleCosmetics {
@@ -698,11 +912,12 @@ object ChatBubbleCosmetics {
         }
     }
 
-    private fun mapParsedPseudoLayers(
-        layers: List<ParsedPseudoLayer>,
+    private fun mapSingleParsedPseudoLayer(
+        layer: ParsedPseudoLayer,
         cssPrefix: String?,
-        parentFallbackUrl: String? = null,
-    ): List<BubblePseudoLayer> = layers.mapNotNull { layer ->
+        parentFallbackUrl: String?,
+        includeTimeline: Boolean,
+    ): BubblePseudoLayer? {
         val hasShape = layer.shapeFillColor != null || layer.shapeBorderColor != null || layer.shadowDot != null
         val mappedBgs = if (cssPrefix != null) {
             layer.bgImagesBottomToTop.map { bg ->
@@ -748,8 +963,16 @@ object ChatBubbleCosmetics {
                 outsetLeftDp = ns.outsetLeftDp,
             )
         }
-        if (!hasShape && mappedBgs.isEmpty() && mappedNs == null) return@mapNotNull null
-        BubblePseudoLayer(
+        val mappedTimeline = if (includeTimeline && layer.timelineFrames.isNotEmpty() && layer.timelinePeriodMs > 0L) {
+            val frames = layer.timelineFrames.mapNotNull { f ->
+                mapSingleParsedPseudoLayer(f, cssPrefix, parentFallbackUrl, includeTimeline = false)
+            }
+            if (frames.isNotEmpty()) PseudoLayerTimeline(layer.timelinePeriodMs, frames) else null
+        } else {
+            null
+        }
+        if (!hasShape && mappedBgs.isEmpty() && mappedNs == null && mappedTimeline == null) return null
+        return BubblePseudoLayer(
             topDp = layer.topDp,
             rightDp = layer.rightDp,
             bottomDp = layer.bottomDp,
@@ -771,6 +994,95 @@ object ChatBubbleCosmetics {
             shadowDot = layer.shadowDot,
             bgImagesBottomToTop = mappedBgs,
             nineSliceSpec = mappedNs,
+            opacity = layer.opacity,
+            scaleX = layer.scaleX,
+            scaleY = layer.scaleY,
+            rotateDeg = layer.rotateDeg,
+            visualAnim = layer.visualAnim,
+            pseudoTimeline = mappedTimeline,
+        )
+    }
+
+    private fun mapParsedPseudoLayers(
+        layers: List<ParsedPseudoLayer>,
+        cssPrefix: String?,
+        parentFallbackUrl: String? = null,
+    ): List<BubblePseudoLayer> = layers.mapNotNull { layer ->
+        mapSingleParsedPseudoLayer(layer, cssPrefix, parentFallbackUrl, includeTimeline = true)
+    }
+
+    private fun buildTitleFrameParts(
+        id: String,
+        titleImg: String?,
+        titleCssSha: String?,
+        dynTitle: ParsedCommunityTitleCss,
+        isDarkTheme: Boolean,
+        legacyDarkFallback: Boolean,
+        includeTimeline: Boolean,
+    ): TitleTimelineFrame {
+        val effBgHex = if (isDarkTheme) (dynTitle.darkBgHex ?: dynTitle.bgHex) else dynTitle.bgHex
+        val effSecHex = if (isDarkTheme) (dynTitle.darkSecondaryBgHex ?: dynTitle.secondaryBgHex ?: effBgHex) else (dynTitle.secondaryBgHex ?: effBgHex)
+        val effTextHex = if (isDarkTheme) (dynTitle.darkTextHex ?: dynTitle.textHex) else dynTitle.textHex
+        val effBorderHex = if (isDarkTheme) (dynTitle.darkBorderHex ?: dynTitle.borderHex) else dynTitle.borderHex
+        val baseSrc = when {
+            !dynTitle.hasNineSlice -> null
+            legacyDarkFallback -> "community-css-dark:$id:title:$titleCssSha:${dynTitle.baseUrlIdx}"
+            isDarkTheme && dynTitle.darkHasImageVariant -> "community-css:$id:title:$titleCssSha:${dynTitle.baseUrlIdx}"
+            titleImg != null && dynTitle.baseUrlIdx == 0 -> titleImg
+            else -> "community-css:$id:title:$titleCssSha:${dynTitle.baseUrlIdx}"
+        }
+        val nineSlice = if (dynTitle.hasNineSlice && baseSrc != null) {
+            NineSliceSpec(
+                sourceUrl = baseSrc,
+                sliceTop = dynTitle.sliceTop,
+                sliceRight = dynTitle.sliceRight,
+                sliceBottom = dynTitle.sliceBottom,
+                sliceLeft = dynTitle.sliceLeft,
+                isPercentSlice = dynTitle.isPercentSlice,
+                borderTopDp = dynTitle.borderImgTopDp,
+                borderRightDp = dynTitle.borderImgRightDp,
+                borderBottomDp = dynTitle.borderImgBottomDp,
+                borderLeftDp = dynTitle.borderImgLeftDp,
+                outsetTopDp = dynTitle.outsetTopDp,
+                outsetRightDp = dynTitle.outsetRightDp,
+                outsetBottomDp = dynTitle.outsetBottomDp,
+                outsetLeftDp = dynTitle.outsetLeftDp,
+            )
+        } else {
+            null
+        }
+        val lightCssPrefix = titleCssSha?.let { "community-css:$id:title:$it" }
+        val parentFallbackUrl = titleImg ?: if (dynTitle.hasBaseImageUrl && lightCssPrefix != null) {
+            "$lightCssPrefix:${dynTitle.baseUrlIdx}"
+        } else {
+            null
+        }
+        val mappedPseudo = dynTitle.pseudoLayers.mapNotNull { layer ->
+            mapSingleParsedPseudoLayer(layer, lightCssPrefix, parentFallbackUrl, includeTimeline = includeTimeline)
+        }
+        val bgColorsList = if (dynTitle.hasNineSlice) {
+            emptyList()
+        } else if (dynTitle.fillMode == "grad") {
+            listOf(parseHexColorPure(effBgHex), parseHexColorPure(effSecHex))
+        } else {
+            val c = parseHexColorPure(effBgHex)
+            if (c != Color.Transparent) listOf(c) else emptyList()
+        }
+        val borderGrad = if (dynTitle.hasNineSlice) null else dynTitle.borderGradientColors
+        val effBorderCol = when {
+            dynTitle.hasNineSlice || borderGrad != null -> Color.Transparent
+            else -> parseHexColorPure(effBorderHex)
+        }
+        return TitleTimelineFrame(
+            bgColors = bgColorsList,
+            bgAngleDeg = dynTitle.bgAngleDeg,
+            borderColor = effBorderCol,
+            borderGradientColors = borderGrad,
+            textColor = parseHexColorPure(effTextHex, Color(0xFF1E293B)),
+            nineSliceSpec = nineSlice,
+            pseudoLayers = mappedPseudo,
+            leadingIconUrl = dynTitle.leadingIconIdx?.let { "community-css:$id:title:$titleCssSha:$it" },
+            trailingIconUrl = dynTitle.trailingIconIdx?.let { "community-css:$id:title:$titleCssSha:$it" },
         )
     }
 
@@ -794,45 +1106,20 @@ object ChatBubbleCosmetics {
             val effSecHex = if (isDarkTheme) (dynTitle.darkSecondaryBgHex ?: dynTitle.secondaryBgHex ?: effBgHex) else (dynTitle.secondaryBgHex ?: effBgHex)
             val effTextHex = if (isDarkTheme) (dynTitle.darkTextHex ?: dynTitle.textHex) else dynTitle.textHex
             val effBorderHex = if (isDarkTheme) (dynTitle.darkBorderHex ?: dynTitle.borderHex) else dynTitle.borderHex
-            val baseSrc = when {
-                !dynTitle.hasNineSlice -> null
-                legacyDarkFallback -> "community-css-dark:$id:title:$titleCssSha:0"
-                isDarkTheme && dynTitle.darkHasImageVariant -> "community-css:$id:title:$titleCssSha:${dynTitle.baseUrlIdx}"
-                titleImg != null -> titleImg
-                else -> "community-css:$id:title:$titleCssSha:${dynTitle.baseUrlIdx}"
-            }
-            val nineSlice = if (dynTitle.hasNineSlice && baseSrc != null) {
-                NineSliceSpec(
-                    sourceUrl = baseSrc,
-                    sliceTop = dynTitle.sliceTop,
-                    sliceRight = dynTitle.sliceRight,
-                    sliceBottom = dynTitle.sliceBottom,
-                    sliceLeft = dynTitle.sliceLeft,
-                    isPercentSlice = dynTitle.isPercentSlice,
-                    borderTopDp = dynTitle.borderImgTopDp,
-                    borderRightDp = dynTitle.borderImgRightDp,
-                    borderBottomDp = dynTitle.borderImgBottomDp,
-                    borderLeftDp = dynTitle.borderImgLeftDp,
-                    outsetTopDp = dynTitle.outsetTopDp,
-                    outsetRightDp = dynTitle.outsetRightDp,
-                    outsetBottomDp = dynTitle.outsetBottomDp,
-                    outsetLeftDp = dynTitle.outsetLeftDp,
-                )
-            } else {
-                null
-            }
-            val lightCssPrefix = titleCssSha?.let { "community-css:$id:title:$it" }
-            val parentFallbackUrl = titleImg ?: if (dynTitle.hasBaseImageUrl && lightCssPrefix != null) {
-                "$lightCssPrefix:${dynTitle.baseUrlIdx}"
-            } else {
-                null
-            }
-            val mappedPseudo = mapParsedPseudoLayers(dynTitle.pseudoLayers, lightCssPrefix, parentFallbackUrl = parentFallbackUrl)
+            val baseFrame = buildTitleFrameParts(
+                id = id,
+                titleImg = titleImg,
+                titleCssSha = titleCssSha,
+                dynTitle = dynTitle,
+                isDarkTheme = isDarkTheme,
+                legacyDarkFallback = legacyDarkFallback,
+                includeTimeline = true,
+            )
             var topRes = 0f
             var endRes = 0f
             var botRes = 0f
             var startRes = 0f
-            for (layer in mappedPseudo) {
+            for (layer in baseFrame.pseudoLayers) {
                 layer.leftDp?.takeIf { it < 0f }?.let { startRes = max(startRes, -it) }
                 layer.rightDp?.takeIf { it < 0f }?.let { endRes = max(endRes, -it) }
                 layer.topDp?.takeIf { it < 0f }?.let { topRes = max(topRes, -it) }
@@ -844,15 +1131,24 @@ object ChatBubbleCosmetics {
                     botRes = max(botRes, ns.outsetBottomDp)
                 }
             }
-            val bgColorsList = if (dynTitle.hasNineSlice) {
-                emptyList()
-            } else if (dynTitle.fillMode == "grad") {
-                listOf(parseHexColorPure(effBgHex), parseHexColorPure(effSecHex))
+            val mappedTimeline = if (dynTitle.timelineFrames.isNotEmpty() && dynTitle.timelinePeriodMs > 0L) {
+                CommunityTitleTimeline(
+                    periodMs = dynTitle.timelinePeriodMs,
+                    frames = dynTitle.timelineFrames.map { f ->
+                        buildTitleFrameParts(
+                            id = id,
+                            titleImg = titleImg,
+                            titleCssSha = titleCssSha,
+                            dynTitle = f,
+                            isDarkTheme = isDarkTheme,
+                            legacyDarkFallback = legacyDarkFallback,
+                            includeTimeline = false,
+                        )
+                    },
+                )
             } else {
-                val c = parseHexColorPure(effBgHex)
-                if (c != Color.Transparent) listOf(c) else emptyList()
+                null
             }
-            val borderGrad = if (dynTitle.hasNineSlice) null else dynTitle.borderGradientColors
             val renderSpec = CommunityTitleRenderSpec(
                 fixedHeightDp = dynTitle.fixedHeightDp,
                 minHeightDp = dynTitle.minHeightDp,
@@ -864,25 +1160,24 @@ object ChatBubbleCosmetics {
                 endOverflowReserveDp = endRes,
                 topOverflowReserveDp = topRes,
                 bottomOverflowReserveDp = botRes,
-                bgColors = bgColorsList,
-                bgAngleDeg = dynTitle.bgAngleDeg,
-                borderColor = when {
-                    dynTitle.hasNineSlice || borderGrad != null -> Color.Transparent
-                    else -> parseHexColorPure(effBorderHex)
-                },
+                bgColors = baseFrame.bgColors,
+                bgAngleDeg = baseFrame.bgAngleDeg,
+                borderColor = baseFrame.borderColor,
                 borderWidthDp = when {
                     dynTitle.hasNineSlice -> 0f
-                    borderGrad != null -> dynTitle.borderWidthDp.coerceAtLeast(1.2f)
+                    baseFrame.borderGradientColors != null -> dynTitle.borderWidthDp.coerceAtLeast(1.2f)
                     else -> dynTitle.borderWidthDp
                 },
                 cornerRadiiDp = dynTitle.cornerRadiiDp ?: listOf(999f, 999f, 999f, 999f),
-                textColor = parseHexColorPure(effTextHex, Color(0xFF1E293B)),
+                textColor = baseFrame.textColor,
                 fontWeight = dynTitle.fontWeight,
                 letterSpacingSp = dynTitle.letterSpacingSp,
                 textShadowColor = if (isDarkTheme && dynTitle.hasNineSlice) Color(0xC818081E) else null,
-                nineSliceSpec = nineSlice,
-                pseudoLayers = mappedPseudo,
-                borderGradientColors = borderGrad,
+                nineSliceSpec = baseFrame.nineSliceSpec,
+                pseudoLayers = baseFrame.pseudoLayers,
+                borderGradientColors = baseFrame.borderGradientColors,
+                visualAnim = dynTitle.visualAnim,
+                animationTimeline = mappedTimeline,
             )
             return ResolvedTitleChip(
                 key = "community:$id",
@@ -899,8 +1194,8 @@ object ChatBubbleCosmetics {
                 bgImageUrl = titleImg,
                 specialKind = "community",
                 customCss = dynTitle.cornerRadiiDp?.takeIf { it.size == 4 }?.let { ParsedSafeCss(cornerRadiiDp = it) },
-                leadingIconUrl = dynTitle.leadingIconIdx?.let { "community-css:$id:title:$titleCssSha:$it" },
-                trailingIconUrl = dynTitle.trailingIconIdx?.let { "community-css:$id:title:$titleCssSha:$it" },
+                leadingIconUrl = baseFrame.leadingIconUrl,
+                trailingIconUrl = baseFrame.trailingIconUrl,
                 dynamicCssSpec = null,
                 communitySpec = renderSpec,
             )
@@ -997,6 +1292,26 @@ object ChatBubbleCosmetics {
             layer.bottomDp?.takeIf { it < 0f }?.let { bottomRes = max(bottomRes, -it) }
             layer.leftDp?.takeIf { it < 0f }?.let { leftRes = max(leftRes, -it) }
         }
+        val mappedTimeline = if (parsed.timelineFrames.isNotEmpty() && parsed.timelinePeriodMs > 0L) {
+            CommunityBadgeTimeline(
+                periodMs = parsed.timelinePeriodMs,
+                frames = parsed.timelineFrames.map { f ->
+                    val fFallback = imgSha?.let { "$ORIGIN/api/community-skins/image/$it" }
+                        ?: if (f.hasBaseImage) "$lightPrefix:${f.baseUrlIdx}" else null
+                    BadgeTimelineFrame(
+                        baseUrlIdx = f.baseUrlIdx,
+                        spriteCol = f.spriteCol,
+                        spriteRow = f.spriteRow,
+                        pseudoLayers = f.pseudoLayers.mapNotNull { l ->
+                            mapSingleParsedPseudoLayer(l, lightPrefix, fFallback, includeTimeline = false)
+                        },
+                        opacity = f.opacity,
+                    )
+                },
+            )
+        } else {
+            null
+        }
         return CommunityBadgeRenderSpec(
             widthDp = parsed.widthDp,
             heightDp = parsed.heightDp,
@@ -1013,6 +1328,8 @@ object ChatBubbleCosmetics {
             bottomReserveDp = bottomRes,
             leftReserveDp = leftRes,
             pseudoLayers = mappedPseudo,
+            visualAnim = parsed.visualAnim,
+            animationTimeline = mappedTimeline,
         )
     }
 
@@ -1075,6 +1392,13 @@ object ChatBubbleCosmetics {
         val shadowDot: PseudoBoxShadowDot? = null,
         val bgImagesBottomToTop: List<ParsedPseudoBgImage> = emptyList(),
         val nineSlice: ParsedPseudoNineSlice? = null,
+        val opacity: Float = 1f,
+        val scaleX: Float = 1f,
+        val scaleY: Float = 1f,
+        val rotateDeg: Float = 0f,
+        val visualAnim: List<CssVisualAnimTrack> = emptyList(),
+        val timelineFrames: List<ParsedPseudoLayer> = emptyList(),
+        val timelinePeriodMs: Long = 0L,
     )
 
     data class ParsedCommunityBubbleCss(
@@ -1120,6 +1444,9 @@ object ChatBubbleCosmetics {
         val darkBgColor: Color? = null,
         val darkBgGradientColors: List<Color>? = null,
         val darkBorderColor: Color? = null,
+        val visualAnim: List<CssVisualAnimTrack> = emptyList(),
+        val timelineFrames: List<ParsedCommunityBubbleCss> = emptyList(),
+        val timelinePeriodMs: Long = 0L,
     )
 
     data class ParsedCommunityTitleCss(
@@ -1166,6 +1493,9 @@ object ChatBubbleCosmetics {
         val fontWeight: FontWeight = FontWeight.Bold,
         val hasImage: Boolean = false,
         val pseudoLayers: List<ParsedPseudoLayer> = emptyList(),
+        val visualAnim: List<CssVisualAnimTrack> = emptyList(),
+        val timelineFrames: List<ParsedCommunityTitleCss> = emptyList(),
+        val timelinePeriodMs: Long = 0L,
     )
 
     data class ParsedCommunityBadgeCss(
@@ -1180,6 +1510,10 @@ object ChatBubbleCosmetics {
         val spriteCol: Int = 0,
         val spriteRow: Int = 0,
         val pseudoLayers: List<ParsedPseudoLayer> = emptyList(),
+        val opacity: Float = 1f,
+        val visualAnim: List<CssVisualAnimTrack> = emptyList(),
+        val timelineFrames: List<ParsedCommunityBadgeCss> = emptyList(),
+        val timelinePeriodMs: Long = 0L,
     )
 
     private val dynamicParsedBubbles = ConcurrentHashMap<String, ParsedCommunityBubbleCss>()
@@ -1200,6 +1534,7 @@ object ChatBubbleCosmetics {
         val rules: List<Pair<String, String>>,
         val initialVars: Map<String, String>,
         val keyframeMidVars: Map<String, Map<String, String>>,
+        val keyframeStops: Map<String, List<Pair<Float, String>>> = emptyMap(),
     )
 
     private fun splitCssDeclarations(body: String): List<String> {
@@ -1274,6 +1609,7 @@ object ChatBubbleCosmetics {
         val rules = ArrayList<Pair<String, String>>()
         val initialVars = LinkedHashMap<String, String>()
         val keyframeMidVars = LinkedHashMap<String, Map<String, String>>()
+        val keyframeStops = LinkedHashMap<String, List<Pair<Float, String>>>()
 
         fun parseStopPcts(stopSel: String): List<Float> {
             val out = ArrayList<Float>()
@@ -1373,9 +1709,13 @@ object ChatBubbleCosmetics {
         fun parseKeyframesBody(kfName: String, kfBody: String) {
             val tightMap = LinkedHashMap<String, Pair<Float, String>>()
             val broadMap = LinkedHashMap<String, Pair<Float, String>>()
+            val fullStops = ArrayList<Pair<Float, String>>()
             scanBlocks(kfBody) { stopSel, stopBody ->
                 val pcts = parseStopPcts(stopSel)
                 if (pcts.isEmpty()) return@scanBlocks
+                for (pct in pcts) {
+                    fullStops.add((pct / 100f).coerceIn(0f, 1f) to stopBody)
+                }
                 val props = extractCssCustomProps(stopBody)
                 if (props.isEmpty()) return@scanBlocks
                 val tightDist = pcts.filter { it in 49f..51f }.minOfOrNull { kotlin.math.abs(it - 50f) }
@@ -1396,6 +1736,10 @@ object ChatBubbleCosmetics {
                         }
                     }
                 }
+            }
+            if (fullStops.isNotEmpty()) {
+                fullStops.sortBy { it.first }
+                keyframeStops[kfName] = fullStops
             }
             val merged = LinkedHashMap<String, String>()
             for ((k, pair) in broadMap) merged[k] = pair.second
@@ -1439,12 +1783,12 @@ object ChatBubbleCosmetics {
         }
 
         processChunk(noComments)
-        return CssTopLevelAst(rules, initialVars, keyframeMidVars)
+        return CssTopLevelAst(rules, initialVars, keyframeMidVars, keyframeStops)
     }
 
     /**
-     * Extracts all valid image URLs across active style rules in exact CSS document order,
-     * matching the `__URL_k__` placeholder indices produced by [cascadeCommunityCss].
+     * Extracts all valid image URLs across active style rules (first) and `@keyframes` blocks (second)
+     * in exact CSS document order matching the `__URL_k__` placeholder indices produced by [cascadeCommunityCss].
      */
     fun extractAllCssImageUrls(cssText: String): List<String> {
         val cleaned = cssText.replace(CSS_COMMENT_RE, "")
@@ -1456,13 +1800,22 @@ object ChatBubbleCosmetics {
                 if (isValidCssImageUrl(raw)) out.add(raw)
             }
         }
+        for (stops in ast.keyframeStops.values) {
+            for ((_, stopBody) in stops) {
+                for (m in CSS_URL_TOKEN_RE.findAll(stopBody)) {
+                    val raw = (m.groupValues[1].ifEmpty { m.groupValues[2].ifEmpty { m.groupValues[3] } }).trim()
+                    if (isValidCssImageUrl(raw)) out.add(raw)
+                }
+            }
+        }
         return out
     }
 
     /**
      * Extracts image URLs from community skin CSS (`url("data:image/...")` or `/api/community-skins/image/...`),
      * handling quoted `data:image/svg+xml,...` payloads that contain nested parentheses like `rotate(...)`
-     * and `fill="url(%23id)"`, skipping `@keyframes` / `@property` blocks while preserving `::before` and `::after`.
+     * and `fill="url(%23id)"`, preferring active rule blocks (`::before` / `::after` included) and falling
+     * back to `@keyframes` if no rule URLs exist.
      */
     fun extractCssImageUrls(cssText: String, preferDark: Boolean = false): List<String> {
         val cleaned = cssText.replace(CSS_COMMENT_RE, "")
@@ -1487,8 +1840,21 @@ object ChatBubbleCosmetics {
             low.contains(":not([data-theme") || !darkSelRe.containsMatchIn(low)
         }
         val primary = if (preferDark && darkRules.isNotEmpty()) collectFromRules(darkRules) else collectFromRules(lightRules)
-        if (primary.isNotEmpty() || !preferDark) return primary
-        return collectFromRules(lightRules)
+        if (primary.isNotEmpty()) return primary
+        if (preferDark) {
+            val fallbackRules = collectFromRules(lightRules)
+            if (fallbackRules.isNotEmpty()) return fallbackRules
+        }
+        val kfOut = ArrayList<String>()
+        for (stops in ast.keyframeStops.values) {
+            for ((_, stopBody) in stops) {
+                for (m in CSS_URL_TOKEN_RE.findAll(stopBody)) {
+                    val raw = (m.groupValues[1].ifEmpty { m.groupValues[2].ifEmpty { m.groupValues[3] } }).trim()
+                    if (isValidCssImageUrl(raw)) kfOut.add(raw)
+                }
+            }
+        }
+        return kfOut
     }
 
     private fun resolveCssVars(raw: String, vars: Map<String, String>): String {
@@ -2372,7 +2738,690 @@ object ChatBubbleCosmetics {
         val baseVars: Map<String, String>,
         val beforeVars: Map<String, String>,
         val afterVars: Map<String, String>,
+        val keyframesReplaced: Map<String, List<Pair<Float, String>>> = emptyMap(),
     )
+
+    private data class ParsedCssTransform(
+        val txSelf: Float = 0f,
+        val txDp: Float = 0f,
+        val tySelf: Float = 0f,
+        val tyDp: Float = 0f,
+        val scaleX: Float = 1f,
+        val scaleY: Float = 1f,
+        val rotateDeg: Float = 0f,
+        val hasTx: Boolean = false,
+        val hasTy: Boolean = false,
+        val hasScaleX: Boolean = false,
+        val hasScaleY: Boolean = false,
+        val hasRotate: Boolean = false,
+    )
+
+    private fun parseTranslateComponent(arg: String, emPx: Float = 15f): Pair<Float, Float> {
+        val evaluated = evalCssMathTokens(arg.trim(), emPx).trim()
+        val calcPctLen = Regex("""^calc\(\s*(-?\d*\.?\d+)%\s*([+-])\s*([^)]+)\)$""", RegexOption.IGNORE_CASE)
+            .matchEntire(evaluated)
+        if (calcPctLen != null) {
+            val pct = (calcPctLen.groupValues[1].toFloatOrNull() ?: 0f) / 100f
+            val sign = if (calcPctLen.groupValues[2] == "-") -1f else 1f
+            val px = parsePxLength(calcPctLen.groupValues[3], emPx) ?: 0f
+            return pct to (sign * px)
+        }
+        return when {
+            evaluated.endsWith("%") -> (evaluated.removeSuffix("%").trim().toFloatOrNull()?.div(100f) ?: 0f) to 0f
+            else -> 0f to (parsePxLength(evaluated, emPx) ?: 0f)
+        }
+    }
+
+    private fun parseRotateAngleDeg(arg: String): Float? {
+        val clean = arg.trim().lowercase()
+        val m = Regex("""^(-?\d*\.?\d+)(deg|turn|rad|grad)?$""").matchEntire(clean) ?: return null
+        val n = m.groupValues[1].toFloatOrNull() ?: return null
+        return when (m.groupValues[2]) {
+            "turn" -> n * 360f
+            "rad" -> (n * 180.0 / PI).toFloat()
+            "grad" -> n * 0.9f
+            else -> n
+        }
+    }
+
+    private fun parseTransformDecls(raw: String, emPx: Float = 15f): ParsedCssTransform {
+        val low = raw.lowercase()
+        var txSelf = 0f
+        var txDp = 0f
+        var tySelf = 0f
+        var tyDp = 0f
+        var scaleX = 1f
+        var scaleY = 1f
+        var rotateDeg = 0f
+        var hasTx = false
+        var hasTy = false
+        var hasScaleX = false
+        var hasScaleY = false
+        var hasRotate = false
+        var idx = 0
+        val fnRe = Regex("""\b(translate3d|translatex|translatey|translate|scale3d|scalex|scaley|scale|rotatez|rotate)\(""", RegexOption.IGNORE_CASE)
+        while (idx < raw.length) {
+            val m = fnRe.find(low, idx) ?: break
+            val open = m.range.last
+            var j = open + 1
+            var depth = 1
+            while (j < raw.length && depth > 0) {
+                when (raw[j]) {
+                    '(' -> depth++
+                    ')' -> depth--
+                }
+                j++
+            }
+            if (depth == 0) {
+                val args = splitTopLevel(raw.substring(open + 1, j - 1), onWhitespace = false)
+                when (m.groupValues[1].lowercase()) {
+                    "translate", "translate3d" -> {
+                        args.getOrNull(0)?.let {
+                            val (sx, px) = parseTranslateComponent(it, emPx)
+                            txSelf += sx
+                            txDp += px
+                            hasTx = true
+                        }
+                        args.getOrNull(1)?.let {
+                            val (sy, py) = parseTranslateComponent(it, emPx)
+                            tySelf += sy
+                            tyDp += py
+                            hasTy = true
+                        }
+                    }
+                    "translatex" -> args.getOrNull(0)?.let {
+                        val (sx, px) = parseTranslateComponent(it, emPx)
+                        txSelf += sx
+                        txDp += px
+                        hasTx = true
+                    }
+                    "translatey" -> args.getOrNull(0)?.let {
+                        val (sy, py) = parseTranslateComponent(it, emPx)
+                        tySelf += sy
+                        tyDp += py
+                        hasTy = true
+                    }
+                    "scale", "scale3d" -> {
+                        val sx = args.getOrNull(0)?.toFloatOrNull()
+                        val sy = args.getOrNull(1)?.toFloatOrNull() ?: sx
+                        if (sx != null) {
+                            scaleX *= sx
+                            hasScaleX = true
+                        }
+                        if (sy != null) {
+                            scaleY *= sy
+                            hasScaleY = true
+                        }
+                    }
+                    "scalex" -> args.getOrNull(0)?.toFloatOrNull()?.let {
+                        scaleX *= it
+                        hasScaleX = true
+                    }
+                    "scaley" -> args.getOrNull(0)?.toFloatOrNull()?.let {
+                        scaleY *= it
+                        hasScaleY = true
+                    }
+                    "rotate", "rotatez" -> args.getOrNull(0)?.let(::parseRotateAngleDeg)?.let {
+                        rotateDeg += it
+                        hasRotate = true
+                    }
+                }
+            }
+            idx = j
+        }
+        return ParsedCssTransform(txSelf, txDp, tySelf, tyDp, scaleX, scaleY, rotateDeg, hasTx, hasTy, hasScaleX, hasScaleY, hasRotate)
+    }
+
+    private fun parseDurationMs(rawTok: String): Long? {
+        val m = Regex("""^(-?\d*\.?\d+)(ms|s)$""", RegexOption.IGNORE_CASE).matchEntire(rawTok.trim()) ?: return null
+        val n = m.groupValues[1].toDoubleOrNull() ?: return null
+        val mult = if (m.groupValues[2].equals("ms", ignoreCase = true)) 1.0 else 1000.0
+        return (n * mult).roundToInt().toLong()
+    }
+
+    private fun parseTimingFn(rawTok: String): CssTimingFn? {
+        val t = rawTok.trim().lowercase()
+        return when {
+            t == "linear" -> CssTimingFn.Linear
+            t == "ease" -> CssTimingFn.CubicBezier.Ease
+            t == "ease-in" -> CssTimingFn.CubicBezier.EaseIn
+            t == "ease-out" -> CssTimingFn.CubicBezier.EaseOut
+            t == "ease-in-out" -> CssTimingFn.CubicBezier.EaseInOut
+            t == "step-start" -> CssTimingFn.Steps(1, jumpStart = true)
+            t == "step-end" -> CssTimingFn.Steps(1, jumpStart = false)
+            t.startsWith("steps(") && t.endsWith(")") -> {
+                val args = splitTopLevel(t.removePrefix("steps(").removeSuffix(")"), onWhitespace = false)
+                val count = args.firstOrNull()?.toIntOrNull()?.coerceAtLeast(1) ?: return null
+                val pos = args.getOrNull(1)?.lowercase() ?: "end"
+                CssTimingFn.Steps(
+                    count = count,
+                    jumpStart = pos == "start" || pos == "jump-start",
+                    jumpNone = pos == "jump-none",
+                )
+            }
+            t.startsWith("cubic-bezier(") && t.endsWith(")") -> {
+                val nums = splitTopLevel(t.removePrefix("cubic-bezier(").removeSuffix(")"), onWhitespace = false)
+                    .mapNotNull { it.toFloatOrNull() }
+                if (nums.size >= 4) CssTimingFn.CubicBezier(nums[0], nums[1], nums[2], nums[3]) else null
+            }
+            else -> null
+        }
+    }
+
+    private fun parseCssAnimations(body: String, vars: Map<String, String>): List<CssAnimSpec> {
+        var names = mutableListOf<String>()
+        var durations = mutableListOf<Long>()
+        var delays = mutableListOf<Long>()
+        var timings = mutableListOf<CssTimingFn>()
+        var directions = mutableListOf<CssAnimDirection>()
+        var iterations = mutableListOf<Float>()
+        var playStates = mutableListOf<String>()
+
+        val fillKeywords = setOf("none", "forwards", "backwards", "both", "running", "paused")
+        fun parseDirection(tok: String): CssAnimDirection? = when (tok.lowercase()) {
+            "normal" -> CssAnimDirection.NORMAL
+            "reverse" -> CssAnimDirection.REVERSE
+            "alternate" -> CssAnimDirection.ALTERNATE
+            "alternate-reverse" -> CssAnimDirection.ALTERNATE_REVERSE
+            else -> null
+        }
+
+        for (decl in splitCssDeclarations(body)) {
+            val colon = decl.indexOf(':')
+            if (colon <= 0) continue
+            val prop = decl.substring(0, colon).trim().lowercase()
+            if (!prop.startsWith("animation") && !prop.startsWith("-webkit-animation")) continue
+            val rawVal = resolveCssVars(decl.substring(colon + 1).trim(), vars)
+                .replace("!important", "", ignoreCase = true)
+                .trim()
+            if (rawVal.isEmpty()) continue
+            val parts = splitTopLevel(rawVal, onWhitespace = false)
+            when (prop) {
+                "animation", "-webkit-animation" -> {
+                    names = mutableListOf()
+                    durations = mutableListOf()
+                    delays = mutableListOf()
+                    timings = mutableListOf()
+                    directions = mutableListOf()
+                    iterations = mutableListOf()
+                    playStates = mutableListOf()
+                    for (layer in parts) {
+                        var dur: Long? = null
+                        var del = 0L
+                        var timing: CssTimingFn = CssTimingFn.CubicBezier.Ease
+                        var dir = CssAnimDirection.NORMAL
+                        var iter = Float.POSITIVE_INFINITY
+                        var state = "running"
+                        var name = "none"
+                        for (tok in splitTopLevel(layer, onWhitespace = true)) {
+                            val clean = tok.trim().trim('"', '\'')
+                            val low = clean.lowercase()
+                            val ms = parseDurationMs(low)
+                            val tf = if (ms == null) parseTimingFn(low) else null
+                            val d = if (ms == null && tf == null) parseDirection(low) else null
+                            when {
+                                ms != null -> if (dur == null) dur = ms else del = ms
+                                tf != null -> timing = tf
+                                d != null -> dir = d
+                                low == "infinite" -> iter = Float.POSITIVE_INFINITY
+                                low == "paused" || low == "running" -> state = low
+                                low in fillKeywords -> if (low == "none" && name == "none") name = "none"
+                                clean.toFloatOrNull() != null && dur != null -> iter = clean.toFloat().coerceAtLeast(0f)
+                                !low.contains('(') -> name = clean
+                            }
+                        }
+                        names.add(name)
+                        durations.add(dur ?: 0L)
+                        delays.add(del)
+                        timings.add(timing)
+                        directions.add(dir)
+                        iterations.add(iter)
+                        playStates.add(state)
+                    }
+                }
+                "animation-name", "-webkit-animation-name" -> {
+                    names = parts.map { it.trim().trim('"', '\'') }.toMutableList()
+                }
+                "animation-duration", "-webkit-animation-duration" -> {
+                    durations = parts.map { parseDurationMs(it) ?: 0L }.toMutableList()
+                }
+                "animation-delay", "-webkit-animation-delay" -> {
+                    delays = parts.map { parseDurationMs(it) ?: 0L }.toMutableList()
+                }
+                "animation-timing-function", "-webkit-animation-timing-function" -> {
+                    timings = parts.map { parseTimingFn(it) ?: CssTimingFn.CubicBezier.Ease }.toMutableList()
+                }
+                "animation-direction", "-webkit-animation-direction" -> {
+                    directions = parts.map { parseDirection(it) ?: CssAnimDirection.NORMAL }.toMutableList()
+                }
+                "animation-iteration-count", "-webkit-animation-iteration-count" -> {
+                    iterations = parts.map {
+                        if (it.equals("infinite", ignoreCase = true)) Float.POSITIVE_INFINITY
+                        else it.toFloatOrNull()?.coerceAtLeast(0f) ?: 1f
+                    }.toMutableList()
+                }
+                "animation-play-state", "-webkit-animation-play-state" -> {
+                    playStates = parts.map { it.lowercase() }.toMutableList()
+                }
+            }
+        }
+
+        if (names.isEmpty()) return emptyList()
+        val out = ArrayList<CssAnimSpec>(names.size)
+        for (i in names.indices) {
+            val n = names[i]
+            if (n.isEmpty() || n.equals("none", ignoreCase = true)) continue
+            val dur = durations.getOrNull(i % durations.size.coerceAtLeast(1)) ?: 0L
+            if (dur <= 0L) continue
+            val state = playStates.getOrNull(i % playStates.size.coerceAtLeast(1)) ?: "running"
+            if (state == "paused") continue
+            val iter = iterations.getOrNull(i % iterations.size.coerceAtLeast(1)) ?: Float.POSITIVE_INFINITY
+            if (iter <= 0f) continue
+            out.add(
+                CssAnimSpec(
+                    name = n,
+                    durationMs = dur,
+                    delayMs = delays.getOrNull(i % delays.size.coerceAtLeast(1)) ?: 0L,
+                    timing = timings.getOrNull(i % timings.size.coerceAtLeast(1)) ?: CssTimingFn.CubicBezier.Ease,
+                    direction = directions.getOrNull(i % directions.size.coerceAtLeast(1)) ?: CssAnimDirection.NORMAL,
+                    iterationCount = iter,
+                ),
+            )
+        }
+        return out
+    }
+
+    private fun findKeyframeStops(
+        keyframes: Map<String, List<Pair<Float, String>>>,
+        animName: String,
+    ): List<Pair<Float, String>>? =
+        keyframes[animName] ?: keyframes.entries.firstOrNull { it.key.equals(animName, ignoreCase = true) }?.value
+
+    private fun lcmPeriodMs(periods: List<Long>): Long {
+        fun gcd(a: Long, b: Long): Long {
+            var x = a
+            var y = b
+            while (y != 0L) {
+                val t = x % y
+                x = y
+                y = t
+            }
+            return x.coerceAtLeast(1L)
+        }
+        var res = periods.firstOrNull()?.coerceAtLeast(100L) ?: return 0L
+        for (i in 1 until periods.size) {
+            val p = periods[i].coerceAtLeast(100L)
+            val next = (res / gcd(res, p)) * p
+            res = if (next in 1L..24_000L) next else max(res, p).coerceAtMost(24_000L)
+        }
+        return res.coerceIn(100L, 24_000L)
+    }
+
+    private fun interpolateCssValues(
+        v0Raw: String,
+        v1Raw: String,
+        localT: Float,
+        forceStepDiscrete: Boolean,
+        emPx: Float,
+    ): String {
+        val v0 = simplifyColorMix(evalCssMathTokens(v0Raw.trim(), emPx))
+        val v1 = simplifyColorMix(evalCssMathTokens(v1Raw.trim(), emPx))
+        if (v0 == v1) return v0
+        val urlRe = Regex("""__URL_\d+__""")
+        if (urlRe.containsMatchIn(v0) || urlRe.containsMatchIn(v1)) {
+            return if (forceStepDiscrete) {
+                if (localT < 0.9999f) v0 else v1
+            } else {
+                if (localT < 0.5f) v0 else v1
+            }
+        }
+        val c0 = parseCssColor(v0)
+        val c1 = parseCssColor(v1)
+        if (c0 != null && c1 != null) {
+            val t = localT.coerceIn(0f, 1f)
+            val r = ((c0.red + (c1.red - c0.red) * t) * 255f).roundToInt().coerceIn(0, 255)
+            val g = ((c0.green + (c1.green - c0.green) * t) * 255f).roundToInt().coerceIn(0, 255)
+            val b = ((c0.blue + (c1.blue - c0.blue) * t) * 255f).roundToInt().coerceIn(0, 255)
+            val a = (c0.alpha + (c1.alpha - c0.alpha) * t).coerceIn(0f, 1f)
+            return "rgba($r,$g,$b,${String.format(java.util.Locale.US, "%.3f", a)})"
+        }
+        val toks0 = splitTopLevel(v0, onWhitespace = true)
+        val toks1 = splitTopLevel(v1, onWhitespace = true)
+        if (toks0.size == toks1.size && toks0.isNotEmpty()) {
+            val numUnitRe = Regex("""^(-?\d*\.?\d+)(%|px|deg|rem|em|vw|vh)?$""", RegexOption.IGNORE_CASE)
+            val out = ArrayList<String>(toks0.size)
+            var allNum = true
+            for (k in toks0.indices) {
+                val m0 = numUnitRe.matchEntire(toks0[k])
+                val m1 = numUnitRe.matchEntire(toks1[k])
+                if (m0 == null || m1 == null) {
+                    allNum = false
+                    break
+                }
+                val n0 = m0.groupValues[1].toFloatOrNull()
+                val n1 = m1.groupValues[1].toFloatOrNull()
+                val u0 = m0.groupValues[2].lowercase()
+                val u1 = m1.groupValues[2].lowercase()
+                val sameOrZero = u0 == u1 || (u0.isEmpty() && n0 == 0f) || (u1.isEmpty() && n1 == 0f)
+                if (n0 == null || n1 == null || !sameOrZero) {
+                    allNum = false
+                    break
+                }
+                val unit = u1.ifEmpty { u0 }
+                val n = n0 + (n1 - n0) * localT
+                val numStr = formatCssMathNumber(n)
+                out.add("$numStr$unit")
+            }
+            if (allNum) return out.joinToString(" ")
+        }
+        return if (forceStepDiscrete) {
+            if (localT < 0.9999f) v0 else v1
+        } else {
+            if (localT < 0.5f) v0 else v1
+        }
+    }
+
+    private data class ElementAnimAnalysis(
+        val visualTracks: List<CssVisualAnimTrack> = emptyList(),
+        val timelineAnims: List<CssAnimSpec> = emptyList(),
+        val periodMs: Long = 0L,
+        val sampleCount: Int = 0,
+        val animatesOpacityToVisible: Boolean = false,
+    )
+
+    private fun extractVisualAnimTrack(
+        anim: CssAnimSpec,
+        stops: List<Pair<Float, String>>,
+        baseTransform: ParsedCssTransform,
+        baseOpacity: Float,
+        vars: Map<String, String>,
+        emPx: Float,
+    ): CssVisualAnimTrack? {
+        val rawStops = LinkedHashMap<Float, Pair<ParsedCssTransform?, Float?>>()
+        var hasAnyTf = false
+        var hasAnyOp = false
+        for ((frac, stopBody) in stops) {
+            var stopTf: ParsedCssTransform? = null
+            var stopOp: Float? = null
+            for (decl in splitCssDeclarations(stopBody)) {
+                val colon = decl.indexOf(':')
+                if (colon <= 0) continue
+                val prop = decl.substring(0, colon).trim().lowercase()
+                val rv = resolveCssVars(decl.substring(colon + 1).trim(), vars)
+                    .replace("!important", "", ignoreCase = true)
+                    .trim()
+                if (rv.contains("var(", ignoreCase = true)) continue
+                when (prop) {
+                    "transform", "-webkit-transform" -> {
+                        stopTf = parseTransformDecls(rv, emPx)
+                        hasAnyTf = true
+                    }
+                    "opacity" -> {
+                        rv.toFloatOrNull()?.let {
+                            stopOp = it.coerceIn(0f, 1f)
+                            hasAnyOp = true
+                        }
+                    }
+                }
+            }
+            if (stopTf != null || stopOp != null) {
+                val existing = rawStops[frac]
+                rawStops[frac] = (stopTf ?: existing?.first) to (stopOp ?: existing?.second)
+            }
+        }
+        if (!hasAnyTf && !hasAnyOp) return null
+
+        val outStops = ArrayList<CssVisualTransformStop>()
+        fun addStop(frac: Float, tf: ParsedCssTransform?, op: Float?, isSyntheticRest: Boolean = false) {
+            outStops.add(
+                CssVisualTransformStop(
+                    fraction = frac,
+                    txDpDelta = if (hasAnyTf) (if (isSyntheticRest) 0f else (tf?.let { it.txDp - baseTransform.txDp })) else null,
+                    tyDpDelta = if (hasAnyTf) (if (isSyntheticRest) 0f else (tf?.let { it.tyDp - baseTransform.tyDp })) else null,
+                    txSelfDelta = if (hasAnyTf) (if (isSyntheticRest) 0f else (tf?.let { it.txSelf - baseTransform.txSelf })) else null,
+                    tySelfDelta = if (hasAnyTf) (if (isSyntheticRest) 0f else (tf?.let { it.tySelf - baseTransform.tySelf })) else null,
+                    scaleX = if (hasAnyTf) (if (isSyntheticRest) 1f else (tf?.let { if (it.hasScaleX) it.scaleX / baseTransform.scaleX.coerceAtLeast(0.01f) else 1f })) else null,
+                    scaleY = if (hasAnyTf) (if (isSyntheticRest) 1f else (tf?.let { if (it.hasScaleY) it.scaleY / baseTransform.scaleY.coerceAtLeast(0.01f) else 1f })) else null,
+                    rotateDeg = if (hasAnyTf) (if (isSyntheticRest) 0f else (tf?.let { if (it.hasRotate) it.rotateDeg - baseTransform.rotateDeg else 0f })) else null,
+                    opacity = if (hasAnyOp) (if (isSyntheticRest) baseOpacity else op) else null,
+                ),
+            )
+        }
+
+        val sortedFracs = rawStops.keys.sorted()
+        if (sortedFracs.first() > 0.001f) {
+            addStop(0f, null, null, isSyntheticRest = true)
+        }
+        for (f in sortedFracs) {
+            val (tf, op) = rawStops.getValue(f)
+            addStop(f, tf, op, isSyntheticRest = false)
+        }
+        if (sortedFracs.last() < 0.999f) {
+            addStop(1f, null, null, isSyntheticRest = true)
+        }
+        return CssVisualAnimTrack(anim, outStops)
+    }
+
+    private fun analyzeElementAnimations(
+        body: String,
+        vars: Map<String, String>,
+        keyframes: Map<String, List<Pair<Float, String>>>,
+        baseTransform: ParsedCssTransform = ParsedCssTransform(),
+        baseOpacity: Float = 1f,
+        emPx: Float = 15f,
+    ): ElementAnimAnalysis {
+        if (keyframes.isEmpty() || body.isBlank()) return ElementAnimAnalysis()
+        val anims = parseCssAnimations(body, vars)
+        if (anims.isEmpty()) return ElementAnimAnalysis()
+        val visualTracks = ArrayList<CssVisualAnimTrack>()
+        val timelineAnims = ArrayList<CssAnimSpec>()
+        var animatesOpacityToVisible = false
+
+        for (anim in anims) {
+            val stops = findKeyframeStops(keyframes, anim.name) ?: continue
+            var hasCategoryB = false
+            var usesDynamicVarInVisual = false
+            for ((_, stopBody) in stops) {
+                for (decl in splitCssDeclarations(stopBody)) {
+                    val colon = decl.indexOf(':')
+                    if (colon <= 0) continue
+                    val prop = decl.substring(0, colon).trim().lowercase()
+                    val vRaw = decl.substring(colon + 1).trim()
+                    when {
+                        prop == "opacity" -> {
+                            val opVal = resolveCssVars(vRaw, vars).toFloatOrNull()
+                            if (opVal != null && opVal > 0.01f) animatesOpacityToVisible = true
+                            if (vRaw.contains("var(") && resolveCssVars(vRaw, vars).contains("var(")) usesDynamicVarInVisual = true
+                        }
+                        prop == "transform" || prop == "-webkit-transform" -> {
+                            if (vRaw.contains("var(") && resolveCssVars(vRaw, vars).contains("var(")) usesDynamicVarInVisual = true
+                        }
+                        else -> hasCategoryB = true
+                    }
+                }
+            }
+            if (hasCategoryB || usesDynamicVarInVisual) {
+                timelineAnims.add(anim)
+            } else {
+                extractVisualAnimTrack(anim, stops, baseTransform, baseOpacity, vars, emPx)?.let {
+                    visualTracks.add(it)
+                }
+            }
+        }
+        if (timelineAnims.isEmpty()) {
+            return ElementAnimAnalysis(
+                visualTracks = visualTracks,
+                animatesOpacityToVisible = animatesOpacityToVisible,
+            )
+        }
+        val periodMs = lcmPeriodMs(timelineAnims.map { it.cyclePeriodMs.coerceAtLeast(100L) })
+        val stepCount = timelineAnims.mapNotNull { (it.timing as? CssTimingFn.Steps)?.count }.maxOrNull()
+        val sampleCount = when {
+            timelineAnims.size == 1 && stepCount != null && stepCount in 2..64 && timelineAnims[0].durationMs == periodMs ->
+                stepCount
+            stepCount != null -> max(stepCount * 2, 24).coerceIn(16, 60)
+            else -> ((periodMs / 150L).toInt().coerceIn(24, 48) / 2) * 2
+        }
+        return ElementAnimAnalysis(
+            visualTracks = visualTracks,
+            timelineAnims = timelineAnims,
+            periodMs = periodMs,
+            sampleCount = sampleCount.coerceAtLeast(2),
+            animatesOpacityToVisible = animatesOpacityToVisible,
+        )
+    }
+
+    private fun sampleKeyframeFrameOverrides(
+        anims: List<CssAnimSpec>,
+        keyframes: Map<String, List<Pair<Float, String>>>,
+        baseBody: String,
+        baseVars: Map<String, String>,
+        elapsedMs: Long,
+        emPx: Float,
+    ): Pair<Map<String, String>, String> {
+        val baseDecls = LinkedHashMap<String, String>()
+        for (decl in splitCssDeclarations(baseBody)) {
+            val colon = decl.indexOf(':')
+            if (colon <= 0) continue
+            val prop = decl.substring(0, colon).trim().lowercase()
+            if (!prop.startsWith("--")) {
+                baseDecls[prop] = decl.substring(colon + 1).replace("!important", "", ignoreCase = true).trim()
+            }
+        }
+        val varOverrides = LinkedHashMap<String, String>()
+        val declOverrides = LinkedHashMap<String, String>()
+
+        fun evalPropAtFraction(
+            prop: String,
+            explicitStops: List<Pair<Float, String>>,
+            directedFrac: Float,
+            timing: CssTimingFn,
+            resolvedVars: Map<String, String>,
+        ): String? {
+            val fallbackVal = if (prop.startsWith("--")) {
+                resolvedVars[prop] ?: "0"
+            } else {
+                baseDecls[prop]?.let { resolveCssVars(it, resolvedVars) } ?: explicitStops.firstOrNull()?.second
+            } ?: return null
+            val fullStops = ArrayList<Pair<Float, String>>(explicitStops.size + 2)
+            if (explicitStops.first().first > 0.001f) fullStops.add(0f to fallbackVal)
+            fullStops.addAll(explicitStops)
+            if (explicitStops.last().first < 0.999f) fullStops.add(1f to fallbackVal)
+
+            val f = directedFrac.coerceIn(0f, 1f)
+            var idx0 = 0
+            for (k in 0 until fullStops.size - 1) {
+                if (f >= fullStops[k].first) idx0 = k
+            }
+            val idx1 = (idx0 + 1).coerceAtMost(fullStops.lastIndex)
+            val s0 = fullStops[idx0]
+            val s1 = fullStops[idx1]
+            val span = (s1.first - s0.first)
+            val rawLocalT = if (span > 1e-5f) ((f - s0.first) / span).coerceIn(0f, 1f) else 0f
+            val localT = timing.transform(rawLocalT)
+            val v0 = resolveCssVars(s0.second, resolvedVars)
+            val v1 = resolveCssVars(s1.second, resolvedVars)
+            return interpolateCssValues(v0, v1, localT, forceStepDiscrete = timing is CssTimingFn.Steps, emPx = emPx)
+        }
+
+        // Pass 1: evaluate custom properties (`--*`) so Pass 2 regular declarations resolve updated `--vars`
+        for (anim in anims) {
+            val stops = findKeyframeStops(keyframes, anim.name) ?: continue
+            val directed = anim.directedFracAt(elapsedMs)
+            val byVar = LinkedHashMap<String, MutableList<Pair<Float, String>>>()
+            for ((frac, stopBody) in stops) {
+                for (decl in splitCssDeclarations(stopBody)) {
+                    val colon = decl.indexOf(':')
+                    if (colon <= 0) continue
+                    val prop = decl.substring(0, colon).trim()
+                    if (prop.startsWith("--")) {
+                        byVar.getOrPut(prop) { ArrayList() }.add(frac to decl.substring(colon + 1).trim())
+                    }
+                }
+            }
+            for ((varName, propStops) in byVar) {
+                propStops.sortBy { it.first }
+                evalPropAtFraction(varName, propStops, directed, anim.timing, baseVars)?.let {
+                    varOverrides[varName] = it
+                }
+            }
+        }
+        val frameVars = if (varOverrides.isEmpty()) baseVars else buildResolvedVars(baseVars, baseBody, varOverrides)
+
+        // Pass 2: evaluate regular CSS declarations at the same frame
+        for (anim in anims) {
+            val stops = findKeyframeStops(keyframes, anim.name) ?: continue
+            val directed = anim.directedFracAt(elapsedMs)
+            val byProp = LinkedHashMap<String, MutableList<Pair<Float, String>>>()
+            for ((frac, stopBody) in stops) {
+                for (decl in splitCssDeclarations(stopBody)) {
+                    val colon = decl.indexOf(':')
+                    if (colon <= 0) continue
+                    val prop = decl.substring(0, colon).trim().lowercase()
+                    if (!prop.startsWith("--")) {
+                        val cleanVal = decl.substring(colon + 1).replace("!important", "", ignoreCase = true).trim()
+                        byProp.getOrPut(prop) { ArrayList() }.add(frac to cleanVal)
+                    }
+                }
+            }
+            for ((prop, propStops) in byProp) {
+                propStops.sortBy { it.first }
+                evalPropAtFraction(prop, propStops, directed, anim.timing, frameVars)?.let {
+                    declOverrides[prop] = it
+                }
+            }
+        }
+        val declBuf = if (declOverrides.isEmpty()) "" else declOverrides.entries.joinToString("; ") { "${it.key}: ${it.value}" }
+        return varOverrides to declBuf
+    }
+
+    fun evaluateVisualAnim(tracks: List<CssVisualAnimTrack>, elapsedMs: Long): EvaluatedVisualAnim {
+        if (tracks.isEmpty()) return EvaluatedVisualAnim()
+        var txDp = 0f
+        var tyDp = 0f
+        var txSelf = 0f
+        var tySelf = 0f
+        var sx = 1f
+        var sy = 1f
+        var rot = 0f
+        var opacity: Float? = null
+
+        fun interpScalar(stops: List<CssVisualTransformStop>, p: Float, selector: (CssVisualTransformStop) -> Float?): Float? {
+            var prevFrac = -1f
+            var prevVal: Float? = null
+            var nextFrac = 2f
+            var nextVal: Float? = null
+            for (st in stops) {
+                val v = selector(st) ?: continue
+                if (st.fraction <= p && st.fraction >= prevFrac) {
+                    prevFrac = st.fraction
+                    prevVal = v
+                }
+                if (st.fraction >= p && st.fraction < nextFrac) {
+                    nextFrac = st.fraction
+                    nextVal = v
+                }
+            }
+            if (prevVal == null) return nextVal
+            if (nextVal == null || nextFrac - prevFrac < 1e-5f) return prevVal
+            val localT = ((p - prevFrac) / (nextFrac - prevFrac)).coerceIn(0f, 1f)
+            return prevVal + (nextVal - prevVal) * localT
+        }
+
+        for (track in tracks) {
+            if (track.stops.isEmpty()) continue
+            val p = track.spec.progressAt(elapsedMs)
+            interpScalar(track.stops, p) { it.txDpDelta }?.let { txDp += it }
+            interpScalar(track.stops, p) { it.tyDpDelta }?.let { tyDp += it }
+            interpScalar(track.stops, p) { it.txSelfDelta }?.let { txSelf += it }
+            interpScalar(track.stops, p) { it.tySelfDelta }?.let { tySelf += it }
+            interpScalar(track.stops, p) { it.scaleX }?.let { sx *= it }
+            interpScalar(track.stops, p) { it.scaleY }?.let { sy *= it }
+            interpScalar(track.stops, p) { it.rotateDeg }?.let { rot += it }
+            interpScalar(track.stops, p) { it.opacity }?.let { opacity = (opacity ?: 1f) * it }
+        }
+        return EvaluatedVisualAnim(txDp, tyDp, txSelf, tySelf, sx, sy, rot, opacity?.coerceIn(0f, 1f))
+    }
 
     private fun extractAnimationNamesFromBody(body: String): List<String> {
         val skipKeywords = setOf(
@@ -2510,6 +3559,17 @@ object ChatBubbleCosmetics {
         val baseVars = buildResolvedVars(ast.initialVars, baseStr, kfOverrideVars)
         val beforeVars = buildResolvedVars(baseVars, beforeStr)
         val afterVars = buildResolvedVars(baseVars, afterStr)
+        val keyframesReplaced = LinkedHashMap<String, List<Pair<Float, String>>>(ast.keyframeStops.size)
+        for ((kfName, stops) in ast.keyframeStops) {
+            val outStops = stops.map { (frac, stopBody) ->
+                val replacedStop = CSS_URL_TOKEN_RE.replace(stopBody) { m ->
+                    val raw = (m.groupValues[1].ifEmpty { m.groupValues[2].ifEmpty { m.groupValues[3] } }).trim()
+                    if (isValidCssImageUrl(raw)) "__URL_${urlCounter++}__" else m.value
+                }
+                frac to replacedStop
+            }
+            keyframesReplaced[kfName] = outStops
+        }
         return CascadedCommunityCss(
             baseStr = baseStr,
             beforeStr = beforeStr,
@@ -2521,6 +3581,7 @@ object ChatBubbleCosmetics {
             baseVars = baseVars,
             beforeVars = beforeVars,
             afterVars = afterVars,
+            keyframesReplaced = keyframesReplaced,
         )
     }
 
@@ -2529,6 +3590,7 @@ object ChatBubbleCosmetics {
         vars: Map<String, String>,
         parentBorderW: List<Float> = listOf(0f, 0f, 0f, 0f),
         emPx: Float = 15f,
+        allowZeroOpacity: Boolean = false,
     ): ParsedPseudoLayer? {
         if (body.isBlank()) return null
         val compactBody = body.replace(Regex("""\s+"""), " ").lowercase()
@@ -2561,6 +3623,10 @@ object ChatBubbleCosmetics {
         var translatePxY = 0f
         var hasTranslateX = false
         var hasTranslateY = false
+        var scaleX = 1f
+        var scaleY = 1f
+        var rotateDeg = 0f
+        var opacityVal = 1f
 
         var isDisplayHidden = false
         var isMaskHidden = false
@@ -2583,22 +3649,6 @@ object ChatBubbleCosmetics {
         var bgSizes: List<CssBgSizeSpec> = emptyList()
         var bgPositions: List<CssBgPosSpec> = emptyList()
 
-        fun parseTranslateComponent(arg: String): Pair<Float, Float> {
-            val evaluated = evalCssMathTokens(arg.trim(), emPx).trim()
-            val calcPctLen = Regex("""^calc\(\s*(-?\d*\.?\d+)%\s*([+-])\s*([^)]+)\)$""", RegexOption.IGNORE_CASE)
-                .matchEntire(evaluated)
-            if (calcPctLen != null) {
-                val pct = (calcPctLen.groupValues[1].toFloatOrNull() ?: 0f) / 100f
-                val sign = if (calcPctLen.groupValues[2] == "-") -1f else 1f
-                val px = parsePxLength(calcPctLen.groupValues[3], emPx) ?: 0f
-                return pct to (sign * px)
-            }
-            return when {
-                evaluated.endsWith("%") -> (evaluated.removeSuffix("%").trim().toFloatOrNull()?.div(100f) ?: 0f) to 0f
-                else -> 0f to (parsePxLength(evaluated, emPx) ?: 0f)
-            }
-        }
-
         for (decl in splitCssDeclarations(body)) {
             val colon = decl.indexOf(':')
             if (colon <= 0) continue
@@ -2617,7 +3667,10 @@ object ChatBubbleCosmetics {
                 "visibility" -> isDisplayHidden = rawVal.equals("hidden", ignoreCase = true) || rawVal.equals("collapse", ignoreCase = true)
                 "opacity" -> {
                     val op = rawVal.toFloatOrNull() ?: parsePxLength(rawVal, emPx)
-                    isOpaqueHidden = op != null && op <= 0.01f
+                    if (op != null) {
+                        opacityVal = op.coerceIn(0f, 1f)
+                        isOpaqueHidden = !allowZeroOpacity && op <= 0.01f
+                    }
                 }
                 "mask-image", "-webkit-mask-image", "mask", "-webkit-mask" -> {
                     isMaskHidden = isMaskCompletelyTransparent(rawVal)
@@ -2671,54 +3724,20 @@ object ChatBubbleCosmetics {
                     }
                 }
                 "transform", "-webkit-transform" -> {
-                    val lowerTf = rawVal.lowercase()
-                    var idx = 0
-                    while (idx < rawVal.length) {
-                        val fnM = Regex("""\b(translate3d|translatex|translatey|translate)\(""", RegexOption.IGNORE_CASE)
-                            .find(lowerTf, idx) ?: break
-                        val open = fnM.range.last
-                        var j = open + 1
-                        var depth = 1
-                        while (j < rawVal.length && depth > 0) {
-                            when (rawVal[j]) {
-                                '(' -> depth++
-                                ')' -> depth--
-                            }
-                            j++
-                        }
-                        if (depth == 0) {
-                            val args = splitTopLevel(rawVal.substring(open + 1, j - 1), onWhitespace = false)
-                            when (fnM.groupValues[1].lowercase()) {
-                                "translate", "translate3d" -> {
-                                    args.getOrNull(0)?.let {
-                                        val (sx, px) = parseTranslateComponent(it)
-                                        translateSelfX = sx
-                                        translatePxX = px
-                                        hasTranslateX = true
-                                    }
-                                    args.getOrNull(1)?.let {
-                                        val (sy, py) = parseTranslateComponent(it)
-                                        translateSelfY = sy
-                                        translatePxY = py
-                                        hasTranslateY = true
-                                    }
-                                }
-                                "translatex" -> args.getOrNull(0)?.let {
-                                    val (sx, px) = parseTranslateComponent(it)
-                                    translateSelfX = sx
-                                    translatePxX = px
-                                    hasTranslateX = true
-                                }
-                                "translatey" -> args.getOrNull(0)?.let {
-                                    val (sy, py) = parseTranslateComponent(it)
-                                    translateSelfY = sy
-                                    translatePxY = py
-                                    hasTranslateY = true
-                                }
-                            }
-                        }
-                        idx = j
+                    val tf = parseTransformDecls(rawVal, emPx)
+                    if (tf.hasTx) {
+                        translateSelfX = tf.txSelf
+                        translatePxX = tf.txDp
+                        hasTranslateX = true
                     }
+                    if (tf.hasTy) {
+                        translateSelfY = tf.tySelf
+                        translatePxY = tf.tyDp
+                        hasTranslateY = true
+                    }
+                    if (tf.hasScaleX) scaleX = tf.scaleX
+                    if (tf.hasScaleY) scaleY = tf.scaleY
+                    if (tf.hasRotate) rotateDeg = tf.rotateDeg
                 }
                 "width", "inline-size" -> parseLengthWithParentCap(rawVal, emPx).first?.let { widthDp = it }
                 "height", "block-size" -> {
@@ -2958,6 +3977,74 @@ object ChatBubbleCosmetics {
             shadowDot = shadowDot,
             bgImagesBottomToTop = bgBottomToTop,
             nineSlice = nineSlice,
+            opacity = opacityVal,
+            scaleX = scaleX,
+            scaleY = scaleY,
+            rotateDeg = rotateDeg,
+        )
+    }
+
+    private fun extractElementBaseTransformAndOpacity(
+        body: String,
+        vars: Map<String, String>,
+        emPx: Float,
+    ): Pair<ParsedCssTransform, Float> {
+        var tf = ParsedCssTransform()
+        var op = 1f
+        for (decl in splitCssDeclarations(body)) {
+            val colon = decl.indexOf(':')
+            if (colon <= 0) continue
+            val prop = decl.substring(0, colon).trim().lowercase()
+            val rv = resolveCssVars(decl.substring(colon + 1).trim(), vars)
+                .replace("!important", "", ignoreCase = true)
+                .trim()
+            when (prop) {
+                "transform", "-webkit-transform" -> tf = parseTransformDecls(rv, emPx)
+                "opacity" -> rv.toFloatOrNull()?.let { op = it.coerceIn(0f, 1f) }
+            }
+        }
+        return tf to op
+    }
+
+    private fun parsePseudoRuleAnimated(
+        body: String,
+        vars: Map<String, String>,
+        keyframes: Map<String, List<Pair<Float, String>>>,
+        parentBorderW: List<Float>,
+        emPx: Float,
+        includeAnimations: Boolean = true,
+    ): ParsedPseudoLayer? {
+        val rest = parsePseudoRule(body, vars, parentBorderW, emPx, allowZeroOpacity = false)
+        if (!includeAnimations || keyframes.isEmpty() || body.isBlank()) return rest
+        val (baseTf, baseOp) = extractElementBaseTransformAndOpacity(body, vars, emPx)
+        val analysis = analyzeElementAnimations(body, vars, keyframes, baseTf, baseOp, emPx)
+        val frames = if (analysis.timelineAnims.isNotEmpty() && analysis.periodMs > 0L) {
+            val out = ArrayList<ParsedPseudoLayer>(analysis.sampleCount)
+            for (i in 0 until analysis.sampleCount) {
+                val elapsed = ((i + 0.5) * analysis.periodMs / analysis.sampleCount).roundToInt().toLong()
+                val (ovVars, ovDecls) = sampleKeyframeFrameOverrides(analysis.timelineAnims, keyframes, body, vars, elapsed, emPx)
+                val fVars = if (ovVars.isEmpty()) vars else buildResolvedVars(vars, body, ovVars)
+                val fBody = if (ovDecls.isBlank()) body else "$body;$ovDecls"
+                val fLayer = parsePseudoRule(fBody, fVars, parentBorderW, emPx, allowZeroOpacity = false)
+                    ?: ParsedPseudoLayer(opacity = 0f)
+                out.add(fLayer)
+            }
+            if (out.any { it.opacity > 0.01f || it.nineSlice != null || it.bgImagesBottomToTop.isNotEmpty() || it.shapeFillColor != null || it.shadowDot != null }) {
+                out
+            } else {
+                emptyList()
+            }
+        } else {
+            emptyList()
+        }
+        if (rest == null && frames.isEmpty() && !analysis.animatesOpacityToVisible) return null
+        val targetBase = rest
+            ?: parsePseudoRule(body, vars, parentBorderW, emPx, allowZeroOpacity = true)
+            ?: ParsedPseudoLayer(opacity = 0f)
+        return targetBase.copy(
+            visualAnim = analysis.visualTracks,
+            timelineFrames = frames,
+            timelinePeriodMs = if (frames.isNotEmpty()) analysis.periodMs else 0L,
         )
     }
 
@@ -3008,8 +4095,58 @@ object ChatBubbleCosmetics {
     fun parseCommunityBubbleCss(cssText: String, isDarkTheme: Boolean = false): ParsedCommunityBubbleCss? {
         if (cssText.isBlank()) return null
         val part = cascadeCommunityCss(cssText, isDarkTheme)
-        val urlTokenRe = Regex("""__URL_(\d+)__""")
         val emPx = 15f
+        val staticParsed = parseCommunityBubbleCssFrame(
+            part = part,
+            baseBody = part.baseStr,
+            baseVars = part.baseVars,
+            beforeVars = part.beforeVars,
+            afterVars = part.afterVars,
+            emPx = emPx,
+            includePseudoAnimations = true,
+        ) ?: return null
+        val (baseTf, baseOp) = extractElementBaseTransformAndOpacity(part.baseStr, part.baseVars, emPx)
+        val anim = analyzeElementAnimations(part.baseStr, part.baseVars, part.keyframesReplaced, baseTf, baseOp, emPx)
+        val timelineFrames = if (anim.timelineAnims.isNotEmpty() && anim.periodMs > 0L) {
+            val frames = ArrayList<ParsedCommunityBubbleCss>(anim.sampleCount)
+            for (i in 0 until anim.sampleCount) {
+                val elapsed = ((i + 0.5) * anim.periodMs / anim.sampleCount).roundToInt().toLong()
+                val (ovVars, ovDecls) = sampleKeyframeFrameOverrides(anim.timelineAnims, part.keyframesReplaced, part.baseStr, part.baseVars, elapsed, emPx)
+                val fBaseBody = if (ovDecls.isBlank()) part.baseStr else "${part.baseStr};$ovDecls"
+                val fBaseVars = if (ovVars.isEmpty()) part.baseVars else buildResolvedVars(part.baseVars, part.baseStr, ovVars)
+                val fBeforeVars = if (ovVars.isEmpty()) part.beforeVars else buildResolvedVars(fBaseVars, part.beforeStr)
+                val fAfterVars = if (ovVars.isEmpty()) part.afterVars else buildResolvedVars(fBaseVars, part.afterStr)
+                parseCommunityBubbleCssFrame(
+                    part = part,
+                    baseBody = fBaseBody,
+                    baseVars = fBaseVars,
+                    beforeVars = fBeforeVars,
+                    afterVars = fAfterVars,
+                    emPx = emPx,
+                    includePseudoAnimations = false,
+                )?.let { frames.add(it) }
+            }
+            frames
+        } else {
+            emptyList()
+        }
+        return staticParsed.copy(
+            visualAnim = anim.visualTracks,
+            timelineFrames = timelineFrames,
+            timelinePeriodMs = if (timelineFrames.isNotEmpty()) anim.periodMs else 0L,
+        )
+    }
+
+    private fun parseCommunityBubbleCssFrame(
+        part: CascadedCommunityCss,
+        baseBody: String,
+        baseVars: Map<String, String>,
+        beforeVars: Map<String, String>,
+        afterVars: Map<String, String>,
+        emPx: Float,
+        includePseudoAnimations: Boolean,
+    ): ParsedCommunityBubbleCss? {
+        val urlTokenRe = Regex("""__URL_(\d+)__""")
 
         var baseUrlIdx = 0
         var hasBaseImageUrl = false
@@ -3112,14 +4249,14 @@ object ChatBubbleCosmetics {
             }
         }
 
-        for (decl in splitCssDeclarations(part.baseStr)) {
+        for (decl in splitCssDeclarations(baseBody)) {
             val colon = decl.indexOf(':')
             if (colon <= 0) continue
             val prop = decl.substring(0, colon).trim().lowercase()
             if (prop.startsWith("--")) continue
             val rawVal = simplifyColorMix(
                 evalCssMathTokens(
-                    resolveCssVars(decl.substring(colon + 1).trim(), part.baseVars)
+                    resolveCssVars(decl.substring(colon + 1).trim(), baseVars)
                         .replace("!important", "", ignoreCase = true)
                         .trim(),
                     emPx,
@@ -3240,8 +4377,8 @@ object ChatBubbleCosmetics {
                 ),
             )
         }
-        listOf(part.beforeStr to part.beforeVars, part.afterStr to part.afterVars).forEach { (pStr, pVars) ->
-            parsePseudoRule(pStr, pVars, bw, emPx)?.let { layer ->
+        listOf(part.beforeStr to beforeVars, part.afterStr to afterVars).forEach { (pStr, pVars) ->
+            parsePseudoRuleAnimated(pStr, pVars, part.keyframesReplaced, bw, emPx, includePseudoAnimations)?.let { layer ->
                 pseudoLayers.add(layer)
                 layer.leftDp?.takeIf { it < 0f }?.let { startOverflowReserve = max(startOverflowReserve, -it) }
                 layer.rightDp?.takeIf { it < 0f }?.let { endOverflowReserve = max(endOverflowReserve, -it) }
@@ -3261,7 +4398,7 @@ object ChatBubbleCosmetics {
         var darkBgGrad: List<Color>? = null
         var darkBdCol: Color? = null
         if (part.darkStr.isNotBlank()) {
-            val darkVars = buildResolvedVars(part.baseVars, part.darkStr)
+            val darkVars = buildResolvedVars(baseVars, part.darkStr)
             for (decl in splitCssDeclarations(part.darkStr)) {
                 val colon = decl.indexOf(':')
                 if (colon <= 0) continue
@@ -3415,9 +4552,62 @@ object ChatBubbleCosmetics {
     fun parseCommunityTitleCss(cssText: String, isDarkTheme: Boolean = false): ParsedCommunityTitleCss? {
         if (cssText.isBlank()) return null
         val part = cascadeCommunityCss(cssText, isDarkTheme)
-        val urlTokenRe = Regex("""__URL_(\d+)__""")
         val allUrls = extractAllCssImageUrls(cssText)
         val emPx = 14f
+        val staticParsed = parseCommunityTitleCssFrame(
+            part = part,
+            baseBody = part.baseStr,
+            baseVars = part.baseVars,
+            beforeVars = part.beforeVars,
+            afterVars = part.afterVars,
+            allUrlsSize = allUrls.size,
+            emPx = emPx,
+            includePseudoAnimations = true,
+        ) ?: return null
+        val (baseTf, baseOp) = extractElementBaseTransformAndOpacity(part.baseStr, part.baseVars, emPx)
+        val anim = analyzeElementAnimations(part.baseStr, part.baseVars, part.keyframesReplaced, baseTf, baseOp, emPx)
+        val timelineFrames = if (anim.timelineAnims.isNotEmpty() && anim.periodMs > 0L) {
+            val frames = ArrayList<ParsedCommunityTitleCss>(anim.sampleCount)
+            for (i in 0 until anim.sampleCount) {
+                val elapsed = ((i + 0.5) * anim.periodMs / anim.sampleCount).roundToInt().toLong()
+                val (ovVars, ovDecls) = sampleKeyframeFrameOverrides(anim.timelineAnims, part.keyframesReplaced, part.baseStr, part.baseVars, elapsed, emPx)
+                val fBaseBody = if (ovDecls.isBlank()) part.baseStr else "${part.baseStr};$ovDecls"
+                val fBaseVars = if (ovVars.isEmpty()) part.baseVars else buildResolvedVars(part.baseVars, part.baseStr, ovVars)
+                val fBeforeVars = if (ovVars.isEmpty()) part.beforeVars else buildResolvedVars(fBaseVars, part.beforeStr)
+                val fAfterVars = if (ovVars.isEmpty()) part.afterVars else buildResolvedVars(fBaseVars, part.afterStr)
+                parseCommunityTitleCssFrame(
+                    part = part,
+                    baseBody = fBaseBody,
+                    baseVars = fBaseVars,
+                    beforeVars = fBeforeVars,
+                    afterVars = fAfterVars,
+                    allUrlsSize = allUrls.size,
+                    emPx = emPx,
+                    includePseudoAnimations = false,
+                )?.let { frames.add(it) }
+            }
+            frames
+        } else {
+            emptyList()
+        }
+        return staticParsed.copy(
+            visualAnim = anim.visualTracks,
+            timelineFrames = timelineFrames,
+            timelinePeriodMs = if (timelineFrames.isNotEmpty()) anim.periodMs else 0L,
+        )
+    }
+
+    private fun parseCommunityTitleCssFrame(
+        part: CascadedCommunityCss,
+        baseBody: String,
+        baseVars: Map<String, String>,
+        beforeVars: Map<String, String>,
+        afterVars: Map<String, String>,
+        allUrlsSize: Int,
+        emPx: Float,
+        includePseudoAnimations: Boolean,
+    ): ParsedCommunityTitleCss? {
+        val urlTokenRe = Regex("""__URL_(\d+)__""")
 
         var gradColors: List<Color>? = null
         var translucentGradColors: List<Color>? = null
@@ -3465,14 +4655,14 @@ object ChatBubbleCosmetics {
             return cols to angle
         }
 
-        for (decl in splitCssDeclarations(part.baseStr)) {
+        for (decl in splitCssDeclarations(baseBody)) {
             val colon = decl.indexOf(':')
             if (colon <= 0) continue
             val prop = decl.substring(0, colon).trim().lowercase()
             if (prop.startsWith("--")) continue
             val rawVal = simplifyColorMix(
                 evalCssMathTokens(
-                    resolveCssVars(decl.substring(colon + 1).trim(), part.baseVars)
+                    resolveCssVars(decl.substring(colon + 1).trim(), baseVars)
                         .replace("!important", "", ignoreCase = true)
                         .trim(),
                     emPx,
@@ -3585,7 +4775,7 @@ object ChatBubbleCosmetics {
                 val prop = decl.substring(0, colon).trim().lowercase()
                 val rawVal = simplifyColorMix(
                     evalCssMathTokens(
-                        resolveCssVars(decl.substring(colon + 1).trim(), part.afterVars)
+                        resolveCssVars(decl.substring(colon + 1).trim(), afterVars)
                             .replace("!important", "", ignoreCase = true)
                             .trim(),
                         emPx,
@@ -3600,8 +4790,10 @@ object ChatBubbleCosmetics {
         val bw = borderW ?: listOf(1f, 1f, 1f, 1f)
         val bwForPseudo = if (hasNineSlice) (borderW ?: listOf(0f, 0f, 0f, 0f)) else bw
         val pseudoLayers = ArrayList<ParsedPseudoLayer>(2)
-        val beforePseudo = parsePseudoRule(part.beforeStr, part.beforeVars, bwForPseudo, emPx)?.also { pseudoLayers.add(it) }
-        val afterPseudo = parsePseudoRule(part.afterStr, part.afterVars, bwForPseudo, emPx)?.also { pseudoLayers.add(it) }
+        val beforePseudo = parsePseudoRuleAnimated(part.beforeStr, beforeVars, part.keyframesReplaced, bwForPseudo, emPx, includePseudoAnimations)
+            ?.also { pseudoLayers.add(it) }
+        val afterPseudo = parsePseudoRuleAnimated(part.afterStr, afterVars, part.keyframesReplaced, bwForPseudo, emPx, includePseudoAnimations)
+            ?.also { pseudoLayers.add(it) }
 
         fun isPseudoRuleHidden(bodyStr: String, bodyVars: Map<String, String>): Boolean {
             var dispHidden = false
@@ -3633,19 +4825,19 @@ object ChatBubbleCosmetics {
             return dispHidden || maskHidden || opHidden
         }
 
-        if (part.beforeStr.isNotBlank() && beforePseudo == null && !isPseudoRuleHidden(part.beforeStr, part.beforeVars)) {
+        if (part.beforeStr.isNotBlank() && beforePseudo == null && !isPseudoRuleHidden(part.beforeStr, beforeVars)) {
             val bb = part.beforeStr.lowercase()
             urlTokenRe.find(part.beforeStr)?.groupValues?.get(1)?.toIntOrNull()?.let { idx ->
                 if (bb.contains("inset-inline-end") || bb.contains("right:")) trailingIdx = trailingIdx ?: idx
                 else leadingIdx = leadingIdx ?: idx
             }
         }
-        if (allUrls.isNotEmpty() && !hasNineSlice && pseudoLayers.isEmpty() && leadingIdx == null && trailingIdx == null) {
+        if (allUrlsSize > 0 && !hasNineSlice && pseudoLayers.isEmpty() && leadingIdx == null && trailingIdx == null) {
             leadingIdx = 0
         }
 
         if (part.darkStr.isNotBlank()) {
-            val darkVars = buildResolvedVars(part.baseVars, part.darkStr)
+            val darkVars = buildResolvedVars(baseVars, part.darkStr)
             for (decl in splitCssDeclarations(part.darkStr)) {
                 val colon = decl.indexOf(':')
                 if (colon <= 0) continue
@@ -3709,8 +4901,8 @@ object ChatBubbleCosmetics {
             darkBorderHex = darkBdCol?.let(::colorToHex),
             fillMode = if (finalGradColors != null) "grad" else "solid",
             cornerRadiiDp = radii,
-            leadingIconIdx = leadingIdx?.takeIf { it < allUrls.size },
-            trailingIconIdx = trailingIdx?.takeIf { it < allUrls.size },
+            leadingIconIdx = leadingIdx?.takeIf { it < allUrlsSize },
+            trailingIconIdx = trailingIdx?.takeIf { it < allUrlsSize },
             overrideLabel = overrideLabel,
             bgAngleDeg = bgAngleDeg,
             darkBgHex = (darkGradColors?.firstOrNull() ?: darkSolidBg)?.let(::colorToHex),
@@ -3743,7 +4935,7 @@ object ChatBubbleCosmetics {
             borderWidthDp = bw.firstOrNull() ?: 1f,
             letterSpacingSp = letterSpacingSp,
             fontWeight = fontWeight,
-            hasImage = allUrls.isNotEmpty() || part.urlCounter > 0,
+            hasImage = allUrlsSize > 0 || part.urlCounter > 0,
             pseudoLayers = pseudoLayers,
         )
     }
@@ -3751,9 +4943,58 @@ object ChatBubbleCosmetics {
     fun parseCommunityBadgeCss(cssText: String, isDarkTheme: Boolean = false): ParsedCommunityBadgeCss? {
         if (cssText.isBlank()) return null
         val part = cascadeCommunityCss(cssText, isDarkTheme)
-        val urlTokenRe = Regex("""__URL_(\d+)__""")
         val emPx = 14f
+        val staticParsed = parseCommunityBadgeCssFrame(
+            part = part,
+            baseBody = part.baseStr,
+            baseVars = part.baseVars,
+            beforeVars = part.beforeVars,
+            afterVars = part.afterVars,
+            emPx = emPx,
+            includePseudoAnimations = true,
+        ) ?: return null
+        val (baseTf, baseOp) = extractElementBaseTransformAndOpacity(part.baseStr, part.baseVars, emPx)
+        val anim = analyzeElementAnimations(part.baseStr, part.baseVars, part.keyframesReplaced, baseTf, baseOp, emPx)
+        val timelineFrames = if (anim.timelineAnims.isNotEmpty() && anim.periodMs > 0L) {
+            val frames = ArrayList<ParsedCommunityBadgeCss>(anim.sampleCount)
+            for (i in 0 until anim.sampleCount) {
+                val elapsed = ((i + 0.5) * anim.periodMs / anim.sampleCount).roundToInt().toLong()
+                val (ovVars, ovDecls) = sampleKeyframeFrameOverrides(anim.timelineAnims, part.keyframesReplaced, part.baseStr, part.baseVars, elapsed, emPx)
+                val fBaseBody = if (ovDecls.isBlank()) part.baseStr else "${part.baseStr};$ovDecls"
+                val fBaseVars = if (ovVars.isEmpty()) part.baseVars else buildResolvedVars(part.baseVars, part.baseStr, ovVars)
+                val fBeforeVars = if (ovVars.isEmpty()) part.beforeVars else buildResolvedVars(fBaseVars, part.beforeStr)
+                val fAfterVars = if (ovVars.isEmpty()) part.afterVars else buildResolvedVars(fBaseVars, part.afterStr)
+                parseCommunityBadgeCssFrame(
+                    part = part,
+                    baseBody = fBaseBody,
+                    baseVars = fBaseVars,
+                    beforeVars = fBeforeVars,
+                    afterVars = fAfterVars,
+                    emPx = emPx,
+                    includePseudoAnimations = false,
+                )?.let { frames.add(it) }
+            }
+            frames
+        } else {
+            emptyList()
+        }
+        return staticParsed.copy(
+            visualAnim = anim.visualTracks,
+            timelineFrames = timelineFrames,
+            timelinePeriodMs = if (timelineFrames.isNotEmpty()) anim.periodMs else 0L,
+        )
+    }
 
+    private fun parseCommunityBadgeCssFrame(
+        part: CascadedCommunityCss,
+        baseBody: String,
+        baseVars: Map<String, String>,
+        beforeVars: Map<String, String>,
+        afterVars: Map<String, String>,
+        emPx: Float,
+        includePseudoAnimations: Boolean,
+    ): ParsedCommunityBadgeCss? {
+        val urlTokenRe = Regex("""__URL_(\d+)__""")
         var widthDp = 24f
         var heightDp = 24f
         var baseUrlIdx = 0
@@ -3762,16 +5003,35 @@ object ChatBubbleCosmetics {
         var spriteRows = 1
         var spriteCol = 0
         var spriteRow = 0
-        var posXPct: Float? = null
-        var posYPct: Float? = null
+        var posXVal: Float? = null
+        var posXUnit = "%"
+        var posYVal: Float? = null
+        var posYUnit = "%"
+        var opacityVal = 1f
 
-        for (decl in splitCssDeclarations(part.baseStr)) {
+        val posTokRe = Regex("""(-?\d*\.?\d+)(%|px|r?em)?|left|center|right|top|bottom""", RegexOption.IGNORE_CASE)
+        fun parseAxisPos(tok: String): Pair<Float, String>? {
+            val low = tok.lowercase()
+            return when (low) {
+                "left", "top" -> 0f to "%"
+                "center" -> 50f to "%"
+                "right", "bottom" -> 100f to "%"
+                else -> {
+                    val m = Regex("""^(-?\d*\.?\d+)(%|px|r?em)?$""", RegexOption.IGNORE_CASE).matchEntire(low)
+                        ?: return null
+                    val n = m.groupValues[1].toFloatOrNull() ?: return null
+                    n to m.groupValues[2]
+                }
+            }
+        }
+
+        for (decl in splitCssDeclarations(baseBody)) {
             val colon = decl.indexOf(':')
             if (colon <= 0) continue
             val prop = decl.substring(0, colon).trim().lowercase()
             if (prop.startsWith("--")) continue
             val rawVal = evalCssMathTokens(
-                resolveCssVars(decl.substring(colon + 1).trim(), part.baseVars)
+                resolveCssVars(decl.substring(colon + 1).trim(), baseVars)
                     .replace("!important", "", ignoreCase = true)
                     .trim(),
                 emPx,
@@ -3779,10 +5039,33 @@ object ChatBubbleCosmetics {
             when (prop) {
                 "width", "inline-size" -> parsePxLength(rawVal, emPx)?.let { widthDp = it.coerceIn(18f, 40f) }
                 "height", "block-size" -> parsePxLength(rawVal, emPx)?.let { heightDp = it.coerceIn(18f, 40f) }
+                "opacity" -> rawVal.toFloatOrNull()?.let { opacityVal = it.coerceIn(0f, 1f) }
                 "background", "background-image", "border-image-source", "border-image" -> {
                     urlTokenRe.find(rawVal)?.groupValues?.get(1)?.toIntOrNull()?.let {
                         baseUrlIdx = it
                         hasBaseUrl = true
+                    }
+                    if (prop == "background") {
+                        parseBackgroundShorthand(rawVal, emPx).firstOrNull { it.urlIdx != null }?.let { layer ->
+                            layer.bgSizeRaw?.let { sz ->
+                                val pcts = Regex("""(\d+(?:\.\d+)?)%""").findAll(sz).mapNotNull { it.groupValues[1].toFloatOrNull() }.toList()
+                                if (pcts.size >= 2) {
+                                    spriteCols = (pcts[0] / 100f).toInt().coerceAtLeast(1)
+                                    spriteRows = (pcts[1] / 100f).toInt().coerceAtLeast(1)
+                                }
+                            }
+                            layer.bgPosRaw?.let { ps ->
+                                val matches = posTokRe.findAll(ps).mapNotNull { parseAxisPos(it.value) }.toList()
+                                matches.getOrNull(0)?.let {
+                                    posXVal = it.first
+                                    posXUnit = it.second
+                                }
+                                matches.getOrNull(1)?.let {
+                                    posYVal = it.first
+                                    posYUnit = it.second
+                                }
+                            }
+                        }
                     }
                 }
                 "background-size" -> {
@@ -3793,24 +5076,60 @@ object ChatBubbleCosmetics {
                     }
                 }
                 "background-position" -> {
-                    val pcts = Regex("""(\d+(?:\.\d+)?)%""").findAll(rawVal).mapNotNull { it.groupValues[1].toFloatOrNull() }.toList()
-                    if (pcts.size >= 2) {
-                        posXPct = pcts[0]
-                        posYPct = pcts[1]
+                    val matches = posTokRe.findAll(rawVal).mapNotNull { parseAxisPos(it.value) }.toList()
+                    matches.getOrNull(0)?.let {
+                        posXVal = it.first
+                        posXUnit = it.second
+                    }
+                    matches.getOrNull(1)?.let {
+                        posYVal = it.first
+                        posYUnit = it.second
+                    }
+                }
+                "background-position-x" -> {
+                    parseAxisPos(rawVal.trim())?.let {
+                        posXVal = it.first
+                        posXUnit = it.second
+                    }
+                }
+                "background-position-y" -> {
+                    parseAxisPos(rawVal.trim())?.let {
+                        posYVal = it.first
+                        posYUnit = it.second
                     }
                 }
             }
         }
-        if (spriteCols > 1 && posXPct != null) {
-            spriteCol = kotlin.math.round((posXPct / 100f) * (spriteCols - 1)).toInt().coerceIn(0, spriteCols - 1)
+        fun resolveSpriteIndex(pos: Float, unit: String, cellCount: Int, cellDp: Float): Int {
+            if (cellCount <= 1) return 0
+            return when (unit) {
+                "", "%" -> {
+                    if (pos < 0f) {
+                        val step = kotlin.math.round(-pos / 100f).toInt()
+                        ((step % cellCount) + cellCount) % cellCount
+                    } else {
+                        kotlin.math.round((pos / 100f) * (cellCount - 1)).toInt().coerceIn(0, cellCount - 1)
+                    }
+                }
+                else -> {
+                    val mult = when (unit) {
+                        "rem" -> 16f
+                        "em" -> emPx
+                        else -> 1f
+                    }
+                    val step = kotlin.math.round(abs(pos * mult) / cellDp.coerceAtLeast(1f)).toInt()
+                    ((step % cellCount) + cellCount) % cellCount
+                }
+            }
         }
-        if (spriteRows > 1 && posYPct != null) {
-            spriteRow = kotlin.math.round((posYPct / 100f) * (spriteRows - 1)).toInt().coerceIn(0, spriteRows - 1)
-        }
+        posXVal?.let { spriteCol = resolveSpriteIndex(it, posXUnit, spriteCols, widthDp) }
+        posYVal?.let { spriteRow = resolveSpriteIndex(it, posYUnit, spriteRows, heightDp) }
 
         val pseudoLayers = ArrayList<ParsedPseudoLayer>(2)
-        parsePseudoRule(part.beforeStr, part.beforeVars, listOf(0f, 0f, 0f, 0f), emPx)?.let { pseudoLayers.add(it) }
-        parsePseudoRule(part.afterStr, part.afterVars, listOf(0f, 0f, 0f, 0f), emPx)?.let { pseudoLayers.add(it) }
+        parsePseudoRuleAnimated(part.beforeStr, beforeVars, part.keyframesReplaced, listOf(0f, 0f, 0f, 0f), emPx, includePseudoAnimations)
+            ?.let { pseudoLayers.add(it) }
+        parsePseudoRuleAnimated(part.afterStr, afterVars, part.keyframesReplaced, listOf(0f, 0f, 0f, 0f), emPx, includePseudoAnimations)
+            ?.let { pseudoLayers.add(it) }
 
         return ParsedCommunityBadgeCss(
             widthDp = widthDp,
@@ -3824,6 +5143,7 @@ object ChatBubbleCosmetics {
             spriteCol = spriteCol,
             spriteRow = spriteRow,
             pseudoLayers = pseudoLayers,
+            opacity = opacityVal,
         )
     }
 
@@ -4361,6 +5681,7 @@ object ChatBubbleCosmetics {
             BubbleShapeKind.Rounded(5f, 15f, 15f, 12f),
             BubbleShapeKind.Rounded(14f, 5f, 14f, 5f),
         )[idx]
+        val ownerBorderGrad = listOf(border, parseHexColorPure(accentHex), border, border.copy(alpha = 0.75f), border)
         return ResolvedChatBubbleStyle(
             key = "personal:$ptId",
             fillColor = bgStart,
@@ -4369,12 +5690,104 @@ object ChatBubbleCosmetics {
             linkColor = if (isDarkTheme) Color(0xFFBAE6FD) else border,
             mutedColor = ensureReadableForeground(fg.copy(alpha = 0.72f), bgStart, 3.2f),
             borderColor = border,
-            borderBrush = Brush.sweepGradient(listOf(border, parseHexColorPure(accentHex), border, border.copy(alpha = 0.75f), border)),
+            borderBrush = Brush.sweepGradient(ownerBorderGrad),
             borderWidthDp = if (frame) 1.2f else 1.5f,
             shapeKind = if (frame) BubbleShapeKind.Rounded(999f, 999f, 999f, 999f) else corners,
             shadowColor = border.copy(alpha = 0.25f),
             contentPadding = if (frame) PaddingValues(horizontal = 8.dp, vertical = 3.dp) else PaddingValues(horizontal = 12.dp, vertical = 8.dp),
             ornament = if (frame) BubbleOrnament.None else BubbleOrnament.Owner52(idx, isBVariant = ptId.contains("52b", ignoreCase = true)),
+            borderGradientColors = ownerBorderGrad,
+        )
+    }
+
+    private fun buildCommunityBubbleTimelineFrame(
+        id: String,
+        frame: Boolean,
+        isDarkTheme: Boolean,
+        dynCss: ParsedCommunityBubbleCss,
+        legacyDarkFallback: Boolean,
+        lightCssPrefix: String?,
+        cssUrlPrefix: String?,
+        imgSha: String?,
+    ): BubbleTimelineFrame {
+        if (!dynCss.isNineSlice) {
+            val parentFallback = imgSha?.takeIf { dynCss.baseUrlIdx == 0 }?.let { "$ORIGIN/api/community-skins/image/$it" }
+                ?: if (dynCss.hasBaseImageUrl && lightCssPrefix != null) "$lightCssPrefix:${dynCss.baseUrlIdx}" else null
+            val mappedPseudo = dynCss.pseudoLayers.mapNotNull { l ->
+                mapSingleParsedPseudoLayer(l, lightCssPrefix, parentFallback, includeTimeline = false)
+            }
+            val base = dynCss.safeCssLight?.let { buildStandaloneCustomCssBubble(it, isDarkTheme) }
+            val gradCols = if (isDarkTheme) {
+                dynCss.darkBgGradientColors ?: dynCss.bgGradientColorsLight
+            } else {
+                dynCss.bgGradientColorsLight
+            }
+            val fillCol = if (isDarkTheme) {
+                dynCss.darkBgColor ?: dynCss.bgColorLight ?: gradCols?.firstOrNull() ?: base?.fillColor ?: Color(0xFF252F3D)
+            } else {
+                dynCss.bgColorLight ?: gradCols?.firstOrNull() ?: base?.fillColor ?: Color(0xFFF1F5F9)
+            }
+            val borderGrad = dynCss.borderGradientColors?.takeIf { it.size >= 2 }
+            val bdCol = when {
+                borderGrad != null -> Color.Transparent
+                isDarkTheme -> dynCss.darkBorderColor ?: dynCss.borderColorLight ?: base?.borderColor ?: Color(0xFF475569)
+                else -> dynCss.borderColorLight ?: base?.borderColor ?: Color(0xFFCBD5E1)
+            }
+            val rawFg = if (isDarkTheme) {
+                dynCss.textColorDark ?: dynCss.textColorLight ?: dynCss.safeCssLight?.textColor ?: Color(0xFFF1F5F9)
+            } else {
+                dynCss.textColorLight ?: dynCss.safeCssLight?.textColor ?: Color(0xFF1E293B)
+            }
+            val safeFg = ensureReadableForeground(rawFg, fillCol)
+            return BubbleTimelineFrame(
+                fillColor = fillCol,
+                fillGradColors = gradCols,
+                fillGradAngleDeg = dynCss.bgGradientAngleDeg,
+                textColor = safeFg,
+                linkColor = if (safeFg.luminance() > 0.5f) Color(0xFF93C5FD) else Color(0xFF2563EB),
+                mutedColor = safeFg.copy(alpha = 0.72f),
+                borderColor = bdCol,
+                borderGradColors = borderGrad,
+                nineSliceSpec = null,
+                pseudoLayers = mappedPseudo,
+                opacity = dynCss.safeCssLight?.opacity ?: 1f,
+            )
+        }
+        val fg = if (isDarkTheme) (dynCss.textColorDark ?: dynCss.textColorLight ?: Color(0xFFF1F5F9)) else (dynCss.textColorLight ?: Color(0xFF1E293B))
+        val fallbackBg = if (fg.luminance() > 0.55f) Color(0xFF252F3D) else Color(0xFFF1F5F9)
+        val baseSrc = when {
+            legacyDarkFallback && cssUrlPrefix != null -> "$cssUrlPrefix:${dynCss.baseUrlIdx}"
+            isDarkTheme && dynCss.hasDarkImageVariant && cssUrlPrefix != null -> "$cssUrlPrefix:${dynCss.baseUrlIdx}"
+            imgSha != null && dynCss.baseUrlIdx == 0 -> "$ORIGIN/api/community-skins/image/$imgSha"
+            else -> "${cssUrlPrefix ?: lightCssPrefix ?: ""}:${dynCss.baseUrlIdx}"
+        }
+        val mappedPseudo = dynCss.pseudoLayers.mapNotNull { l ->
+            mapSingleParsedPseudoLayer(l, lightCssPrefix, baseSrc, includeTimeline = false)
+        }
+        return BubbleTimelineFrame(
+            fillColor = fallbackBg,
+            textColor = fg,
+            linkColor = if (fg.luminance() > 0.5f) Color(0xFFBAE6FD) else Color(0xFF1E40AF),
+            mutedColor = fg.copy(alpha = 0.72f),
+            borderColor = Color.Transparent,
+            nineSliceSpec = if (baseSrc.isBlank()) null else NineSliceSpec(
+                sourceUrl = baseSrc,
+                sliceTop = dynCss.sliceTop,
+                sliceRight = dynCss.sliceRight,
+                sliceBottom = dynCss.sliceBottom,
+                sliceLeft = dynCss.sliceLeft,
+                isPercentSlice = dynCss.isPercentSlice,
+                borderTopDp = dynCss.borderTopDp,
+                borderRightDp = dynCss.borderRightDp,
+                borderBottomDp = dynCss.borderBottomDp,
+                borderLeftDp = dynCss.borderLeftDp,
+                outsetTopDp = dynCss.outsetTopDp,
+                outsetRightDp = dynCss.outsetRightDp,
+                outsetBottomDp = dynCss.outsetBottomDp,
+                outsetLeftDp = dynCss.outsetLeftDp,
+            ),
+            pseudoLayers = mappedPseudo,
+            opacity = if (frame) 1f else 1f,
         )
     }
 
@@ -4387,17 +5800,19 @@ object ChatBubbleCosmetics {
             return if (frame) {
                 val bg = if (isDarkTheme) Color(0xFF161E38) else Color(0xFFEEF4FF)
                 val fg = if (isDarkTheme) Color(0xFFE2E8F0) else Color(0xFF1E293B)
+                val borderCols = listOf(Color(0xFF00F0FF), Color(0xFF8B5CF6), Color(0xFFFF007F), Color(0xFF00F0FF))
                 ResolvedChatBubbleStyle(
                     key = "community:$id",
                     fillColor = bg,
                     textColor = fg,
                     linkColor = Color(0xFF38BDF8),
                     mutedColor = fg.copy(alpha = 0.75f),
-                    borderBrush = Brush.linearGradient(listOf(Color(0xFF00F0FF), Color(0xFF8B5CF6), Color(0xFFFF007F))),
+                    borderBrush = Brush.linearGradient(borderCols),
                     borderColor = Color(0xFF8B5CF6),
                     borderWidthDp = 1.4f,
                     shapeKind = BubbleShapeKind.Rounded(4f, 12f, 12f, 4f),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 3.dp),
+                    borderGradientColors = borderCols,
                 )
             } else {
                 resolvePresetBubble("aurora", isDarkTheme).copy(key = "community:$id")
@@ -4437,6 +5852,33 @@ object ChatBubbleCosmetics {
         val hasThemeEntry = cssSha.isNullOrBlank() || dynamicParsedBubbles.containsKey("$cssSha:$themeKey")
         val missingDynamicCss = if (!cssSha.isNullOrBlank() && !hasThemeEntry && dynCss == null) "$id:$commKey:$cssSha" else null
         val lightCssPrefix = cssSha?.let { "community-css:$id:$commKey:$it" }
+
+        val legacyDarkFallback = isDarkTheme &&
+            cssSha != null &&
+            dynCss?.hasDarkImageVariant == true &&
+            !dynamicParsedBubbles.containsKey("$cssSha:dark")
+        val cssUrlPrefix = cssSha?.let { sha ->
+            if (legacyDarkFallback) "community-css-dark:$id:$commKey:$sha" else "community-css:$id:$commKey:$sha"
+        }
+        val mappedBubbleTimeline = if (dynCss != null && dynCss.timelineFrames.isNotEmpty() && dynCss.timelinePeriodMs > 0L) {
+            CommunityBubbleTimeline(
+                periodMs = dynCss.timelinePeriodMs,
+                frames = dynCss.timelineFrames.map { f ->
+                    buildCommunityBubbleTimelineFrame(
+                        id = id,
+                        frame = frame,
+                        isDarkTheme = isDarkTheme,
+                        dynCss = f,
+                        legacyDarkFallback = legacyDarkFallback,
+                        lightCssPrefix = lightCssPrefix,
+                        cssUrlPrefix = cssUrlPrefix,
+                        imgSha = imgSha,
+                    )
+                },
+            )
+        } else {
+            null
+        }
 
         if (dynCss != null && !dynCss.isNineSlice) {
             val parentFallback = imgSha?.let { "$ORIGIN/api/community-skins/image/$it" }
@@ -4509,16 +5951,12 @@ object ChatBubbleCosmetics {
                     top = dynCss.padTopDp.coerceAtLeast(if (frame) 2f else 6f).dp,
                     bottom = dynCss.padBottomDp.coerceAtLeast(if (frame) 2f else 6f).dp,
                 ),
+                borderGradientColors = borderGrad,
+                visualAnim = dynCss.visualAnim,
+                animationTimeline = mappedBubbleTimeline,
             )
         }
 
-        val legacyDarkFallback = isDarkTheme &&
-            cssSha != null &&
-            dynCss?.hasDarkImageVariant == true &&
-            !dynamicParsedBubbles.containsKey("$cssSha:dark")
-        val cssUrlPrefix = cssSha?.let { sha ->
-            if (legacyDarkFallback) "community-css-dark:$id:$commKey:$sha" else "community-css:$id:$commKey:$sha"
-        }
         val sourceUrl = when {
             legacyDarkFallback && cssUrlPrefix != null -> cssUrlPrefix
             isDarkTheme && dynCss?.hasDarkImageVariant == true && cssUrlPrefix != null -> cssUrlPrefix
@@ -4574,6 +6012,8 @@ object ChatBubbleCosmetics {
                     outsetLeftDp = dynCss.outsetLeftDp,
                 ),
                 pseudoLayers = mappedPseudo,
+                visualAnim = dynCss.visualAnim,
+                animationTimeline = mappedBubbleTimeline,
             )
         }
 
@@ -4694,6 +6134,7 @@ object ChatBubbleCosmetics {
             else -> 2.2f
         }
         val safeFg = ensureReadableForeground(fg, bgStart)
+        val growthBorderGrad = if (lv >= 3 || isAll) listOf(ringGold, Color(0xFFFFF1C2), ringGold, edge, ringGold) else null
         return ResolvedChatBubbleStyle(
             key = "$series:$lv",
             fillColor = bgStart,
@@ -4702,7 +6143,7 @@ object ChatBubbleCosmetics {
             linkColor = if (safeFg.luminance() > 0.5f) ringGold else edge,
             mutedColor = safeFg.copy(alpha = 0.72f),
             borderColor = edge,
-            borderBrush = if (lv >= 3 || isAll) Brush.sweepGradient(listOf(ringGold, Color(0xFFFFF1C2), ringGold, edge, ringGold)) else null,
+            borderBrush = growthBorderGrad?.let { Brush.sweepGradient(it) },
             borderWidthDp = borderWidth,
             shapeKind = when {
                 frame -> BubbleShapeKind.Rounded(7f, 7f, 7f, 7f)
@@ -4711,6 +6152,7 @@ object ChatBubbleCosmetics {
             },
             shadowColor = if (lv >= 4) ringGold.copy(alpha = 0.25f) else null,
             contentPadding = if (frame) PaddingValues(horizontal = 8.dp, vertical = 3.dp) else PaddingValues(horizontal = 12.dp, vertical = 7.dp),
+            borderGradientColors = growthBorderGrad,
         )
     }
 
@@ -4937,13 +6379,25 @@ object ChatBubbleCosmetics {
             "chickengun" -> {
                 val cgSizeJson = decoObj["cg_size"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
                 val cgRandom = decoObj["cg_random"]?.jsonPrimitive?.booleanOrNull == true
+                val cgMotion = decoObj["cg_motion"]?.jsonPrimitive?.booleanOrNull
+                    ?: decoObj["cgMotion"]?.jsonPrimitive?.booleanOrNull
+                    ?: true
+                val cgFire = decoObj["cg_fire"]?.jsonPrimitive?.booleanOrNull
+                    ?: decoObj["cgFire"]?.jsonPrimitive?.booleanOrNull
+                    ?: true
                 val sz = chickengunSizeDp(
                     level = raffle.displayLevel,
                     requested = cgSizeJson,
                     random = raffle.earnedLevel >= 5200 && cgRandom,
                     seed = "$userKey:$messageId",
                 )
-                BubbleOrnament.RaffleChickengun("$ORIGIN/stickers/heartgif/thumbs/heartgif_013.webp", sz)
+                BubbleOrnament.RaffleChickengun(
+                    webpUrl = "$ORIGIN/stickers/heartgif/thumbs/heartgif_013.webp",
+                    sizeDp = sz,
+                    cgMotion = cgMotion,
+                    cgFire = cgFire,
+                    stage = stage,
+                )
             }
             "railcannon" -> BubbleOrnament.RaffleRailcannon("$ORIGIN/assets/raffle/bubble-reading-v10/cannon.webp", stage)
             else -> BubbleOrnament.None
@@ -4951,6 +6405,7 @@ object ChatBubbleCosmetics {
 
         val safeFg = if (isCollectionBanner) rawFg else ensureReadableForeground(rawFg, bgStart)
         val hasOpaqueSlice = slice?.isCollectionStyle == true
+        val raffleBorderGrad = if (!hasOpaqueSlice && stage >= 5) listOf(rtColor, rtAccent, Color(0xFFFFF4DA), rtColor) else null
         return ResolvedChatBubbleStyle(
             key = "raffle:$id",
             fillColor = bgStart,
@@ -4964,7 +6419,7 @@ object ChatBubbleCosmetics {
             },
             mutedColor = safeFg.copy(alpha = 0.72f),
             borderColor = if (hasOpaqueSlice) Color.Transparent else rtColor.copy(alpha = if (stage >= 5) 0.85f else 0.55f),
-            borderBrush = if (!hasOpaqueSlice && stage >= 5) Brush.linearGradient(listOf(rtColor, rtAccent, Color(0xFFFFF4DA), rtColor)) else null,
+            borderBrush = raffleBorderGrad?.let { Brush.linearGradient(it) },
             borderWidthDp = if (hasOpaqueSlice) 0f else if (stage >= 7) 1.8f else 1.3f,
             shapeKind = shape,
             minWidthDp = if (id == "whalebuddy") 105f else 0f,
@@ -4981,6 +6436,7 @@ object ChatBubbleCosmetics {
             },
             nineSliceSpec = if (id == "chickengun" || slice?.isCollectionStyle == true) nineSlice else null,
             ornament = ornament,
+            borderGradientColors = raffleBorderGrad,
         )
     }
 
@@ -5021,27 +6477,29 @@ object ChatBubbleCosmetics {
         isDarkTheme: Boolean = false,
     ): ResolvedChatBubbleStyle {
         return when (id) {
-            "aurora" -> ResolvedChatBubbleStyle(
-                key = "preset:aurora",
-                fillColor = Color(0xFF131A34),
-                fillBrush = Brush.linearGradient(listOf(Color(0xFF0D1224), Color(0xFF131A34), Color(0xFF191436))),
-                textColor = Color(0xFFF8FAFC),
-                linkColor = Color(0xFF7DD3FC),
-                mutedColor = Color(0xFFCBD5E1),
-                borderColor = Color(0xFF38BDF8),
-                borderBrush = Brush.sweepGradient(
-                    listOf(
-                        Color(0xFF00F0FF), Color(0xFF3B82F6), Color(0xFF8B5CF6), Color(0xFFD946EF),
-                        Color(0xFFFF007F), Color(0xFFFF7700), Color(0xFFFFEA00), Color(0xFF00FF88), Color(0xFF00F0FF),
-                    ),
-                ),
-                borderWidthDp = 3f,
-                shapeKind = BubbleShapeKind.Rounded(4f, 16f, 16f, 16f),
-                shadowColor = Color(0x55F43F5E),
-                shadowOffsetDp = 0f to 3f,
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp),
-                ornament = BubbleOrnament.PresetAurora,
-            )
+            "aurora" -> {
+                val auroraCols = listOf(
+                    Color(0xFF00F0FF), Color(0xFF3B82F6), Color(0xFF8B5CF6), Color(0xFFD946EF),
+                    Color(0xFFFF007F), Color(0xFFFF7700), Color(0xFFFFEA00), Color(0xFF00FF88), Color(0xFF00F0FF),
+                )
+                ResolvedChatBubbleStyle(
+                    key = "preset:aurora",
+                    fillColor = Color(0xFF131A34),
+                    fillBrush = Brush.linearGradient(listOf(Color(0xFF0D1224), Color(0xFF131A34), Color(0xFF191436))),
+                    textColor = Color(0xFFF8FAFC),
+                    linkColor = Color(0xFF7DD3FC),
+                    mutedColor = Color(0xFFCBD5E1),
+                    borderColor = Color(0xFF38BDF8),
+                    borderBrush = Brush.sweepGradient(auroraCols),
+                    borderWidthDp = 3f,
+                    shapeKind = BubbleShapeKind.Rounded(4f, 16f, 16f, 16f),
+                    shadowColor = Color(0x55F43F5E),
+                    shadowOffsetDp = 0f to 3f,
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp),
+                    ornament = BubbleOrnament.PresetAurora,
+                    borderGradientColors = auroraCols,
+                )
+            }
             "jelly" -> ResolvedChatBubbleStyle(
                 key = "preset:jelly",
                 fillColor = Color(0xFFFFD4E8),
@@ -5163,23 +6621,25 @@ object ChatBubbleCosmetics {
                 contentPadding = PaddingValues(horizontal = 15.dp, vertical = 8.dp),
                 ornament = BubbleOrnament.PresetCyber,
             )
-            "prism" -> ResolvedChatBubbleStyle(
-                key = "preset:prism",
-                fillColor = Color.White,
-                textColor = Color(0xFF1F2937),
-                linkColor = Color(0xFF6D28D9),
-                mutedColor = Color(0xFF4B5563),
-                borderColor = Color(0xFFA78BFA),
-                borderBrush = Brush.linearGradient(
-                    listOf(Color(0xFFF472B6), Color(0xFFFBBF24), Color(0xFF34D399), Color(0xFF60A5FA), Color(0xFFA78BFA)),
-                ),
-                borderWidthDp = 2.4f,
-                shapeKind = BubbleShapeKind.Rounded(16f, 16f, 16f, 16f),
-                shadowColor = Color(0x38A78BFA),
-                shadowOffsetDp = 0f to 3f,
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp),
-                ornament = BubbleOrnament.PresetPrism,
-            )
+            "prism" -> {
+                val prismCols = listOf(Color(0xFFF472B6), Color(0xFFFBBF24), Color(0xFF34D399), Color(0xFF60A5FA), Color(0xFFA78BFA), Color(0xFFF472B6))
+                ResolvedChatBubbleStyle(
+                    key = "preset:prism",
+                    fillColor = Color.White,
+                    textColor = Color(0xFF1F2937),
+                    linkColor = Color(0xFF6D28D9),
+                    mutedColor = Color(0xFF4B5563),
+                    borderColor = Color(0xFFA78BFA),
+                    borderBrush = Brush.linearGradient(prismCols),
+                    borderWidthDp = 2.4f,
+                    shapeKind = BubbleShapeKind.Rounded(16f, 16f, 16f, 16f),
+                    shadowColor = Color(0x38A78BFA),
+                    shadowOffsetDp = 0f to 3f,
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp),
+                    ornament = BubbleOrnament.PresetPrism,
+                    borderGradientColors = prismCols,
+                )
+            }
             "mint" -> ResolvedChatBubbleStyle(
                 key = "preset:mint",
                 fillColor = Color(0xFFDDFBEE),

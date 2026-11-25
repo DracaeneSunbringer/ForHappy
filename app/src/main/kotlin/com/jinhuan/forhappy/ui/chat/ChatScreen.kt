@@ -8,7 +8,12 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -121,6 +126,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -145,6 +151,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -217,6 +224,7 @@ import com.jinhuan.forhappy.ui.components.ForHappyAvatar
 import com.jinhuan.forhappy.ui.components.ForHappyCaretAlignedBox
 import com.jinhuan.forhappy.ui.components.ForHappyCountBadge
 import com.jinhuan.forhappy.ui.components.ForHappyTextField
+import com.jinhuan.forhappy.ui.components.LocalPauseCosmeticAnimations
 import com.jinhuan.forhappy.ui.components.ReactionChip
 import com.jinhuan.forhappy.ui.components.RichChatBodyView
 import com.jinhuan.forhappy.ui.components.TitleChipView
@@ -3823,35 +3831,103 @@ private fun RenderChatItemRow(
             onJumpMessage = onJumpMessage,
         )
     } else {
-        SwipeableChatRow(
-            msg = msg,
-            isContinuation = isContinuation,
-            highlighted = highlighted,
-            cleanDecoMode = cleanDecoMode,
-            cleanDecoConfig = cleanDecoConfig,
-            meId = meId,
-            cosmeticCatalogRev = cosmeticCatalogRev,
-            api = api,
-            enableSwipeReply = enableSwipeReply,
-            onSwipeReply = onSwipeReply,
-            onOpenActionSheet = onOpenActionSheet,
-            onOpenBoostComposer = onOpenBoostComposer,
-            onQuickBoost = onQuickBoost,
-            onReaction = onReaction,
-            onRetrySend = onRetrySend,
-            onOpenImage = onOpenImage,
-            onOpenVideo = onOpenVideo,
-            onOpenRedpack = onOpenRedpack,
-            onQuoteClick = onJumpMessage,
-            onOpenRepliesSheet = onOpenRepliesSheet,
-            onPostRefClick = onPostRefClick,
-            onHashtagClick = onHashtagClick,
-            onLinkClick = onLinkClick,
-            onOpenNovelExcerpt = onOpenNovelExcerpt,
-            onTapAvatar = { onTapAvatar(msg) },
-            onLongPressAvatar = { onLongPressAvatar(msg) },
+        CompositionLocalProvider(LocalPauseCosmeticAnimations provides cleanDecoConfig.cleanPauseOrnaments) {
+            SwipeableChatRow(
+                msg = msg,
+                isContinuation = isContinuation,
+                highlighted = highlighted,
+                cleanDecoMode = cleanDecoMode,
+                cleanDecoConfig = cleanDecoConfig,
+                meId = meId,
+                cosmeticCatalogRev = cosmeticCatalogRev,
+                api = api,
+                enableSwipeReply = enableSwipeReply,
+                onSwipeReply = onSwipeReply,
+                onOpenActionSheet = onOpenActionSheet,
+                onOpenBoostComposer = onOpenBoostComposer,
+                onQuickBoost = onQuickBoost,
+                onReaction = onReaction,
+                onRetrySend = onRetrySend,
+                onOpenImage = onOpenImage,
+                onOpenVideo = onOpenVideo,
+                onOpenRedpack = onOpenRedpack,
+                onQuoteClick = onJumpMessage,
+                onOpenRepliesSheet = onOpenRepliesSheet,
+                onPostRefClick = onPostRefClick,
+                onHashtagClick = onHashtagClick,
+                onLinkClick = onLinkClick,
+                onOpenNovelExcerpt = onOpenNovelExcerpt,
+                onTapAvatar = { onTapAvatar(msg) },
+                onLongPressAvatar = { onLongPressAvatar(msg) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ChatAuthorNicknameText(
+    text: String,
+    gradColors: List<Color>?,
+    singleColor: Color?,
+    fallbackColor: Color,
+    modifier: Modifier = Modifier,
+) {
+    val paused = LocalPauseCosmeticAnimations.current
+    val compactNickPlatform = PlatformTextStyle(includeFontPadding = false)
+    val style = when {
+        gradColors != null && gradColors.size >= 2 && !paused -> {
+            val transition = rememberInfiniteTransition(label = "chatNickGrad")
+            val shift by transition.animateFloat(
+                initialValue = 0f,
+                targetValue = 440f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 3800, easing = LinearEasing),
+                    repeatMode = RepeatMode.Restart,
+                ),
+                label = "chatNickShift",
+            )
+            TextStyle(
+                brush = Brush.horizontalGradient(
+                    colors = gradColors,
+                    startX = shift,
+                    endX = shift + 220f,
+                    tileMode = TileMode.Mirror,
+                ),
+                fontSize = 11.sp,
+                lineHeight = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                platformStyle = compactNickPlatform,
+            )
+        }
+        gradColors != null -> TextStyle(
+            brush = Brush.horizontalGradient(gradColors),
+            fontSize = 11.sp,
+            lineHeight = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            platformStyle = compactNickPlatform,
+        )
+        singleColor != null -> TextStyle(
+            color = singleColor,
+            fontSize = 11.sp,
+            lineHeight = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            platformStyle = compactNickPlatform,
+        )
+        else -> TextStyle(
+            color = fallbackColor,
+            fontSize = 11.sp,
+            lineHeight = 13.sp,
+            fontWeight = FontWeight.Medium,
+            platformStyle = compactNickPlatform,
         )
     }
+    Text(
+        text = text,
+        style = style,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier,
+    )
 }
 
 @Composable
@@ -4319,34 +4395,11 @@ private fun SwipeableChatRow(
                                     ?.let { ChatBubbleCosmetics.ensureReadableNickColors(listOf(it), palette.isDark).firstOrNull() }
                             }
                         }
-                        val compactNickPlatform = PlatformTextStyle(includeFontPadding = false)
-                        Text(
+                        ChatAuthorNicknameText(
                             text = shownAuthor,
-                            style = when {
-                                gradColors != null -> TextStyle(
-                                    brush = Brush.horizontalGradient(gradColors),
-                                    fontSize = 11.sp,
-                                    lineHeight = 13.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    platformStyle = compactNickPlatform,
-                                )
-                                singleColor != null -> TextStyle(
-                                    color = singleColor,
-                                    fontSize = 11.sp,
-                                    lineHeight = 13.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    platformStyle = compactNickPlatform,
-                                )
-                                else -> TextStyle(
-                                    color = palette.muted,
-                                    fontSize = 11.sp,
-                                    lineHeight = 13.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    platformStyle = compactNickPlatform,
-                                )
-                            },
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                            gradColors = gradColors,
+                            singleColor = singleColor,
+                            fallbackColor = palette.muted,
                             modifier = Modifier.align(Alignment.CenterVertically),
                         )
                     }

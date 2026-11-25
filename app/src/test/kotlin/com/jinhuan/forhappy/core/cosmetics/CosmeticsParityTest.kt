@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import com.jinhuan.forhappy.ui.components.isAnimatedRasterBytes
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import org.junit.Assert.assertEquals
@@ -455,5 +456,333 @@ class CosmeticsParityTest {
         assertNotNull(resolved)
         assertNull(resolved?.nineSliceSpec)
         assertTrue((resolved?.minHeightDp ?: 0f) >= 40f)
+    }
+
+    @Test
+    fun remDualFormTimelineAnimatesBetweenDayAndNight() {
+        val remSkin = BadgeAndCosmeticRegistry.resolveCommunitySkinMeta("rem-dual-form")!!
+        val remBubbleCss = """
+            @property --phase { syntax: "<number>"; inherits: true; initial-value: 0; }
+            @property --burst { syntax: "<number>"; inherits: true; initial-value: 0; }
+            @keyframes rem-dual-cycle {
+              0%, 48.29%, 50%, 98.29%, 100% { --burst: 1; }
+              48.3%, 98.3% { --burst: 0; }
+              50%, 98.3% { --phase: 1; }
+            }
+            @media (prefers-reduced-motion: reduce) {
+              .cskin-bubble-rem-dual-form { animation: none; }
+            }
+            .cskin-bubble-rem-dual-form {
+              --avatar: clamp(3.65rem, 16vw, 4.85rem);
+              --bg: color-mix(in srgb, #e8f2ff, #141f37 calc(round(var(--phase)) * 100%));
+              --fg: color-mix(in srgb, #223952, #edf4ff calc(round(var(--phase)) * 100%));
+              --bd: color-mix(in srgb, #9cb9db, #596fa7 calc(round(var(--phase)) * 100%));
+              animation: rem-dual-cycle 12s linear infinite;
+              min-height: 44px;
+              padding: 9px 14px 9px 62px;
+              border-radius: 15px 12px 12px 15px;
+              border: 1.2px solid var(--bd);
+              color: var(--fg);
+              background: linear-gradient(130deg, rgba(255, 255, 255, 0.69), transparent), var(--bg);
+            }
+            .cskin-bubble-rem-dual-form::before,
+            .cskin-bubble-rem-dual-form::after {
+              content: "";
+              position: absolute;
+              left: 6px;
+              top: 50%;
+              width: var(--avatar);
+              height: min(100%, var(--avatar));
+              aspect-ratio: 1;
+              transform: translateY(-50%);
+            }
+            .cskin-bubble-rem-dual-form::before {
+              background: url("data:image/webp;base64,REMDAY") center / contain no-repeat;
+              mask-image: linear-gradient(90deg, rgba(0, 0, 0, calc(1 - round(var(--phase)))), rgba(0, 0, 0, calc(1 - round(var(--phase)))));
+            }
+            .cskin-bubble-rem-dual-form::after {
+              background: url("data:image/webp;base64,REMNIGHT") center / contain no-repeat;
+              mask-image: linear-gradient(90deg, rgba(0, 0, 0, round(var(--phase))), rgba(0, 0, 0, round(var(--phase))));
+            }
+        """.trimIndent()
+        val remTitleCss = """
+            @property --phase { syntax: "<number>"; inherits: true; initial-value: 0; }
+            @keyframes rem-title-cycle {
+              50%, 98.3% { --phase: 1; }
+            }
+            .cskin-title-rem-dual-form {
+              --bg: color-mix(in srgb, #e8f2ff, #202b49 calc(round(var(--phase)) * 100%));
+              --fg: color-mix(in srgb, #254365, #f2f0ff calc(round(var(--phase)) * 100%));
+              animation: rem-title-cycle 12s linear infinite;
+              min-height: 24px;
+              padding: 2px 9px 2px 26px;
+              border-radius: 10px;
+              border: 1px solid #94b1d3;
+              color: var(--fg);
+              background: linear-gradient(130deg, rgba(255, 255, 255, 0.69), transparent), var(--bg);
+            }
+            .cskin-title-rem-dual-form::before,
+            .cskin-title-rem-dual-form::after {
+              content: "";
+              position: absolute;
+              left: 3px;
+              top: 50%;
+              width: 20px;
+              height: 20px;
+              transform: translateY(-50%);
+            }
+            .cskin-title-rem-dual-form::before {
+              background: url("data:image/webp;base64,TITLEDAY") center / contain no-repeat;
+              opacity: calc(1 - round(var(--phase)));
+            }
+            .cskin-title-rem-dual-form::after {
+              background: url("data:image/webp;base64,TITLENIGHT") center / contain no-repeat;
+              opacity: round(var(--phase));
+            }
+        """.trimIndent()
+        ChatBubbleCosmetics.registerParsedCommunityCss("bubble", remSkin.bubbleCssSha!!, remBubbleCss)
+        ChatBubbleCosmetics.registerParsedCommunityCss("title", remSkin.titleCssSha!!, remTitleCss)
+
+        val deco = buildJsonObject {
+            put(
+                "community",
+                buildJsonObject {
+                    put("title", JsonPrimitive("rem-dual-form"))
+                    put("bubble", JsonPrimitive("rem-dual-form"))
+                },
+            )
+        }
+        val resolvedBubble = ChatBubbleCosmetics.resolveBubbleFromDeco(deco, isDarkTheme = false)!!
+        assertEquals(Color(0xFFE8F2FF), resolvedBubble.fillColor)
+        val bubbleTimeline = resolvedBubble.animationTimeline
+        assertNotNull("Animated bubble must produce timeline", bubbleTimeline)
+        assertEquals(12_000L, bubbleTimeline!!.periodMs)
+        assertTrue(bubbleTimeline.frames.any { it.fillColor.luminance() > 0.8f })
+        assertTrue(bubbleTimeline.frames.any { it.fillColor.luminance() < 0.15f })
+
+        val resolvedId = BadgeAndCosmeticRegistry.resolveEquippedIdentity(decoJson = deco, where = "chat", isDarkTheme = false)
+        val titleTimeline = resolvedId.title?.communitySpec?.animationTimeline
+        assertNotNull("Animated title must produce timeline", titleTimeline)
+        assertEquals(12_000L, titleTimeline!!.periodMs)
+        assertTrue(titleTimeline.frames.any { (it.bgColors.firstOrNull()?.luminance() ?: 0f) > 0.8f })
+        assertTrue(titleTimeline.frames.any { (it.bgColors.firstOrNull()?.luminance() ?: 1f) < 0.15f })
+    }
+
+    @Test
+    fun keyframeUrlSwapAndCustomVarMotionPopulatePseudoTimelines() {
+        val swapCss = """
+            @keyframes tentacle-swap {
+              0%, 100% { background-image: url("https://example.com/tentacle_a.webp"); }
+              50% { background-image: url("https://example.com/tentacle_b.webp"); }
+            }
+            .cskin-bubble-test-swap {
+              min-height: 44px;
+              padding: 8px 14px;
+              background: #fff8fc;
+              color: #2c1e28;
+            }
+            .cskin-bubble-test-swap::after {
+              content: "";
+              position: absolute;
+              right: 0;
+              bottom: 0;
+              width: 28px;
+              height: 28px;
+              background: url("https://example.com/tentacle_a.webp") center / contain no-repeat;
+              animation: tentacle-swap 2s steps(1) infinite;
+            }
+        """.trimIndent()
+        val urls = ChatBubbleCosmetics.extractAllCssImageUrls(swapCss)
+        assertTrue(urls.contains("https://example.com/tentacle_a.webp"))
+        assertTrue(urls.contains("https://example.com/tentacle_b.webp"))
+
+        val parsedSwap = ChatBubbleCosmetics.parseCommunityBubbleCss(swapCss)!!
+        assertEquals(1, parsedSwap.pseudoLayers.size)
+        val swapLayer = parsedSwap.pseudoLayers[0]
+        assertEquals(2_000L, swapLayer.timelinePeriodMs)
+        val swappedIdxCount = swapLayer.timelineFrames
+            .mapNotNull { it.bgImagesBottomToTop.firstOrNull()?.urlIdx }
+            .distinct()
+            .size
+        assertTrue("Keyframe url() swap should produce >= 2 distinct URL indices", swappedIdxCount >= 2)
+
+        val customVarCss = """
+            @property --look-x { syntax: "<length>"; inherits: true; initial-value: 0px; }
+            @keyframes buddy-look {
+              0%, 100% { --look-x: 0px; }
+              50% { --look-x: 8px; }
+            }
+            .cskin-bubble-test-var {
+              min-height: 44px;
+              padding: 8px 14px;
+              background: #ffffff;
+              color: #111111;
+              animation: buddy-look 4s linear infinite;
+            }
+            .cskin-bubble-test-var::after {
+              content: "";
+              position: absolute;
+              right: 0;
+              bottom: 0;
+              width: 24px;
+              height: 24px;
+              transform: translateX(var(--look-x));
+              background: url("https://example.com/buddy.webp") center / contain no-repeat;
+            }
+        """.trimIndent()
+        val parsedVar = ChatBubbleCosmetics.parseCommunityBubbleCss(customVarCss)!!
+        assertEquals(1, parsedVar.pseudoLayers.size)
+        assertEquals(4_000L, parsedVar.timelinePeriodMs)
+        val distinctX = parsedVar.timelineFrames
+            .mapNotNull { it.pseudoLayers.firstOrNull()?.offsetXDp }
+            .distinct()
+        assertTrue("Custom --var timeline should drive pseudo offsetXDp across frames: $distinctX", distinctX.size >= 2)
+        assertTrue(distinctX.any { it >= 7f })
+    }
+
+    @Test
+    fun keyframeTransformOpacityAndSpriteBadgeStepsParseGenerically() {
+        val visualCss = """
+            @keyframes float-pulse {
+              0% { transform: translate(0px, 0px) scale(1) rotate(0deg); opacity: 1; }
+              50% { transform: translate(4px, -6px) scale(1.2) rotate(12deg); opacity: 0.4; }
+              100% { transform: translate(0px, 0px) scale(1) rotate(0deg); opacity: 1; }
+            }
+            .cskin-bubble-test-motion {
+              min-height: 44px;
+              padding: 8px 14px;
+              background: #ffffff;
+              color: #111111;
+            }
+            .cskin-bubble-test-motion::after {
+              content: "";
+              position: absolute;
+              right: 2px;
+              top: 2px;
+              width: 20px;
+              height: 20px;
+              background: url("https://example.com/spark.webp") center / contain no-repeat;
+              animation: float-pulse 2s linear infinite;
+            }
+        """.trimIndent()
+        val parsedVisual = ChatBubbleCosmetics.parseCommunityBubbleCss(visualCss)!!
+        val tracks = parsedVisual.pseudoLayers.first().visualAnim
+        assertTrue("visualAnim tracks should be parsed from @keyframes", tracks.isNotEmpty())
+        val atZero = ChatBubbleCosmetics.evaluateVisualAnim(tracks, 0L)
+        val atHalf = ChatBubbleCosmetics.evaluateVisualAnim(tracks, 1_000L)
+        assertEquals(0f, atZero.txDpDelta, 0.05f)
+        assertEquals(1f, atZero.scaleX, 0.05f)
+        assertEquals(1f, atZero.opacity ?: 1f, 0.05f)
+        assertEquals(4f, atHalf.txDpDelta, 0.1f)
+        assertEquals(-6f, atHalf.tyDpDelta, 0.1f)
+        assertEquals(1.2f, atHalf.scaleX, 0.05f)
+        assertEquals(12f, atHalf.rotateDeg, 0.2f)
+        assertEquals(0.4f, atHalf.opacity ?: 0f, 0.05f)
+
+        val spriteBadgeCss = """
+            @keyframes badge-spin {
+              0% { background-position: 0% 0%; }
+              100% { background-position: -400% 0%; }
+            }
+            .cskin-badge-test-sprite {
+              width: 24px;
+              height: 24px;
+              background: url("https://example.com/sprite.png") 0% 0% / 400% 100% no-repeat;
+              animation: badge-spin 0.8s steps(4, end) infinite;
+            }
+        """.trimIndent()
+        val parsedBadge = ChatBubbleCosmetics.parseCommunityBadgeCss(spriteBadgeCss)!!
+        assertEquals(4, parsedBadge.spriteCols)
+        assertEquals(800L, parsedBadge.timelinePeriodMs)
+        val spriteCols = parsedBadge.timelineFrames.map { it.spriteCol }.distinct().sorted()
+        assertEquals(listOf(0, 1, 2, 3), spriteCols)
+    }
+
+    @Test
+    fun chickengunDecoFlagsAndAnimatedRasterHeaderDetection() {
+        val decoWithDisabledMotion = buildJsonObject {
+            put("ft", JsonPrimitive("chickengun"))
+            put("fn", JsonPrimitive(3500))
+            put("cg_motion", JsonPrimitive(false))
+            put("cg_fire", JsonPrimitive(false))
+        }
+        val resolvedDisabled = ChatBubbleCosmetics.resolveBubbleFromDeco(
+            deco = decoWithDisabledMotion,
+            isDarkTheme = false,
+            nowSec = 1_000_000L,
+        )
+        val ornamentDisabled = resolvedDisabled?.ornament as? BubbleOrnament.RaffleChickengun
+        assertNotNull(ornamentDisabled)
+        assertFalse(ornamentDisabled!!.cgMotion)
+        assertFalse(ornamentDisabled.cgFire)
+
+        val decoDefaultEnabled = buildJsonObject {
+            put("ft", JsonPrimitive("chickengun"))
+            put("fn", JsonPrimitive(3500))
+        }
+        val resolvedDefault = ChatBubbleCosmetics.resolveBubbleFromDeco(
+            deco = decoDefaultEnabled,
+            isDarkTheme = false,
+            nowSec = 1_000_000L,
+        )
+        val ornamentDefault = resolvedDefault?.ornament as? BubbleOrnament.RaffleChickengun
+        assertNotNull(ornamentDefault)
+        assertTrue(ornamentDefault!!.cgMotion)
+        assertTrue(ornamentDefault.cgFire)
+
+        // Minimal animated WebP (`RIFF....WEBP` + `VP8X` with anim bit 0x02) vs static VP8L WebP
+        val animWebp = byteArrayOf(
+            'R'.code.toByte(), 'I'.code.toByte(), 'F'.code.toByte(), 'F'.code.toByte(),
+            22, 0, 0, 0,
+            'W'.code.toByte(), 'E'.code.toByte(), 'B'.code.toByte(), 'P'.code.toByte(),
+            'V'.code.toByte(), 'P'.code.toByte(), '8'.code.toByte(), 'X'.code.toByte(),
+            10, 0, 0, 0,
+            0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        )
+        val staticWebp = byteArrayOf(
+            'R'.code.toByte(), 'I'.code.toByte(), 'F'.code.toByte(), 'F'.code.toByte(),
+            20, 0, 0, 0,
+            'W'.code.toByte(), 'E'.code.toByte(), 'B'.code.toByte(), 'P'.code.toByte(),
+            'V'.code.toByte(), 'P'.code.toByte(), '8'.code.toByte(), 'L'.code.toByte(),
+            8, 0, 0, 0,
+            0x2F, 0, 0, 0, 0, 0, 0, 0,
+        )
+        assertTrue(isAnimatedRasterBytes(animWebp))
+        assertFalse(isAnimatedRasterBytes(staticWebp))
+
+        // Multi-frame GIF89a (2 image descriptors) vs single-frame GIF89a
+        val animGif = byteArrayOf(
+            'G'.code.toByte(), 'I'.code.toByte(), 'F'.code.toByte(), '8'.code.toByte(), '9'.code.toByte(), 'a'.code.toByte(),
+            1, 0, 1, 0, 0, 0, 0,
+            0x2C, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 1, 0, 0,
+            0x2C, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 1, 0, 0,
+            0x3B,
+        )
+        val staticGif = byteArrayOf(
+            'G'.code.toByte(), 'I'.code.toByte(), 'F'.code.toByte(), '8'.code.toByte(), '9'.code.toByte(), 'a'.code.toByte(),
+            1, 0, 1, 0, 0, 0, 0,
+            0x2C, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 1, 0, 0,
+            0x3B,
+        )
+        assertTrue(isAnimatedRasterBytes(animGif))
+        assertFalse(isAnimatedRasterBytes(staticGif))
+
+        // APNG (`acTL` chunk before `IDAT`) vs static PNG (`IDAT` first)
+        val apng = byteArrayOf(
+            0x89.toByte(), 'P'.code.toByte(), 'N'.code.toByte(), 'G'.code.toByte(), 0x0D, 0x0A, 0x1A, 0x0A,
+            0, 0, 0, 13, 'I'.code.toByte(), 'H'.code.toByte(), 'D'.code.toByte(), 'R'.code.toByte(),
+            0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 8, 'a'.code.toByte(), 'c'.code.toByte(), 'T'.code.toByte(), 'L'.code.toByte(),
+            0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0,
+        )
+        val staticPng = byteArrayOf(
+            0x89.toByte(), 'P'.code.toByte(), 'N'.code.toByte(), 'G'.code.toByte(), 0x0D, 0x0A, 0x1A, 0x0A,
+            0, 0, 0, 13, 'I'.code.toByte(), 'H'.code.toByte(), 'D'.code.toByte(), 'R'.code.toByte(),
+            0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 4, 'I'.code.toByte(), 'D'.code.toByte(), 'A'.code.toByte(), 'T'.code.toByte(),
+            0, 0, 0, 0, 0, 0, 0, 0,
+        )
+        assertTrue(isAnimatedRasterBytes(apng))
+        assertFalse(isAnimatedRasterBytes(staticPng))
     }
 }

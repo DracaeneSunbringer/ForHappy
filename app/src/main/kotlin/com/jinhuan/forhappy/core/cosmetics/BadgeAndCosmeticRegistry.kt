@@ -1507,8 +1507,11 @@ object BadgeAndCosmeticRegistry {
         val frameId = commObj["frame"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
         if (!isValidCommunitySlug(frameId)) return null
         val skin = resolveCommunitySkinMeta(frameId) ?: return null
-        val imgSha = skin.frameImgSha?.takeIf { it.isNotBlank() } ?: return null
-        return "https://52dmeme.com/api/community-skins/image/$imgSha"
+        skin.frameImgSha?.takeIf { it.isNotBlank() }?.let { imgSha ->
+            return "https://52dmeme.com/api/community-skins/image/$imgSha"
+        }
+        val cssSha = skin.frameCssSha?.takeIf { it.isNotBlank() } ?: return null
+        return "community-css:$frameId:frame:$cssSha:0"
     }
 
     fun resolveEquippedIdentity(

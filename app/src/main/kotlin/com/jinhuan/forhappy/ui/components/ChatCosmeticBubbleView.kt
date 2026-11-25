@@ -1,7 +1,11 @@
 package com.jinhuan.forhappy.ui.components
 
-import com.jinhuan.forhappy.core.cosmetics.BgScaleMode
-
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -21,7 +25,9 @@ import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -29,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -39,9 +46,14 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.addOutline
+import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntOffset
@@ -49,16 +61,27 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
+import com.jinhuan.forhappy.core.cosmetics.BgScaleMode
 import com.jinhuan.forhappy.core.cosmetics.BubbleBgImageSpec
 import com.jinhuan.forhappy.core.cosmetics.BubbleOrnament
 import com.jinhuan.forhappy.core.cosmetics.BubblePseudoLayer
 import com.jinhuan.forhappy.core.cosmetics.BubbleShapeKind
+import com.jinhuan.forhappy.core.cosmetics.ChatBubbleCosmetics
 import com.jinhuan.forhappy.core.cosmetics.NineSliceSpec
 import com.jinhuan.forhappy.core.cosmetics.ResolvedChatBubbleStyle
 import com.jinhuan.forhappy.core.network.media.MediaUrlRewriter
+import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.sin
+
+/**
+ * Provides dynamic timeline `(textColor, linkColor, mutedColor)` for animating bubbles (e.g. `rem-dual-form`)
+ * without forcing recomposition of message metadata headers.
+ */
+val LocalAnimatedBubbleColors = compositionLocalOf<Triple<Color, Color, Color>?> { null }
 
 /**
  * Draws a 9-slice artwork onto this [DrawScope] relative to `(boxX, boxY, boxW, boxH)` with CSS
@@ -71,6 +94,7 @@ internal fun DrawScope.drawNineSliceArtwork(
     boxY: Float,
     boxW: Float,
     boxH: Float,
+    alpha: Float = 1f,
 ) {
     val loaded = loadedArt.bitmap
     val bw = loaded.width
@@ -138,13 +162,14 @@ internal fun DrawScope.drawNineSliceArtwork(
     val cH = (ch - tH - bH).coerceAtLeast(0)
 
     fun patch(sx: Int, sy: Int, sw: Int, sh: Int, dx: Int, dy: Int, dw: Int, dh: Int) {
-        if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) return
+        if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0 || alpha <= 0.005f) return
         drawImage(
             image = loaded,
             srcOffset = IntOffset(sx, sy),
             srcSize = IntSize(sw, sh),
             dstOffset = IntOffset(ox + dx, oy + dy),
             dstSize = IntSize(dw, dh),
+            alpha = alpha.coerceIn(0f, 1f),
             filterQuality = FilterQuality.Medium,
         )
     }
@@ -175,15 +200,10 @@ internal fun DrawScope.drawNineSliceArtwork(
 fun NineSliceFrameCanvas(
     spec: NineSliceSpec,
     fallbackColor: Color = Color.Transparent,
+    alpha: Float = 1f,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
-    val httpClient = LocalCosmeticHttpClient.current
-    val bitmapArt by produceState<RasterizedArtwork?>(initialValue = null, spec.sourceUrl) {
-        value = BadgeArtworkCache.getOrFetchNineSliceArtwork(context, httpClient, spec.sourceUrl, reqSizePx = 1024)
-    }
-
-    val loadedArt = bitmapArt
+    val loadedArt = rememberAnimatedCosmeticArtwork(spec.sourceUrl, reqSizePx = 1024)
     if (loadedArt == null) {
         if (fallbackColor != Color.Transparent) {
             Box(modifier = modifier.clip(RoundedCornerShape(14.dp)).background(fallbackColor))
@@ -198,6 +218,7 @@ fun NineSliceFrameCanvas(
             boxY = 0f,
             boxW = size.width,
             boxH = size.height,
+            alpha = alpha,
         )
     }
 }
@@ -207,45 +228,66 @@ internal fun BubblePseudoLayerCanvas(
     layer: BubblePseudoLayer,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
-    val httpClient = LocalCosmeticHttpClient.current
-    val hasPureShape = layer.shapeFillColor != null || layer.shapeBorderColor != null || layer.shadowDot != null
+    val paused = LocalPauseCosmeticAnimations.current
+    val timeline = layer.pseudoTimeline
     val allUrls = remember(layer) {
-        buildList {
+        buildSet {
             layer.bgImagesBottomToTop.forEach { add(it.sourceUrl) }
             layer.nineSliceSpec?.sourceUrl?.let { add(it) }
-        }
-    }
-    val artMap by produceState<Map<String, RasterizedArtwork>>(initialValue = emptyMap(), allUrls) {
-        val out = LinkedHashMap<String, RasterizedArtwork>(allUrls.size)
-        for (url in allUrls) {
-            BadgeArtworkCache.getOrFetchNineSliceArtwork(context, httpClient, url, reqSizePx = 1024)?.let {
-                out[url] = it
+            timeline?.frames?.forEach { frame ->
+                frame.bgImagesBottomToTop.forEach { add(it.sourceUrl) }
+                frame.nineSliceSpec?.sourceUrl?.let { add(it) }
             }
-        }
-        value = out
+        }.toList()
     }
+    val hasPureShape = remember(layer) {
+        layer.shapeFillColor != null || layer.shapeBorderColor != null || layer.shadowDot != null ||
+            (timeline?.frames?.any { it.shapeFillColor != null || it.shapeBorderColor != null || it.shadowDot != null } == true)
+    }
+    val artMap = rememberAnimatedCosmeticArtworkMap(allUrls, reqSizePx = 1024)
     if (artMap.isEmpty() && !hasPureShape) return
 
+    val timelineClock = rememberCosmeticElapsedMs(active = timeline != null, intervalMs = 50L)
+    val activeLayer = if (!paused && timeline != null && timeline.frames.isNotEmpty()) {
+        val idx = (((timelineClock.value % timeline.periodMs).toDouble() / timeline.periodMs.toDouble()) * timeline.frames.size)
+            .toInt()
+            .coerceIn(0, timeline.frames.lastIndex)
+        timeline.frames[idx]
+    } else {
+        layer
+    }
+    val activeTracks = if (activeLayer.visualAnim.isNotEmpty()) activeLayer.visualAnim else layer.visualAnim
+    val visualClock = rememberCosmeticElapsedMs(active = activeTracks.isNotEmpty(), intervalMs = 33L)
+
     Canvas(modifier = modifier) {
+        val evalAnim = if (!paused && activeTracks.isNotEmpty()) {
+            ChatBubbleCosmetics.evaluateVisualAnim(activeTracks, visualClock.value)
+        } else {
+            null
+        }
+        val effAlpha = (evalAnim?.opacity ?: activeLayer.opacity).coerceIn(0f, 1f)
+        if (effAlpha <= 0.01f) return@Canvas
+
         val rawH = when {
-            layer.heightDp != null -> layer.heightDp.dp.toPx().let { h ->
-                if (layer.heightCapToParent) min(h, size.height) else h
+            activeLayer.heightDp != null -> activeLayer.heightDp.dp.toPx().let { h ->
+                if (activeLayer.heightCapToParent) min(h, size.height) else h
             }
-            layer.topDp != null && layer.bottomDp != null -> (size.height - layer.topDp.dp.toPx() - layer.bottomDp.dp.toPx()).coerceAtLeast(1f)
-            hasPureShape && layer.shadowDot != null -> 6.dp.toPx()
+            activeLayer.topDp != null && activeLayer.bottomDp != null ->
+                (size.height - activeLayer.topDp.dp.toPx() - activeLayer.bottomDp.dp.toPx()).coerceAtLeast(1f)
+            hasPureShape && activeLayer.shadowDot != null -> 6.dp.toPx()
             else -> null
         }
         val rawW = when {
-            layer.widthDp != null -> layer.widthDp.dp.toPx()
-            layer.leftDp != null && layer.rightDp != null -> (size.width - layer.leftDp.dp.toPx() - layer.rightDp.dp.toPx()).coerceAtLeast(1f)
-            hasPureShape && layer.shadowDot != null -> 6.dp.toPx()
+            activeLayer.widthDp != null -> activeLayer.widthDp.dp.toPx()
+            activeLayer.leftDp != null && activeLayer.rightDp != null ->
+                (size.width - activeLayer.leftDp.dp.toPx() - activeLayer.rightDp.dp.toPx()).coerceAtLeast(1f)
+            hasPureShape && activeLayer.shadowDot != null -> 6.dp.toPx()
             else -> null
         }
-        val ar = layer.aspectRatio
+        val ar = activeLayer.aspectRatio
         val pw = when {
-            layer.widthDp != null && layer.heightCapToParent && ar != null && ar > 0f && rawH != null ->
-                min(layer.widthDp.dp.toPx(), rawH * ar)
+            activeLayer.widthDp != null && activeLayer.heightCapToParent && ar != null && ar > 0f && rawH != null ->
+                min(activeLayer.widthDp.dp.toPx(), rawH * ar)
             rawW != null -> rawW
             ar != null && ar > 0f && rawH != null -> rawH * ar
             else -> size.width
@@ -255,140 +297,138 @@ internal fun BubblePseudoLayerCanvas(
             ar != null && ar > 0f && rawW != null -> rawW / ar
             else -> size.height
         }.coerceAtLeast(1f)
-        val selfDx = if (layer.centerX) {
-            if (layer.translateSelfX != 0f) pw * layer.translateSelfX else -pw * 0.5f
+        val selfDx = if (activeLayer.centerX) {
+            if (activeLayer.translateSelfX != 0f) pw * activeLayer.translateSelfX else -pw * 0.5f
         } else {
-            pw * layer.translateSelfX
+            pw * activeLayer.translateSelfX
         }
-        val selfDy = if (layer.centerY) {
-            if (layer.translateSelfY != 0f) ph * layer.translateSelfY else -ph * 0.5f
+        val selfDy = if (activeLayer.centerY) {
+            if (activeLayer.translateSelfY != 0f) ph * activeLayer.translateSelfY else -ph * 0.5f
         } else {
-            ph * layer.translateSelfY
+            ph * activeLayer.translateSelfY
         }
-        val px0 = when {
-            layer.centerX -> size.width * 0.5f + selfDx + layer.offsetXDp.dp.toPx()
-            layer.leftDp != null -> layer.leftDp.dp.toPx() + selfDx
-            layer.rightDp != null -> size.width - layer.rightDp.dp.toPx() - pw + selfDx
-            else -> layer.offsetXDp.dp.toPx() + selfDx
+        val basePx0 = when {
+            activeLayer.centerX -> size.width * 0.5f + selfDx + activeLayer.offsetXDp.dp.toPx()
+            activeLayer.leftDp != null -> activeLayer.leftDp.dp.toPx() + selfDx
+            activeLayer.rightDp != null -> size.width - activeLayer.rightDp.dp.toPx() - pw + selfDx
+            else -> activeLayer.offsetXDp.dp.toPx() + selfDx
         }
-        val py0 = when {
-            layer.centerY -> size.height * 0.5f + selfDy + layer.offsetYDp.dp.toPx()
-            layer.topDp != null -> layer.topDp.dp.toPx() + selfDy
-            layer.bottomDp != null -> size.height - layer.bottomDp.dp.toPx() - ph + selfDy
-            else -> layer.offsetYDp.dp.toPx() + selfDy
+        val basePy0 = when {
+            activeLayer.centerY -> size.height * 0.5f + selfDy + activeLayer.offsetYDp.dp.toPx()
+            activeLayer.topDp != null -> activeLayer.topDp.dp.toPx() + selfDy
+            activeLayer.bottomDp != null -> size.height - activeLayer.bottomDp.dp.toPx() - ph + selfDy
+            else -> activeLayer.offsetYDp.dp.toPx() + selfDy
         }
+        val px0 = basePx0 + (evalAnim?.let { it.txDpDelta.dp.toPx() + it.txSelfDelta * pw } ?: 0f)
+        val py0 = basePy0 + (evalAnim?.let { it.tyDpDelta.dp.toPx() + it.tySelfDelta * ph } ?: 0f)
+        val effScaleX = activeLayer.scaleX * (evalAnim?.scaleX ?: 1f)
+        val effScaleY = activeLayer.scaleY * (evalAnim?.scaleY ?: 1f)
+        val effRotate = activeLayer.rotateDeg + (evalAnim?.rotateDeg ?: 0f)
+        val pivot = Offset(px0 + pw * 0.5f, py0 + ph * 0.5f)
 
-        if (layer.shapeFillColor != null) {
-            if (layer.isCircle) {
-                drawOval(
-                    color = layer.shapeFillColor,
-                    topLeft = Offset(px0, py0),
-                    size = Size(pw, ph),
-                )
-            } else {
-                drawRect(
-                    color = layer.shapeFillColor,
-                    topLeft = Offset(px0, py0),
-                    size = Size(pw, ph),
-                )
-            }
-        }
-        if (layer.shapeBorderColor != null && layer.shapeBorderWidthDp > 0f) {
-            val stroke = Stroke(width = layer.shapeBorderWidthDp.dp.toPx())
-            if (layer.isCircle) {
-                drawOval(
-                    color = layer.shapeBorderColor,
-                    topLeft = Offset(px0, py0),
-                    size = Size(pw, ph),
-                    style = stroke,
-                )
-            } else {
-                drawRect(
-                    color = layer.shapeBorderColor,
-                    topLeft = Offset(px0, py0),
-                    size = Size(pw, ph),
-                    style = stroke,
-                )
-            }
-        }
-        layer.shadowDot?.let { dot ->
-            val r = (min(pw, ph) * 0.5f + dot.spreadDp.dp.toPx()).coerceAtLeast(1f)
-            drawCircle(
-                color = dot.color,
-                radius = r,
-                center = Offset(px0 + pw * 0.5f + dot.dxDp.dp.toPx(), py0 + ph * 0.5f + dot.dyDp.dp.toPx()),
-            )
-        }
-
-        clipRect(
-            left = px0,
-            top = py0,
-            right = (px0 + pw).coerceAtLeast(px0 + 1f),
-            bottom = (py0 + ph).coerceAtLeast(py0 + 1f),
-        ) {
-            layer.bgImagesBottomToTop.forEach { bg: BubbleBgImageSpec ->
-                if ((bg.widthDp != null && bg.widthDp <= 0f) || (bg.heightDp != null && bg.heightDp <= 0f)) {
-                    return@forEach
+        withTransform({
+            if (effRotate != 0f) rotate(effRotate, pivot = pivot)
+            if (effScaleX != 1f || effScaleY != 1f) scale(effScaleX, effScaleY, pivot = pivot)
+        }) {
+            if (activeLayer.shapeFillColor != null) {
+                val fillCol = activeLayer.shapeFillColor.copy(alpha = activeLayer.shapeFillColor.alpha * effAlpha)
+                if (activeLayer.isCircle) {
+                    drawOval(color = fillCol, topLeft = Offset(px0, py0), size = Size(pw, ph))
+                } else {
+                    drawRect(color = fillCol, topLeft = Offset(px0, py0), size = Size(pw, ph))
                 }
-                val art = artMap[bg.sourceUrl] ?: return@forEach
-                val (imgW, imgH) = when (bg.scaleMode) {
-                    BgScaleMode.CONTAIN -> {
-                        val artW = art.intrinsicWidth.coerceAtLeast(1f)
-                        val artH = art.intrinsicHeight.coerceAtLeast(1f)
-                        val s = min(pw / artW, ph / artH)
-                        (artW * s).coerceAtLeast(1f) to (artH * s).coerceAtLeast(1f)
+            }
+            if (activeLayer.shapeBorderColor != null && activeLayer.shapeBorderWidthDp > 0f) {
+                val bdCol = activeLayer.shapeBorderColor.copy(alpha = activeLayer.shapeBorderColor.alpha * effAlpha)
+                val stroke = Stroke(width = activeLayer.shapeBorderWidthDp.dp.toPx())
+                if (activeLayer.isCircle) {
+                    drawOval(color = bdCol, topLeft = Offset(px0, py0), size = Size(pw, ph), style = stroke)
+                } else {
+                    drawRect(color = bdCol, topLeft = Offset(px0, py0), size = Size(pw, ph), style = stroke)
+                }
+            }
+            activeLayer.shadowDot?.let { dot ->
+                val dotCol = dot.color.copy(alpha = dot.color.alpha * effAlpha)
+                val r = (min(pw, ph) * 0.5f + dot.spreadDp.dp.toPx()).coerceAtLeast(1f)
+                drawCircle(
+                    color = dotCol,
+                    radius = r,
+                    center = Offset(px0 + pw * 0.5f + dot.dxDp.dp.toPx(), py0 + ph * 0.5f + dot.dyDp.dp.toPx()),
+                )
+            }
+
+            clipRect(
+                left = px0,
+                top = py0,
+                right = (px0 + pw).coerceAtLeast(px0 + 1f),
+                bottom = (py0 + ph).coerceAtLeast(py0 + 1f),
+            ) {
+                activeLayer.bgImagesBottomToTop.forEach { bg: BubbleBgImageSpec ->
+                    if ((bg.widthDp != null && bg.widthDp <= 0f) || (bg.heightDp != null && bg.heightDp <= 0f)) {
+                        return@forEach
                     }
-                    BgScaleMode.COVER -> {
-                        val artW = art.intrinsicWidth.coerceAtLeast(1f)
-                        val artH = art.intrinsicHeight.coerceAtLeast(1f)
-                        val s = maxOf(pw / artW, ph / artH)
-                        (artW * s).coerceAtLeast(1f) to (artH * s).coerceAtLeast(1f)
-                    }
-                    BgScaleMode.STRETCH -> {
-                        val w = when {
-                            bg.widthSubFromFullDp != null -> (pw - bg.widthSubFromFullDp.dp.toPx()).coerceAtLeast(1f)
-                            bg.widthFraction != null -> (pw * bg.widthFraction).coerceAtLeast(1f)
-                            bg.widthDp != null -> bg.widthDp.dp.toPx()
-                            bg.heightDp != null -> bg.heightDp.dp.toPx() * (art.intrinsicWidth / art.intrinsicHeight.coerceAtLeast(1f))
-                            else -> pw
+                    val art = artMap[bg.sourceUrl] ?: return@forEach
+                    val (imgW, imgH) = when (bg.scaleMode) {
+                        BgScaleMode.CONTAIN -> {
+                            val artW = art.intrinsicWidth.coerceAtLeast(1f)
+                            val artH = art.intrinsicHeight.coerceAtLeast(1f)
+                            val s = min(pw / artW, ph / artH)
+                            (artW * s).coerceAtLeast(1f) to (artH * s).coerceAtLeast(1f)
                         }
-                        val h = when {
-                            bg.heightFraction != null -> (ph * bg.heightFraction).coerceAtLeast(1f)
-                            bg.heightDp != null -> bg.heightDp.dp.toPx()
-                            else -> w * (art.intrinsicHeight / art.intrinsicWidth.coerceAtLeast(1f))
+                        BgScaleMode.COVER -> {
+                            val artW = art.intrinsicWidth.coerceAtLeast(1f)
+                            val artH = art.intrinsicHeight.coerceAtLeast(1f)
+                            val s = maxOf(pw / artW, ph / artH)
+                            (artW * s).coerceAtLeast(1f) to (artH * s).coerceAtLeast(1f)
                         }
-                        w to h
+                        BgScaleMode.STRETCH -> {
+                            val w = when {
+                                bg.widthSubFromFullDp != null -> (pw - bg.widthSubFromFullDp.dp.toPx()).coerceAtLeast(1f)
+                                bg.widthFraction != null -> (pw * bg.widthFraction).coerceAtLeast(1f)
+                                bg.widthDp != null -> bg.widthDp.dp.toPx()
+                                bg.heightDp != null -> bg.heightDp.dp.toPx() * (art.intrinsicWidth / art.intrinsicHeight.coerceAtLeast(1f))
+                                else -> pw
+                            }
+                            val h = when {
+                                bg.heightFraction != null -> (ph * bg.heightFraction).coerceAtLeast(1f)
+                                bg.heightDp != null -> bg.heightDp.dp.toPx()
+                                else -> w * (art.intrinsicHeight / art.intrinsicWidth.coerceAtLeast(1f))
+                            }
+                            w to h
+                        }
                     }
+                    val dx = when {
+                        bg.alignCenterX -> px0 + (pw - imgW) * 0.5f
+                        bg.offsetRightDp != null -> px0 + pw - imgW - bg.offsetRightDp.dp.toPx()
+                        else -> px0 + bg.offsetXDp.dp.toPx()
+                    }
+                    val dy = when {
+                        bg.alignCenterY -> py0 + (ph - imgH) * 0.5f
+                        bg.offsetBottomDp != null -> py0 + ph - imgH - bg.offsetBottomDp.dp.toPx()
+                        else -> py0 + bg.offsetYDp.dp.toPx()
+                    }
+                    drawImage(
+                        image = art.bitmap,
+                        dstOffset = IntOffset(dx.roundToInt(), dy.roundToInt()),
+                        dstSize = IntSize(imgW.roundToInt().coerceAtLeast(1), imgH.roundToInt().coerceAtLeast(1)),
+                        alpha = effAlpha,
+                        filterQuality = FilterQuality.Medium,
+                    )
                 }
-                val dx = when {
-                    bg.alignCenterX -> px0 + (pw - imgW) * 0.5f
-                    bg.offsetRightDp != null -> px0 + pw - imgW - bg.offsetRightDp.dp.toPx()
-                    else -> px0 + bg.offsetXDp.dp.toPx()
-                }
-                val dy = when {
-                    bg.alignCenterY -> py0 + (ph - imgH) * 0.5f
-                    bg.offsetBottomDp != null -> py0 + ph - imgH - bg.offsetBottomDp.dp.toPx()
-                    else -> py0 + bg.offsetYDp.dp.toPx()
-                }
-                drawImage(
-                    image = art.bitmap,
-                    dstOffset = IntOffset(dx.roundToInt(), dy.roundToInt()),
-                    dstSize = IntSize(imgW.roundToInt().coerceAtLeast(1), imgH.roundToInt().coerceAtLeast(1)),
-                    filterQuality = FilterQuality.Medium,
+            }
+
+            activeLayer.nineSliceSpec?.let { ns ->
+                val art = artMap[ns.sourceUrl] ?: return@let
+                drawNineSliceArtwork(
+                    spec = ns,
+                    loadedArt = art,
+                    boxX = px0,
+                    boxY = py0,
+                    boxW = pw,
+                    boxH = ph,
+                    alpha = effAlpha,
                 )
             }
-        }
-
-        layer.nineSliceSpec?.let { ns ->
-            val art = artMap[ns.sourceUrl] ?: return@let
-            drawNineSliceArtwork(
-                spec = ns,
-                loadedArt = art,
-                boxX = px0,
-                boxY = py0,
-                boxW = pw,
-                boxH = ph,
-            )
         }
     }
 }
@@ -427,11 +467,40 @@ fun ChatCosmeticBubbleBox(
 
     val context = LocalContext.current
     val httpClient = LocalCosmeticHttpClient.current
+    val paused = LocalPauseCosmeticAnimations.current
     style.dynamicCssSpec?.let { spec ->
         LaunchedEffect(spec) {
             BadgeArtworkCache.ensureCommunityCssLoaded(context, httpClient, spec)
         }
     }
+
+    val bubbleTimeline = style.animationTimeline
+    val timelineClock = rememberCosmeticElapsedMs(active = bubbleTimeline != null, intervalMs = 60L)
+    val visualClock = rememberCosmeticElapsedMs(active = style.visualAnim.isNotEmpty(), intervalMs = 33L)
+    val activeFrame = if (!paused && bubbleTimeline != null && bubbleTimeline.frames.isNotEmpty()) {
+        val idx = (((timelineClock.value % bubbleTimeline.periodMs).toDouble() / bubbleTimeline.periodMs.toDouble()) * bubbleTimeline.frames.size)
+            .toInt()
+            .coerceIn(0, bubbleTimeline.frames.lastIndex)
+        bubbleTimeline.frames[idx]
+    } else {
+        null
+    }
+
+    val effFillColor = activeFrame?.fillColor ?: style.fillColor
+    val effFillGradCols = activeFrame?.fillGradColors
+    val effFillAngle = activeFrame?.fillGradAngleDeg
+    val effFillBrush = when {
+        effFillGradCols != null && effFillGradCols.size >= 2 -> remember(effFillGradCols, effFillAngle) {
+            Brush.linearGradient(effFillGradCols)
+        }
+        activeFrame != null -> null
+        else -> style.fillBrush
+    }
+    val effBorderColor = activeFrame?.borderColor ?: style.borderColor
+    val effBorderGradCols = activeFrame?.borderGradColors ?: style.borderGradientColors
+    val effNineSlice = activeFrame?.nineSliceSpec ?: style.nineSliceSpec
+    val effPseudoLayers = activeFrame?.pseudoLayers ?: style.pseudoLayers
+    val effOpacity = (activeFrame?.opacity ?: style.opacity).coerceIn(0.15f, 1f)
 
     val bubbleShape = remember(style.shapeKind) {
         when (val k = style.shapeKind) {
@@ -454,19 +523,19 @@ fun ChatCosmeticBubbleBox(
     }
     val startReserveDp = max(
         style.startOverflowReserveDp,
-        (style.nineSliceSpec?.outsetLeftDp ?: 0f).coerceAtLeast(0f),
+        (effNineSlice?.outsetLeftDp ?: 0f).coerceAtLeast(0f),
     ).dp
     val topReserveDp = max(
         style.topOverflowReserveDp,
-        (style.nineSliceSpec?.outsetTopDp ?: 0f).coerceAtLeast(0f),
+        (effNineSlice?.outsetTopDp ?: 0f).coerceAtLeast(0f),
     ).dp
     val bottomReserveDp = max(
         style.bottomOverflowReserveDp,
-        (style.nineSliceSpec?.outsetBottomDp ?: 0f).coerceAtLeast(0f),
+        (effNineSlice?.outsetBottomDp ?: 0f).coerceAtLeast(0f),
     ).dp
     val trailingReserveDp = max(
         max(ornamentEndDp, style.endOverflowReserveDp),
-        (style.nineSliceSpec?.outsetRightDp ?: 0f).coerceAtLeast(0f),
+        (effNineSlice?.outsetRightDp ?: 0f).coerceAtLeast(0f),
     ).dp
     val shouldClipContainer = when (val k = style.shapeKind) {
         is BubbleShapeKind.Rounded ->
@@ -476,7 +545,8 @@ fun ChatCosmeticBubbleBox(
 
     Box(
         modifier = modifier
-            .alpha(style.opacity.coerceIn(0.2f, 1f))
+            .applyCssVisualAnim(style.visualAnim, visualClock, paused)
+            .alpha(effOpacity)
             .padding(start = startReserveDp, top = topReserveDp, end = trailingReserveDp, bottom = bottomReserveDp),
     ) {
         // Hard offset shadow (official, pixel, personal v1 accents)
@@ -492,9 +562,23 @@ fun ChatCosmeticBubbleBox(
             )
         }
 
-        val hasOpaqueNineSlice = style.nineSliceSpec != null &&
-            style.nineSliceSpec.fillCenter &&
-            !style.nineSliceSpec.isEdgeTrimOnly
+        val hasOpaqueNineSlice = effNineSlice != null &&
+            effNineSlice.fillCenter &&
+            !effNineSlice.isEdgeTrimOnly
+        val hasRotatingBorder = !hasOpaqueNineSlice && !style.dashedBorder && style.borderWidthDp > 0f &&
+            effBorderGradCols != null && effBorderGradCols.size >= 2
+        val borderSweepAngle = if (hasRotatingBorder && !paused) {
+            val tr = rememberInfiniteTransition(label = "bubble_border_sweep")
+            val a by tr.animateFloat(
+                initialValue = 0f,
+                targetValue = 360f,
+                animationSpec = infiniteRepeatable(tween(4200, easing = LinearEasing), RepeatMode.Restart),
+                label = "sweep_deg",
+            )
+            a
+        } else {
+            0f
+        }
 
         // Main bubble container (leave sculpted 9-slice frames unclipped so alpha edges never truncate)
         Box(
@@ -510,16 +594,28 @@ fun ChatCosmeticBubbleBox(
                 .then(
                     when {
                         hasOpaqueNineSlice -> Modifier
-                        style.fillBrush != null -> Modifier.background(style.fillBrush)
-                        style.fillColor != Color.Transparent -> Modifier.background(style.fillColor)
+                        effFillBrush != null -> Modifier.background(effFillBrush)
+                        effFillColor != Color.Transparent -> Modifier.background(effFillColor)
                         else -> Modifier
                     },
                 )
                 .then(
                     if (!hasOpaqueNineSlice && !style.dashedBorder && style.borderWidthDp > 0f) {
                         when {
+                            hasRotatingBorder -> Modifier.drawWithContent {
+                                drawContent()
+                                val outline = bubbleShape.createOutline(size, layoutDirection, this)
+                                val outlinePath = Path().apply { addOutline(outline) }
+                                clipPath(outlinePath) {
+                                    drawOutline(
+                                        outline = outline,
+                                        brush = createRotatingSweepBrush(effBorderGradCols!!, borderSweepAngle, size),
+                                        style = Stroke(width = style.borderWidthDp.dp.toPx() * 2f),
+                                    )
+                                }
+                            }
                             style.borderBrush != null -> Modifier.border(style.borderWidthDp.dp, style.borderBrush, bubbleShape)
-                            style.borderColor != Color.Transparent -> Modifier.border(style.borderWidthDp.dp, style.borderColor, bubbleShape)
+                            effBorderColor != Color.Transparent -> Modifier.border(style.borderWidthDp.dp, effBorderColor, bubbleShape)
                             else -> Modifier
                         }
                     } else {
@@ -531,16 +627,16 @@ fun ChatCosmeticBubbleBox(
             BubblePatternLayer(style = style, modifier = Modifier.matchParentSize())
 
             // 2. 9-slice bitmap skin frame (community skins, personal-v2, raffle frames)
-            style.nineSliceSpec?.let { spec ->
+            effNineSlice?.let { spec ->
                 NineSliceFrameCanvas(
                     spec = spec,
-                    fallbackColor = if (hasOpaqueNineSlice) style.fillColor else Color.Transparent,
+                    fallbackColor = if (hasOpaqueNineSlice) effFillColor else Color.Transparent,
                     modifier = Modifier.matchParentSize(),
                 )
             }
 
             // 2b. CSS pseudo-element overlays (`::before` / `::after`: tentacles, feet, duck head)
-            style.pseudoLayers.forEach { layer ->
+            effPseudoLayers.forEach { layer ->
                 BubblePseudoLayerCanvas(
                     layer = layer,
                     modifier = Modifier.matchParentSize(),
@@ -571,10 +667,25 @@ fun ChatCosmeticBubbleBox(
             }
 
             // 6. Message body content
-            Box(
-                modifier = Modifier.padding(style.contentPadding),
-                content = content,
-            )
+            if (activeFrame != null) {
+                CompositionLocalProvider(
+                    LocalAnimatedBubbleColors provides Triple(
+                        activeFrame.textColor,
+                        activeFrame.linkColor,
+                        activeFrame.mutedColor,
+                    ),
+                ) {
+                    Box(
+                        modifier = Modifier.padding(style.contentPadding),
+                        content = content,
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier.padding(style.contentPadding),
+                    content = content,
+                )
+            }
         }
 
         // Outer corner ornaments / mascots floating at trailing corner without clipping or overlapping text
@@ -593,6 +704,27 @@ private fun BubblePatternLayer(
 ) {
     val orn = style.ornament
     if (orn == BubbleOrnament.None) return
+    val paused = LocalPauseCosmeticAnimations.current
+    val hasAmbientAnim = !paused && (
+        orn == BubbleOrnament.PresetGalaxy ||
+            orn == BubbleOrnament.PresetNightStars ||
+            orn == BubbleOrnament.PresetAurora ||
+            orn is BubbleOrnament.Owner52 ||
+            orn == BubbleOrnament.PresetPetal ||
+            orn == BubbleOrnament.PresetSakura
+        )
+    val phase = if (hasAmbientAnim) {
+        val tr = rememberInfiniteTransition(label = "bubble_pattern")
+        val p by tr.animateFloat(
+            initialValue = 0f,
+            targetValue = (2.0 * PI).toFloat(),
+            animationSpec = infiniteRepeatable(tween(4200, easing = LinearEasing), RepeatMode.Restart),
+            label = "pattern_phase",
+        )
+        p
+    } else {
+        0f
+    }
     Canvas(modifier = modifier) {
         when (orn) {
             BubbleOrnament.PresetCandyStripes -> {
@@ -631,8 +763,10 @@ private fun BubblePatternLayer(
                 )
                 stars.forEachIndexed { idx, (fx, fy) ->
                     val r = if (idx % 2 == 0) 1.8.dp.toPx() else 1.1.dp.toPx()
+                    val twinkle = if (hasAmbientAnim) (0.35f + 0.65f * ((sin(phase + idx * 1.1f) + 1f) * 0.5f)) else 1f
+                    val baseAlpha = (if (idx == 4) 0.78f else 0.60f) * twinkle
                     drawCircle(
-                        color = if (idx == 4) Color(0xFFFDE68A).copy(alpha = 0.72f) else Color.White.copy(alpha = 0.55f),
+                        color = if (idx == 4) Color(0xFFFDE68A).copy(alpha = baseAlpha) else Color.White.copy(alpha = baseAlpha),
                         radius = r,
                         center = Offset(size.width * fx, size.height * fy),
                     )
@@ -649,14 +783,16 @@ private fun BubblePatternLayer(
                 }
             }
             BubbleOrnament.PresetAurora -> {
+                val cxFrac = if (hasAmbientAnim) 0.55f + 0.30f * cos(phase) else 0.85f
+                val cyFrac = if (hasAmbientAnim) 0.28f + 0.15f * sin(phase) else 0.2f
                 drawCircle(
                     brush = Brush.radialGradient(
-                        colors = listOf(Color(0xFF00F0FF).copy(alpha = 0.22f), Color.Transparent),
-                        center = Offset(size.width * 0.85f, size.height * 0.2f),
+                        colors = listOf(Color(0xFF00F0FF).copy(alpha = 0.24f), Color.Transparent),
+                        center = Offset(size.width * cxFrac, size.height * cyFrac),
                         radius = maxOf(size.width * 0.45f, 24f),
                     ),
                     radius = maxOf(size.width * 0.45f, 24f),
-                    center = Offset(size.width * 0.85f, size.height * 0.2f),
+                    center = Offset(size.width * cxFrac, size.height * cyFrac),
                 )
             }
             BubbleOrnament.PresetJelly -> {
@@ -692,9 +828,10 @@ private fun BubblePatternLayer(
             }
             is BubbleOrnament.Owner52 -> {
                 // Subtle iridescent corner glint & micro-sparks
+                val glintAlpha = if (hasAmbientAnim) 0.16f + 0.14f * ((sin(phase) + 1f) * 0.5f) else 0.24f
                 drawCircle(
                     brush = Brush.radialGradient(
-                        colors = listOf(Color(0xFFFFF8DC).copy(alpha = 0.24f), Color.Transparent),
+                        colors = listOf(Color(0xFFFFF8DC).copy(alpha = glintAlpha), Color.Transparent),
                         center = Offset(size.width * 0.88f, size.height * 0.16f),
                         radius = 22.dp.toPx(),
                     ),
@@ -702,9 +839,10 @@ private fun BubblePatternLayer(
                     center = Offset(size.width * 0.88f, size.height * 0.16f),
                 )
                 val sparks = listOf(0.18f to 0.92f, 0.58f to 0.90f, 0.86f to 0.12f)
-                sparks.forEach { (fx, fy) ->
+                sparks.forEachIndexed { idx, (fx, fy) ->
+                    val tw = if (hasAmbientAnim) (0.35f + 0.65f * ((sin(phase * 1.4f + idx * 1.5f) + 1f) * 0.5f)) else 1f
                     drawCircle(
-                        color = style.borderColor.copy(alpha = 0.55f),
+                        color = style.borderColor.copy(alpha = 0.60f * tw),
                         radius = 1.6.dp.toPx(),
                         center = Offset(size.width * fx, size.height * fy),
                     )
@@ -712,11 +850,12 @@ private fun BubblePatternLayer(
             }
             BubbleOrnament.PresetPetal, BubbleOrnament.PresetSakura -> {
                 val petals = listOf(0.88f to 0.24f, 0.14f to 0.78f, 0.92f to 0.72f)
-                petals.forEach { (fx, fy) ->
+                petals.forEachIndexed { idx, (fx, fy) ->
+                    val dy = if (hasAmbientAnim) sin(phase + idx * 1.4f) * 1.6.dp.toPx() else 0f
                     drawCircle(
                         color = Color(0xFFF472B6).copy(alpha = 0.35f),
                         radius = 2.6.dp.toPx(),
-                        center = Offset(size.width * fx, size.height * fy),
+                        center = Offset(size.width * fx, size.height * fy + dy),
                     )
                 }
             }
@@ -782,6 +921,49 @@ private fun DrawScope.drawEdgeAccents(style: ResolvedChatBubbleStyle) {
 }
 
 @Composable
+private fun MascotRasterArtwork(
+    url: String,
+    imageLoader: ImageLoader?,
+    animate: Boolean,
+    reqSizePx: Int = 192,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val httpClient = LocalCosmeticHttpClient.current
+    if (animate && imageLoader != null) {
+        val rewritten = remember(url) { MediaUrlRewriter.rewriteMediaUrl(url) }
+        AsyncImage(
+            model = rewritten,
+            imageLoader = imageLoader,
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = modifier,
+        )
+    } else if (animate) {
+        rememberAnimatedCosmeticBitmap(url, reqSizePx)?.let {
+            Image(
+                bitmap = it,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = modifier,
+            )
+        }
+    } else {
+        val staticBmp by produceState<ImageBitmap?>(initialValue = null, url, reqSizePx) {
+            value = BadgeArtworkCache.getOrFetchBitmap(context, httpClient, url, reqSizePx)
+        }
+        staticBmp?.let {
+            Image(
+                bitmap = it,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = modifier,
+            )
+        }
+    }
+}
+
+@Composable
 private fun BubbleCornerMascotLayer(
     ornament: BubbleOrnament,
     imageLoader: ImageLoader?,
@@ -789,6 +971,7 @@ private fun BubbleCornerMascotLayer(
 ) {
     val context = LocalContext.current
     val httpClient = LocalCosmeticHttpClient.current
+    val paused = LocalPauseCosmeticAnimations.current
 
     when (ornament) {
         is BubbleOrnament.PersonalV1Mascot -> {
@@ -810,122 +993,156 @@ private fun BubbleCornerMascotLayer(
             }
         }
         is BubbleOrnament.PersonalV2Mascot -> {
-            val rewritten = remember(ornament.webpUrl) { MediaUrlRewriter.rewriteMediaUrl(ornament.webpUrl) }
             Box(modifier = modifier) {
-                if (imageLoader != null) {
-                    AsyncImage(
-                        model = rewritten,
-                        imageLoader = imageLoader,
-                        contentDescription = null,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .offset(x = 26.dp, y = 0.dp)
-                            .width(24.dp)
-                            .height(28.dp),
-                    )
-                } else {
-                    val bmp by produceState<ImageBitmap?>(initialValue = null, ornament.webpUrl) {
-                        value = BadgeArtworkCache.getOrFetchBitmap(context, httpClient, ornament.webpUrl, 192)
-                    }
-                    bmp?.let {
-                        Image(
-                            bitmap = it,
-                            contentDescription = null,
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier
-                                .align(Alignment.CenterEnd)
-                                .offset(x = 26.dp, y = 0.dp)
-                                .width(24.dp)
-                                .height(28.dp),
-                        )
-                    }
-                }
+                MascotRasterArtwork(
+                    url = ornament.webpUrl,
+                    imageLoader = imageLoader,
+                    animate = !paused,
+                    reqSizePx = 192,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .offset(x = 26.dp, y = 0.dp)
+                        .width(24.dp)
+                        .height(28.dp),
+                )
             }
         }
         is BubbleOrnament.RaffleChickengun -> {
             val sz = ornament.sizeDp.coerceIn(18f, 44f).dp
-            val rewritten = remember(ornament.webpUrl) { MediaUrlRewriter.rewriteMediaUrl(ornament.webpUrl) }
+            val playMotion = !paused && ornament.cgMotion
+            val playFire = !paused && ornament.cgFire
+            val motionFrac = if (playMotion || playFire) {
+                val tr = rememberInfiniteTransition(label = "chickengun_fx")
+                val f by tr.animateFloat(
+                    initialValue = 0f,
+                    targetValue = (2.0 * PI).toFloat(),
+                    animationSpec = infiniteRepeatable(tween(420, easing = LinearEasing), RepeatMode.Restart),
+                    label = "cg_phase",
+                )
+                f
+            } else {
+                0f
+            }
             Box(modifier = modifier) {
-                if (imageLoader != null) {
-                    AsyncImage(
-                        model = rewritten,
-                        imageLoader = imageLoader,
-                        contentDescription = null,
-                        contentScale = ContentScale.Fit,
+                MascotRasterArtwork(
+                    url = ornament.webpUrl,
+                    imageLoader = imageLoader,
+                    animate = playMotion,
+                    reqSizePx = 192,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .offset(x = (ornament.sizeDp * 0.56f).dp, y = 2.dp)
+                        .then(
+                            if (playMotion) {
+                                Modifier.graphicsLayer {
+                                    val pulse = (sin(motionFrac) + 1f) * 0.5f
+                                    translationX = -pulse * 1.8.dp.toPx()
+                                    rotationZ = -pulse * 5.5f
+                                }
+                            } else {
+                                Modifier
+                            },
+                        )
+                        .size(sz),
+                )
+                if (playFire) {
+                    Canvas(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
-                            .offset(x = (ornament.sizeDp * 0.56f).dp, y = 2.dp)
-                            .size(sz),
-                    )
-                } else {
-                    val bmp by produceState<ImageBitmap?>(initialValue = null, ornament.webpUrl) {
-                        value = BadgeArtworkCache.getOrFetchBitmap(context, httpClient, ornament.webpUrl, 192)
-                    }
-                    bmp?.let {
-                        Image(
-                            bitmap = it,
-                            contentDescription = null,
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .offset(x = (ornament.sizeDp * 0.56f).dp, y = 2.dp)
-                                .size(sz),
+                            .offset(x = (ornament.sizeDp * 0.56f + 8f).dp, y = (-ornament.sizeDp * 0.22f).dp)
+                            .size(12.dp),
+                    ) {
+                        val pulse = ((sin(motionFrac * 2f) + 1f) * 0.5f).coerceIn(0.25f, 1f)
+                        val coreR = 2.8.dp.toPx() * (0.7f + 0.5f * pulse)
+                        drawCircle(
+                            color = Color(0xFFFF6B00).copy(alpha = 0.65f * pulse),
+                            radius = coreR * 1.6f,
+                            center = Offset(size.width * 0.55f, size.height * 0.5f),
+                        )
+                        drawCircle(
+                            color = Color(0xFFFFEE58).copy(alpha = 0.90f * pulse),
+                            radius = coreR * 0.85f,
+                            center = Offset(size.width * 0.45f, size.height * 0.5f),
                         )
                     }
                 }
             }
         }
         is BubbleOrnament.RaffleRailcannon -> {
-            val rewritten = remember(ornament.cannonUrl) { MediaUrlRewriter.rewriteMediaUrl(ornament.cannonUrl) }
+            val playGlow = !paused && ornament.stage >= 3
+            val pulse = if (playGlow) {
+                val tr = rememberInfiniteTransition(label = "railcannon_fx")
+                val p by tr.animateFloat(
+                    initialValue = 0.2f,
+                    targetValue = 0.85f,
+                    animationSpec = infiniteRepeatable(tween(950), RepeatMode.Reverse),
+                    label = "rc_glow",
+                )
+                p
+            } else {
+                0f
+            }
             Box(modifier = modifier) {
-                if (imageLoader != null) {
-                    AsyncImage(
-                        model = rewritten,
-                        imageLoader = imageLoader,
-                        contentDescription = null,
-                        contentScale = ContentScale.Fit,
+                if (playGlow) {
+                    Canvas(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .offset(x = 16.dp, y = (-3).dp)
+                            .offset(x = 18.dp, y = (-3).dp)
                             .size(22.dp),
-                    )
-                }
-            }
-        }
-        is BubbleOrnament.RaffleWhalebuddy -> {
-            val rewritten = remember(ornament.personUrl) { MediaUrlRewriter.rewriteMediaUrl(ornament.personUrl) }
-            Box(modifier = modifier) {
-                if (imageLoader != null) {
-                    AsyncImage(
-                        model = rewritten,
-                        imageLoader = imageLoader,
-                        contentDescription = null,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .offset(x = 8.dp, y = 0.dp)
-                            .width(36.dp)
-                            .height(21.dp),
-                    )
-                } else {
-                    val staticUrl = "https://52dmeme.com/assets/raffle/whale-motion/person-still.webp"
-                    val bmp by produceState<ImageBitmap?>(initialValue = null, staticUrl) {
-                        value = BadgeArtworkCache.getOrFetchBitmap(context, httpClient, staticUrl, 128)
-                    }
-                    bmp?.let {
-                        Image(
-                            bitmap = it,
-                            contentDescription = null,
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .offset(x = 8.dp, y = 0.dp)
-                                .width(36.dp)
-                                .height(21.dp),
+                    ) {
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(Color(0xFF38BDF8).copy(alpha = 0.35f * pulse), Color.Transparent),
+                                center = Offset(size.width * 0.5f, size.height * 0.5f),
+                                radius = size.width * 0.65f,
+                            ),
                         )
                     }
                 }
+                MascotRasterArtwork(
+                    url = ornament.cannonUrl,
+                    imageLoader = imageLoader,
+                    animate = !paused,
+                    reqSizePx = 128,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 16.dp, y = (-3).dp)
+                        .size(22.dp),
+                )
+            }
+        }
+        is BubbleOrnament.RaffleWhalebuddy -> {
+            val floatPhase = if (!paused) {
+                val tr = rememberInfiniteTransition(label = "whalebuddy_fx")
+                val f by tr.animateFloat(
+                    initialValue = 0f,
+                    targetValue = (2.0 * PI).toFloat(),
+                    animationSpec = infiniteRepeatable(tween(2600, easing = LinearEasing), RepeatMode.Restart),
+                    label = "whale_phase",
+                )
+                f
+            } else {
+                0f
+            }
+            Box(modifier = modifier) {
+                MascotRasterArtwork(
+                    url = ornament.personUrl,
+                    imageLoader = imageLoader,
+                    animate = !paused,
+                    reqSizePx = 128,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .offset(x = 8.dp, y = 0.dp)
+                        .then(
+                            if (!paused) {
+                                Modifier.graphicsLayer { translationY = sin(floatPhase) * 1.2.dp.toPx() }
+                            } else {
+                                Modifier
+                            },
+                        )
+                        .width(36.dp)
+                        .height(21.dp),
+                )
             }
         }
         else -> Unit
@@ -948,11 +1165,38 @@ fun ChatCosmeticBoostPill(
 ) {
     val context = LocalContext.current
     val httpClient = LocalCosmeticHttpClient.current
+    val paused = LocalPauseCosmeticAnimations.current
     style?.dynamicCssSpec?.let { spec ->
         LaunchedEffect(spec) {
             BadgeArtworkCache.ensureCommunityCssLoaded(context, httpClient, spec)
         }
     }
+
+    val boostTimeline = style?.animationTimeline
+    val timelineClock = rememberCosmeticElapsedMs(active = boostTimeline != null, intervalMs = 60L)
+    val visualClock = rememberCosmeticElapsedMs(active = style?.visualAnim?.isNotEmpty() == true, intervalMs = 33L)
+    val activeFrame = if (!paused && boostTimeline != null && boostTimeline.frames.isNotEmpty()) {
+        val idx = (((timelineClock.value % boostTimeline.periodMs).toDouble() / boostTimeline.periodMs.toDouble()) * boostTimeline.frames.size)
+            .toInt()
+            .coerceIn(0, boostTimeline.frames.lastIndex)
+        boostTimeline.frames[idx]
+    } else {
+        null
+    }
+
+    val effFillColor = activeFrame?.fillColor ?: style?.fillColor ?: defaultContainerColor
+    val effFillGradCols = activeFrame?.fillGradColors
+    val effFillBrush = when {
+        effFillGradCols != null && effFillGradCols.size >= 2 -> remember(effFillGradCols) {
+            Brush.linearGradient(effFillGradCols)
+        }
+        activeFrame != null -> null
+        else -> style?.fillBrush
+    }
+    val effBorderColor = activeFrame?.borderColor ?: style?.borderColor ?: defaultBorderColor
+    val effBorderGradCols = activeFrame?.borderGradColors ?: style?.borderGradientColors
+    val effNineSlice = activeFrame?.nineSliceSpec ?: style?.nineSliceSpec
+    val effPseudoLayers = activeFrame?.pseudoLayers ?: style?.pseudoLayers.orEmpty()
 
     val pillShape = if (style != null) {
         when (val k = style.shapeKind) {
@@ -970,25 +1214,40 @@ fun ChatCosmeticBoostPill(
 
     val startRes = max(
         style?.startOverflowReserveDp ?: 0f,
-        (style?.nineSliceSpec?.outsetLeftDp ?: 0f).coerceAtLeast(0f),
+        (effNineSlice?.outsetLeftDp ?: 0f).coerceAtLeast(0f),
     ).dp
     val topRes = max(
         style?.topOverflowReserveDp ?: 0f,
-        (style?.nineSliceSpec?.outsetTopDp ?: 0f).coerceAtLeast(0f),
+        (effNineSlice?.outsetTopDp ?: 0f).coerceAtLeast(0f),
     ).dp
     val endRes = max(
         style?.endOverflowReserveDp ?: 0f,
-        (style?.nineSliceSpec?.outsetRightDp ?: 0f).coerceAtLeast(0f),
+        (effNineSlice?.outsetRightDp ?: 0f).coerceAtLeast(0f),
     ).dp
     val bottomRes = max(
         style?.bottomOverflowReserveDp ?: 0f,
-        (style?.nineSliceSpec?.outsetBottomDp ?: 0f).coerceAtLeast(0f),
+        (effNineSlice?.outsetBottomDp ?: 0f).coerceAtLeast(0f),
     ).dp
-    val hasNineSlice = style?.nineSliceSpec != null
+    val hasNineSlice = effNineSlice != null
     val shouldClip = !hasNineSlice
+    val hasRotatingBorder = !hasNineSlice && (style?.borderWidthDp ?: 0f) > 0f &&
+        effBorderGradCols != null && effBorderGradCols.size >= 2
+    val borderSweepAngle = if (hasRotatingBorder && !paused) {
+        val tr = rememberInfiniteTransition(label = "boost_border_sweep")
+        val a by tr.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(tween(4200, easing = LinearEasing), RepeatMode.Restart),
+            label = "boost_sweep_deg",
+        )
+        a
+    } else {
+        0f
+    }
 
     Box(
         modifier = modifier
+            .applyCssVisualAnim(style?.visualAnim.orEmpty(), visualClock, paused)
             .padding(start = startRes, top = topRes, end = endRes, bottom = bottomRes)
             .clickable(onClick = onClick),
     ) {
@@ -998,43 +1257,72 @@ fun ChatCosmeticBoostPill(
                 .then(
                     when {
                         hasNineSlice -> Modifier
-                        style?.fillBrush != null -> Modifier.background(style.fillBrush)
-                        style != null && style.fillColor != Color.Transparent -> Modifier.background(style.fillColor)
+                        effFillBrush != null -> Modifier.background(effFillBrush)
+                        style != null && effFillColor != Color.Transparent -> Modifier.background(effFillColor)
                         else -> Modifier.background(defaultContainerColor)
                     },
                 )
                 .then(
                     when {
                         hasNineSlice -> Modifier
+                        hasRotatingBorder -> Modifier.drawWithContent {
+                            drawContent()
+                            val outline = pillShape.createOutline(size, layoutDirection, this)
+                            val outlinePath = Path().apply { addOutline(outline) }
+                            clipPath(outlinePath) {
+                                drawOutline(
+                                    outline = outline,
+                                    brush = createRotatingSweepBrush(effBorderGradCols!!, borderSweepAngle, size),
+                                    style = Stroke(width = style!!.borderWidthDp.dp.toPx() * 2f),
+                                )
+                            }
+                        }
                         style?.borderBrush != null && style.borderWidthDp > 0f ->
                             Modifier.border(style.borderWidthDp.dp, style.borderBrush, pillShape)
-                        style != null && style.borderWidthDp > 0f && style.borderColor != Color.Transparent ->
-                            Modifier.border(style.borderWidthDp.dp, style.borderColor, pillShape)
+                        style != null && style.borderWidthDp > 0f && effBorderColor != Color.Transparent ->
+                            Modifier.border(style.borderWidthDp.dp, effBorderColor, pillShape)
                         defaultBorderColor != Color.Transparent ->
                             Modifier.border(0.8.dp, defaultBorderColor, pillShape)
                         else -> Modifier
                     },
                 ),
         ) {
-            style?.nineSliceSpec?.let { spec ->
+            effNineSlice?.let { spec ->
                 NineSliceFrameCanvas(
                     spec = spec,
-                    fallbackColor = style.fillColor,
+                    fallbackColor = effFillColor,
                     modifier = Modifier.matchParentSize(),
                 )
             }
-            style?.pseudoLayers?.forEach { layer ->
+            effPseudoLayers.forEach { layer ->
                 BubblePseudoLayerCanvas(
                     layer = layer,
                     modifier = Modifier.matchParentSize(),
                 )
             }
-            Box(
-                modifier = Modifier.padding(
-                    style?.contentPadding ?: PaddingValues(horizontal = 8.dp, vertical = 3.dp),
-                ),
-                content = content,
-            )
+            if (activeFrame != null) {
+                CompositionLocalProvider(
+                    LocalAnimatedBubbleColors provides Triple(
+                        activeFrame.textColor,
+                        activeFrame.linkColor,
+                        activeFrame.mutedColor,
+                    ),
+                ) {
+                    Box(
+                        modifier = Modifier.padding(
+                            style?.contentPadding ?: PaddingValues(horizontal = 8.dp, vertical = 3.dp),
+                        ),
+                        content = content,
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier.padding(
+                        style?.contentPadding ?: PaddingValues(horizontal = 8.dp, vertical = 3.dp),
+                    ),
+                    content = content,
+                )
+            }
         }
     }
 }

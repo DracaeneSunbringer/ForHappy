@@ -1,5 +1,6 @@
 package com.jinhuan.forhappy.ui.components
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -120,8 +121,16 @@ fun ForHappyAvatar(
     val effectiveUrl = remember(avatarUrl, avatarSpec) {
         avatarSpec?.cleanUrl ?: MediaUrlRewriter.rewriteWithExtProxy(avatarUrl)
     }
-    val effectiveFrameUrl = remember(frameImageUrl, hideAvatarForFeishu) {
-        if (hideAvatarForFeishu || frameImageUrl.isNullOrBlank()) null else MediaUrlRewriter.rewriteMediaUrl(frameImageUrl)
+    val isCssFrame = remember(frameImageUrl) {
+        frameImageUrl?.startsWith("community-css:") == true ||
+            frameImageUrl?.startsWith("community-css-dark:") == true
+    }
+    val effectiveFrameUrl = remember(frameImageUrl, hideAvatarForFeishu, isCssFrame) {
+        when {
+            hideAvatarForFeishu || frameImageUrl.isNullOrBlank() -> null
+            isCssFrame -> frameImageUrl
+            else -> MediaUrlRewriter.rewriteMediaUrl(frameImageUrl)
+        }
     }
 
     Box(
@@ -179,13 +188,26 @@ fun ForHappyAvatar(
             }
         }
         if (!effectiveFrameUrl.isNullOrBlank()) {
-            AsyncImage(
-                model = effectiveFrameUrl,
-                imageLoader = imageLoader,
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.requiredSize(size * 1.36f),
-            )
+            val pauseCosmeticAnim = LocalPauseCosmeticAnimations.current
+            if (isCssFrame || pauseCosmeticAnim) {
+                val frameBmp = rememberAnimatedCosmeticBitmap(effectiveFrameUrl, reqSizePx = 256)
+                if (frameBmp != null) {
+                    Image(
+                        bitmap = frameBmp,
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.requiredSize(size * 1.36f),
+                    )
+                }
+            } else {
+                AsyncImage(
+                    model = effectiveFrameUrl,
+                    imageLoader = imageLoader,
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.requiredSize(size * 1.36f),
+                )
+            }
         }
     }
 }
@@ -779,9 +801,10 @@ fun RichChatBodyView(
     onLongPress: (() -> Unit)? = null,
 ) {
     val palette = LocalForHappyPalette.current
-    val effectiveTextColor = textColor ?: palette.text
-    val effectiveLinkColor = linkColor ?: palette.primary
-    val effectiveMutedColor = mutedColor ?: palette.muted
+    val animCols = LocalAnimatedBubbleColors.current
+    val effectiveTextColor = animCols?.first ?: textColor ?: palette.text
+    val effectiveLinkColor = animCols?.second ?: linkColor ?: palette.primary
+    val effectiveMutedColor = animCols?.third ?: mutedColor ?: palette.muted
     val parsed = remember(rawBody) { ChatRichTextParser.parse(rawBody) }
 
     val onlyInlineImage = parsed.bodyImgOnly && showInlineImages && parsed.inlineImageUrls.isNotEmpty()

@@ -68,6 +68,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -121,6 +122,8 @@ import com.jinhuan.forhappy.ui.components.ChatCosmeticBoostPill
 import com.jinhuan.forhappy.ui.components.ChatCosmeticBubbleBox
 import com.jinhuan.forhappy.ui.components.ForHappyAvatar
 import com.jinhuan.forhappy.ui.components.ForHappyTextField
+import com.jinhuan.forhappy.ui.components.LocalAnimatedBubbleColors
+import com.jinhuan.forhappy.ui.components.LocalPauseCosmeticAnimations
 import com.jinhuan.forhappy.ui.components.TitleChipView
 import com.jinhuan.forhappy.ui.components.parseSafeHex
 import com.jinhuan.forhappy.ui.theme.ForHappyDimens
@@ -1845,6 +1848,7 @@ fun DecoStudioDialog(
                             ?: if (config.bubbleSkin.isBlank() || config.bubbleSkin == "default") "默认" else config.bubbleSkin
                         val replyName = BadgeAndCosmeticRegistry.resolveCommunitySkinMeta(config.communityReplyId)?.name
 
+                        CompositionLocalProvider(LocalPauseCosmeticAnimations provides config.cleanPauseOrnaments) {
                         Surface(
                             color = palette.surface2,
                             shape = RoundedCornerShape(14.dp),
@@ -1952,9 +1956,10 @@ fun DecoStudioDialog(
                                         imageLoader = api.imageLoader,
                                         modifier = Modifier.weight(1f, fill = false),
                                     ) {
+                                        val animBubbleCols = LocalAnimatedBubbleColors.current
                                         Text(
                                             text = "摸鱼快乐！$bubbleName",
-                                            color = previewBubbleStyle?.textColor ?: palette.text,
+                                            color = animBubbleCols?.first ?: previewBubbleStyle?.textColor ?: palette.text,
                                             fontSize = 12.5.sp,
                                             fontFamily = previewBubbleStyle?.fontFamily,
                                             fontWeight = previewBubbleStyle?.fontWeight,
@@ -1969,6 +1974,7 @@ fun DecoStudioDialog(
                                         defaultBorderColor = titleColor.copy(alpha = 0.4f),
                                         onClick = {},
                                     ) {
+                                        val animBoostCols = LocalAnimatedBubbleColors.current
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1978,13 +1984,14 @@ fun DecoStudioDialog(
                                                 text = if (!replyName.isNullOrBlank()) "+1 $replyName" else "+1 好图",
                                                 imageLoader = api.imageLoader,
                                                 fontSize = 10.5.sp,
-                                                textColor = previewFrameStyle?.textColor,
+                                                textColor = animBoostCols?.first ?: previewFrameStyle?.textColor,
                                                 frameFillColor = previewFrameStyle?.fillColor,
                                             )
                                         }
                                     }
                                 }
                             }
+                        }
                         }
                     }
                 }
